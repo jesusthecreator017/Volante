@@ -30,6 +30,8 @@ const FORWARD_COLOR: [f32; 3] = [0.35, 0.12, 0.05];
 pub enum LiveKey {
     Recenter,
     Marker,
+    /// C: next step of the mount calibration
+    Calibrate,
     /// Esc or the window's close button; the window closes right after
     Quit,
 }
@@ -38,8 +40,8 @@ pub enum LiveKey {
 pub struct LiveFrame {
     /// Racquet orientation, `[x, y, z, w]`, local frame (+Y toward the tip) -> court frame (+Y up)
     pub rotation: [f64; 4],
-    /// The readout (window title)
-    pub title: String,
+    /// The readout (window title); Some only when it changed since the last frame
+    pub title: Option<String>,
     /// Close the window (the source has its own reason, e.g. `--secs`)
     pub quit: bool,
 }
@@ -63,7 +65,6 @@ pub fn run_live(source: Box<dyn LiveSource>, shot: Option<LiveShot>) -> anyhow::
         source,
         shot,
         scene: None,
-        title: String::new(),
         error: None,
     };
     EventLoop::new()?.run_app(&mut app)?;
@@ -194,7 +195,6 @@ struct LiveApp {
     source: Box<dyn LiveSource>,
     shot: Option<LiveShot>,
     scene: Option<Scene>,
-    title: String,
     error: Option<anyhow::Error>,
 }
 
@@ -244,9 +244,8 @@ impl ApplicationHandler for LiveApp {
             WindowEvent::Resized(size) => scene.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
                 let frame = self.source.frame();
-                if frame.title != self.title {
-                    scene.window.set_title(&frame.title);
-                    self.title = frame.title;
+                if let Some(title) = frame.title {
+                    scene.window.set_title(&title);
                 }
                 if frame.quit {
                     self.source.key(LiveKey::Quit);
@@ -273,6 +272,7 @@ impl ApplicationHandler for LiveApp {
             } => match code {
                 KeyCode::KeyR => self.source.key(LiveKey::Recenter),
                 KeyCode::KeyM => self.source.key(LiveKey::Marker),
+                KeyCode::KeyC => self.source.key(LiveKey::Calibrate),
                 KeyCode::Escape => {
                     self.source.key(LiveKey::Quit);
                     event_loop.exit();

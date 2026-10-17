@@ -8,6 +8,7 @@
 pub mod correct;
 pub mod fusion;
 pub mod live;
+pub mod mount;
 pub mod packet;
 pub mod pose;
 pub mod strokes;

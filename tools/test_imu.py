@@ -26,7 +26,7 @@ def run_cli(d, name, player, *flags):
     out, rep = d / f"replay_{name}.bin", d / f"report_{name}.json"
     cmd = ["cargo", "run", "--release", "--quiet", "--bin", "oso-imu", "--", "--imu", str(d / "imu.bin"),
            "--replay", str(REPLAY), "--sync", str(d / "sync.json"), "--player", str(player), "-o", str(out),
-           "--report", str(rep), *flags]
+           "--report", str(rep), "--mount", "identity", *flags]
     p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     assert p.returncode == 0, p.stdout + p.stderr
     return out, json.loads(rep.read_text()), p.stdout

@@ -9,14 +9,18 @@ use super::fusion::{
     self, DEFAULT_BETA, Params, from_madgwick, mean_acc, step, to_madgwick, world_to_court,
 };
 use super::packet::{self, Sample};
+use super::mount::{Mount, POSE_SAMPLES};
 use super::{IDENTITY, Quat, Vec3, from_two_vectors, mul, normalize, rotate, yaw_quat};
 use oso_proto::{PACKET_LEN, Packet};
+use std::collections::VecDeque;
 
 /// Samples held for calibration (1 s at 500 Hz: `find_stationary` needs ten 50-sample blocks)
 const WARMUP: usize = 500;
 const START_TILT: usize = 50;
-/// Below this horizontal share the shaft is vertical and the face normal gives the heading instead
-const MIN_HORIZONTAL: f64 = 0.2;
+/// Heading source switch, degrees of the shaft from vertical: within `ENTER_NORMAL_DEG` the face normal is used, until
+/// the shaft is more than `LEAVE_NORMAL_DEG` away again (hysteresis, so R does not flip between sources near the edge)
+const ENTER_NORMAL_DEG: f64 = 20.0;
+const LEAVE_NORMAL_DEG: f64 = 35.0;
 
 pub struct LiveFusion {
     params: Params,
@@ -33,6 +37,11 @@ pub struct LiveFusion {
     last: Option<(u16, i64, u32, i64)>,
     top_seq: i64,
     yaw: Quat,
+    mount: Mount,
+    /// The last second of raw (sensor-frame) samples, for the mount calibration
+    raw: VecDeque<Sample>,
+    /// Heading currently taken from the face normal (see `heading_with`)
+    use_normal: bool,
     pub received: u64,
     pub lost: u64,
 }
@@ -69,9 +78,22 @@ impl LiveFusion {
             last: None,
             top_seq: i64::MIN,
             yaw: IDENTITY,
+            mount: Mount::IDENTITY,
+            raw: VecDeque::new(),
+            use_normal: false,
             received: 0,
             lost: 0,
         }
+    }
+
+    /// Like `new`, with the IMU mounted as `mount` (applied to every sample before fusion)
+    pub fn with_mount(mount: Mount) -> Self {
+        Self { mount, ..Self::new() }
+    }
+
+    /// The last second of raw sensor-frame samples (before the mount)
+    pub fn recent_raw(&self) -> Vec<Sample> {
+        self.raw.iter().copied().collect()
     }
 
     pub fn calibrating(&self) -> bool {
@@ -105,7 +127,12 @@ impl LiveFusion {
     }
 
     /// A sample in time order
-    pub fn push_sample(&mut self, s: Sample) {
+    pub fn push_sample(&mut self, raw: Sample) {
+        if self.raw.len() == POSE_SAMPLES {
+            self.raw.pop_front();
+        }
+        self.raw.push_back(raw);
+        let s = self.mount.sample(&raw);
         match &mut self.warm {
             Some(w) => {
                 w.push(s);
@@ -167,20 +194,36 @@ impl LiveFusion {
 
     /// R: the current heading becomes "forward" (+X); tilt (from gravity) is untouched
     pub fn recenter(&mut self) {
-        self.yaw = yaw_quat(-heading(self.raw_orientation()));
+        let q = self.raw_orientation();
+        self.use_normal = next_source(q, self.use_normal);
+        self.yaw = yaw_quat(-heading_with(q, self.use_normal));
     }
 }
 
+/// Whether the heading should come from the face normal: the shaft is within `ENTER_NORMAL_DEG` of vertical (or was, and
+/// is still within `LEAVE_NORMAL_DEG`)
+fn next_source(q: Quat, was_normal: bool) -> bool {
+    let off_vertical = rotate(q, [0.0, 1.0, 0.0])[1].abs().clamp(0.0, 1.0).acos().to_degrees();
+    off_vertical < if was_normal { LEAVE_NORMAL_DEG } else { ENTER_NORMAL_DEG }
+}
+
 /// Heading of the racquet about the court's vertical, radians, counter-clockwise from +X seen from above (the sense of
-/// `yaw_quat`). The shaft (+Y of the racquet) gives it; pointing straight up or down, the face normal (+Z) does.
-pub fn heading(q: Quat) -> f64 {
-    let shaft = rotate(q, [0.0, 1.0, 0.0]);
-    let v = if shaft[0].hypot(shaft[2]) >= MIN_HORIZONTAL {
-        shaft
+/// `yaw_quat`). From the shaft's horizontal direction (racquet +Y) normally. With the shaft near vertical that direction
+/// is meaningless, so the face normal (+Z) is used instead, turned by +90 degrees: for a shaft tipping about the normal
+/// axis the two agree, so the switch does not jump (about the face's own X axis it can still differ by 90 degrees,
+/// an inherent ambiguity of an upright racquet).
+pub fn heading_with(q: Quat, from_normal: bool) -> f64 {
+    let angle = |v: Vec3| (-v[2]).atan2(v[0]);
+    if from_normal {
+        angle(rotate(q, [0.0, 0.0, 1.0])) + std::f64::consts::FRAC_PI_2
     } else {
-        rotate(q, [0.0, 0.0, 1.0])
-    };
-    (-v[2]).atan2(v[0])
+        angle(rotate(q, [0.0, 1.0, 0.0]))
+    }
+}
+
+/// Stateless heading (the source picked with the entering threshold)
+pub fn heading(q: Quat) -> f64 {
+    heading_with(q, next_source(q, false))
 }
 
 #[cfg(test)]
@@ -330,13 +373,45 @@ mod tests {
             let q = from_axis_angle([0.0, 1.0, 0.0], yaw);
             let h = heading(q);
             assert!(h.is_finite());
-            // Face normal +Z -> (sin yaw, 0, cos yaw): heading = atan2(-cos, sin) = yaw - pi/2
-            let want = yaw - std::f64::consts::FRAC_PI_2;
+            // Face normal +Z -> (sin yaw, 0, cos yaw): atan2(-cos, sin) = yaw - pi/2, plus the 90 degree turn
+            let want = yaw;
             let d = (h - want).rem_euclid(std::f64::consts::TAU);
             assert!(d < 1e-9 || std::f64::consts::TAU - d < 1e-9, "{h} vs {want}");
             // After re-centring by -heading the heading is 0
             let c = mul(yaw_quat(-h), q);
             assert!(heading(c).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn heading_source_switch_is_continuous_for_a_tip_about_the_normal_and_has_hysteresis() {
+        use crate::imu::from_axis_angle;
+        // Shaft tipping from 60 degrees off vertical to vertical about the face normal (+Z): the shaft heading is +X
+        // throughout, and the normal-based heading must agree with it
+        for deg in [60.0f64, 36.0, 34.0, 19.0, 10.0, 1.0] {
+            let q = from_axis_angle([0.0, 0.0, 1.0], -deg.to_radians());
+            let (a, b) = (heading_with(q, false), heading_with(q, true));
+            assert!(a.abs() < 1e-9 && b.abs() < 1e-9, "{deg}: {a} {b}");
+        }
+        let at = |deg: f64| from_axis_angle([0.0, 0.0, 1.0], -deg.to_radians());
+        assert!(!next_source(at(25.0), false) && next_source(at(15.0), false));
+        // Once on the normal, stays there until 35 degrees
+        assert!(next_source(at(25.0), true) && next_source(at(34.0), true) && !next_source(at(36.0), true));
+    }
+
+    #[test]
+    fn mount_is_applied_before_fusion_and_raw_samples_are_kept() {
+        // A pod lying flat (sensor +Z up) held still: with the flat mount the racquet's shaft points up
+        let still = |i: usize| Packet { seq: i as u16, t_us: i as u32 * 2000, v: [0, 0, 2048, 0, 0, 0] }.encode();
+        let mut live = LiveFusion::with_mount(Mount::FLAT);
+        (0..700).for_each(|i| live.push_packet(&still(i)));
+        let shaft = rotate(live.raw_orientation(), [0.0, 1.0, 0.0]);
+        assert!(shaft[1] > 0.999, "{shaft:?}");
+        assert_eq!(live.recent_raw().len(), 500);
+        assert!((live.recent_raw()[0].acc[2] as f64 - crate::imu::G).abs() < 1e-3);
+        // Identity: the shaft lies flat instead
+        let mut live = LiveFusion::new();
+        (0..700).for_each(|i| live.push_packet(&still(i)));
+        assert!(rotate(live.raw_orientation(), [0.0, 1.0, 0.0])[1].abs() < 1e-3);
     }
 }

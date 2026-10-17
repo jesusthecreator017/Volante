@@ -46,6 +46,7 @@ def main():
     ap.add_argument("--calib", type=Path, required=True)
     ap.add_argument("--imu", type=Path)
     ap.add_argument("--sync", type=Path)
+    ap.add_argument("--mount", help="oso-imu --mount (identity | flat | FILE; default: ~/.config/oso/mount.json, else flat). Synthetic imu.bin needs identity")
     ap.add_argument("-o", "--out", type=Path, required=True)
     ap.add_argument("--work", type=Path, default=ROOT / "out/video")
     ap.add_argument("--detect-every", type=int, help="pose stage: run the person detector every N frames (default: pose2d_video.py's)")
@@ -117,7 +118,7 @@ def main():
     stage("shuttle3d", shuttle3d, summary)
 
     def imu():
-        imu_args = ["--imu", args.imu, "--sync", args.sync, "--player", "0"] if args.imu and args.sync else ["--no-imu"]
+        imu_args = ["--imu", args.imu, "--sync", args.sync, "--player", "0", *(["--mount", args.mount] if args.mount else [])] if args.imu and args.sync else ["--no-imu"]
         print(run(["cargo", "run", "--release", "-q", "--bin", "oso-imu", "--", *imu_args, "--replay", args.out,
                    "-o", args.out]).strip())
 
