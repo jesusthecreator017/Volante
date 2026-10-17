@@ -11,8 +11,10 @@
 - **3D replay:** two cameras beside the court become a 3D replay of the players, shuttle and racquet, on desktop or in the browser.
 - **Stroke classifier:** trained on 11,301 labelled hits from pro matches, it labels 12 stroke types.
 - **Mobile app:** one codebase for web, iOS and Android that connects to the pod, shows live swings and plays back the replay.
+- **Native iPhone + Apple Watch apps:** SwiftUI apps that run on a real iPhone; the watch records wrist motion (200 Hz) and heart rate during a badminton workout and hands the session to the phone.
+- **oso Arena:** an AI badminton game. Players pick a stat build (power, speed, reach, accuracy), train a small neural network with our pip kit and a Claude coaching skill, upload it, and it plays an always-on Elo ladder and a weekly tournament. Every match is watchable in 3D in the browser.
 - **Tap to sync:** tapping the racquet at the start and end of a session lines the sensor clock up with the video.
-- **In progress:** a native iPhone app, an Apple Watch app that records wrist motion and heart rate, and Fitbit heart rate on each swing.
+- **In progress:** Fitbit heart rate on each swing, and the public Arena server on a Raspberry Pi.
 
 ## How we built it
 
@@ -20,7 +22,8 @@
 - **Firmware:** async Rust (Embassy, esp-hal, trouble BLE) with a crash-safe flash log and deep sleep
 - **Viewer:** Rust + wgpu 3D renderer, compiled to WebAssembly for the browser
 - **Vision:** RTMPose + YOLOX on ONNX Runtime/CoreML, stereo triangulation, physics-based shuttle tracking
-- **ML:** scikit-learn stroke classifier, PyTorch self-play agents
+- **ML:** scikit-learn stroke classifier; PyTorch PPO self-play for Arena, with a deterministic NumPy simulator (BWF singles laws, shuttle drag, net cord) that is the single source of truth for training and the server
+- **Arena:** a frozen contract (`oso-arena/1`): weights-only `.safetensors` uploads checked without pickle, a TypeScript website under a strict CSP, and the Rust viewer embedded with a replay API
 - **Mobile:** TypeScript, Vite and Capacitor with Web Bluetooth/CoreBluetooth; Node server on a Raspberry Pi 5
 - **Apple:** Swift, SwiftUI, CoreMotion, HealthKit and WatchConnectivity; Google Health API for Fitbit
 
@@ -32,6 +35,8 @@
 - **No power switch:** we built a sleep mode that wakes for a short Bluetooth advert every 30 s (~70 h standby).
 - **Protocol drift:** the app was written before the firmware existed, so we ported it to the real protocol and made the mock pod behave like the hardware.
 - **Fitbit:** current Fitbits run no third-party apps and the old API shuts down in October 2026, so Fitbit contributes heart rate, not motion.
+- **Untrusted uploads:** Arena runs strangers' models, so a submission holds only numbers (no code), is parsed by hand before the safetensors library sees it, and plays in a sandbox.
+- **Same match, everywhere:** matches must replay identically on a laptop and on the Pi, so the simulator is deterministic from a seed and tests compare match logs byte for byte.
 
 ## Accomplishments that we're proud of
 
@@ -39,6 +44,7 @@
 - Firmware, apps and tools sharing one protocol and one file format
 - An ~18× faster pose pipeline (0.8 → 15 fps per camera) on a laptop
 - Every stage tested against synthetic ground truth before real data existed
+- A whole second product, Arena, from simulator to website to 3D viewer, built on the same renderer
 
 ## What we learned
 
@@ -50,7 +56,8 @@
 ## What's next for oso
 
 - Test end to end on the real pod
-- Ship the iPhone and Apple Watch apps, recording wrist and racquet together
+- Record wrist (watch) and racquet (pod) together in one session
+- Open the Arena ladder to the public with a trained House base model
 - Heart rate on every rally
 - A ±4000 °/s gyro so smashes stop saturating
 - A stroke classifier trained on our own recordings
