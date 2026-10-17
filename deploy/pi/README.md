@@ -1,5 +1,7 @@
 # oso on a Raspberry Pi
 
+Deploying both servers (this LAN Replay server and the public Arena server) on a Pi reached over Tailscale, with Arena public through Tailscale Funnel: [HANDOFF-tailscale.md](HANDOFF-tailscale.md).
+
 Everything server-side runs on one Raspberry Pi (tested target: Pi 5, Raspberry Pi OS Bookworm or later, 64-bit):
 
 | What | Where on the Pi |
