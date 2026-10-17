@@ -205,7 +205,7 @@ def tournament_json(con, t, full=True):
 
 def create_app():
     cfg = config.get()
-    for d in (cfg.db_path.parent, cfg.models_dir, cfg.quarantine_dir, cfg.logs_dir, cfg.replays_dir, cfg.jobs_dir):
+    for d in (cfg.models_dir, cfg.quarantine_dir, cfg.logs_dir, cfg.replays_dir, cfg.jobs_dir):
         d.mkdir(parents=True, exist_ok=True)
     c0 = db.connect()
     db.init(c0)

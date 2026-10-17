@@ -2,6 +2,7 @@
 import json
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from osoarena import config
 
@@ -74,11 +75,12 @@ def fmt_t(dt):
 
 
 def connect(path=None):
-    path = path or config.get().db_path
+    path = Path(path or config.get().db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(path), timeout=30, isolation_level=None, check_same_thread=False)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout=30000")  # before journal_mode: switching to WAL takes a lock other starters contend for
     con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA busy_timeout=30000")
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA synchronous=NORMAL")
     return con

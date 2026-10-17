@@ -180,6 +180,7 @@ def recover(con, worker):
 def main(argv):
     worker = argv[1] if len(argv) > 1 else "1"
     con = db.connect()
+    db.init(con)  # idempotent; the supervisor may start before web has created the schema
 
     def stop(*_):
         global _stop
