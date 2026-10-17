@@ -76,6 +76,7 @@ struct SummaryView: View {
                 Label("Showing the sample session. Your own sessions replace it.", systemImage: "testtube.2")
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
+            GoalCard()
             if let last = all.first { recap(last, others: Array(all.dropFirst().prefix(10))) }
             Picker("Period", selection: $range) {
                 ForEach(Period.allCases) { Text($0 == .all ? "All" : $0.rawValue).tag($0) }

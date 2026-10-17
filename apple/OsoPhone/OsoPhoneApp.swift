@@ -33,6 +33,8 @@ struct OsoPhoneApp: App {
                     .modifier(DebugOverrides())
             }
             .modifier(DebugOverrides())
+            // inside the .environment calls, so the sheet (its own hierarchy) inherits them
+            .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
             .environment(router)
             .environment(store)
             .environment(pod)
@@ -43,7 +45,6 @@ struct OsoPhoneApp: App {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
             }
-            .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
         }
     }
 

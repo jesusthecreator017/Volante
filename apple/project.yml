@@ -30,6 +30,10 @@ targets:
     configFiles:
       Debug: OsoPhone/Config.xcconfig
       Release: OsoPhone/Config.xcconfig
+    entitlements:
+      path: OsoPhone/OsoPhone.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(OSO_BUNDLE_PREFIX)]
     info:
       path: OsoPhone/Info.plist
       properties:
@@ -44,6 +48,7 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         GoogleClientID: $(GOOGLE_CLIENT_ID)
+        VolanteAppGroup: group.$(OSO_BUNDLE_PREFIX)
         CFBundleURLTypes:
           - CFBundleURLSchemes: [$(GOOGLE_REDIRECT_SCHEME)]
     settings:
@@ -61,10 +66,15 @@ targets:
     configFiles:
       Debug: OsoLive/Config.xcconfig
       Release: OsoLive/Config.xcconfig
+    entitlements:
+      path: OsoLive/OsoLive.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(OSO_BUNDLE_PREFIX)]
     info:
       path: OsoLive/Info.plist
       properties:
         CFBundleDisplayName: Volante
+        VolanteAppGroup: group.$(OSO_BUNDLE_PREFIX)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
