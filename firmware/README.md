@@ -27,6 +27,8 @@ cargo run --release --bin oso-imu -- --imu out/hw/imu.bin --replay assets/replay
 Power on = recording starts (after a ~5-20 s flash erase). Tap the pod (or clap) after 1 s of stillness at the start and end of each session. Switch off, switch on near the laptop, `upload`; the upload marks the session as uploaded so the next power-on records again. A session that was not uploaded is never overwritten silently.
 `imu.markers.json` next to the file lists the device-side tap times.
 
+LED (highest priority first): fast blink = IMU error; slow blink = erasing; **solid 1.2 s, then 0.3 s off = a sync tap or `mark` registered** (another one inside the glow restarts the 1.2 s); double blink every ~2 s = un-uploaded session waiting.
+
 ## Sleep and wake (the pod has no power switch)
 ```
 cargo run --release --bin oso-rec -- sleep   # stops recording, parks the IMU, deep sleep; the pod then wakes every 30 s for a 2 s advert
