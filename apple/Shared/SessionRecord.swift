@@ -28,6 +28,8 @@ struct SessionMeta: Codable, Identifiable, Hashable {
     var activeEnergyKcal: Double?
     /// e.g. "incomplete: 900 of 1000 packets"
     var note: String?
+    /// when it was sent to the Raspberry Pi server (iPhone only)
+    var uploadedToPi: Date?
 
     static func == (a: Self, b: Self) -> Bool { a.id == b.id }
     func hash(into h: inout Hasher) { h.combine(id) }

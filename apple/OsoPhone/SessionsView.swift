@@ -32,6 +32,7 @@ struct SessionsView: View {
 struct SessionDetailView: View {
     @Environment(SessionStore.self) private var store
     @Environment(FitbitLink.self) private var fitbit
+    @Environment(PiServer.self) private var pi
     @State var meta: SessionMeta
     @State private var message: String?
 
@@ -54,15 +55,24 @@ struct SessionDetailView: View {
                 } else {
                     LabeledContent("Source", value: meta.heartRateSource ?? "—")
                 }
-                if fitbit.connected, meta.anchor != nil, let a {
+                if fitbit.connected == true, meta.anchor != nil, let a {
                     Button("Fetch from Fitbit") { Task { await fetchFitbit(a) } }.disabled(fitbit.busy)
                 }
                 if let message { Text(message).font(.footnote) }
             }
             Section {
+                Button(meta.uploadedToPi == nil ? "Upload to Pi" : "Upload to Pi again") { Task { await uploadToPi() } }
+                    .disabled(pi.busy)
+                Button("Fetch replay from Pi") { Task { await fetchReplay() } }
+                if store.hasReplay(meta.id) {
+                    ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }
+                }
                 ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "square.and.arrow.up") }
+            } header: {
+                Text("Raspberry Pi")
             } footer: {
-                Text("The same format as the pod and the web app: oso-imu and the video pipeline read it.")
+                Text(meta.uploadedToPi.map { "Uploaded \($0.formatted(date: .abbreviated, time: .shortened)). " } ?? ""
+                     + "The video pipeline on the Pi turns imu.bin + the two camera videos into replay.bin; open it in the web app's Replay page.")
             }
         }
         .navigationTitle(meta.name)
@@ -115,6 +125,27 @@ struct SessionDetailView: View {
             }
             .chartXAxisLabel("s")
             .frame(height: 160)
+        }
+    }
+
+    private func uploadToPi() async {
+        do {
+            try await pi.upload(meta, imu: store.imuURL(meta.id))
+            meta.uploadedToPi = Date()
+            try store.writeMeta(meta)
+            message = "Uploaded to the Pi."
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func fetchReplay() async {
+        do {
+            guard let data = try await pi.replay(meta.id) else { message = "No replay on the Pi yet (the pipeline hasn't run)."; return }
+            try store.saveReplay(meta.id, data)
+            message = "Replay downloaded (\(data.count / 1024) KB)."
+        } catch {
+            message = error.localizedDescription
         }
     }
 

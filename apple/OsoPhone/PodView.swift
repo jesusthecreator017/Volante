@@ -63,7 +63,9 @@ struct PodView: View {
             LabeledContent("Battery", value: pod.battery.map { "\($0) %" } ?? "unknown (no divider fitted)")
             LabeledContent("IMU", value: st.imuOk ? (st.imuIs6500 ? "ok (MPU-6500)" : "ok") : "not responding")
             LabeledContent("Ranges", value: "±\(st.accelG) g, ±\(st.gyroDps) dps @ \(st.rateHz) Hz")
-            LabeledContent("Stored", value: "\(st.bufferedPackets) packets (\(Int(st.bufferedPackets) / max(1, Int(st.rateHz))) s)")
+            LabeledContent("Stored", value: st.sleeping
+                ? "sleeping (session kept; wake to see it)"
+                : "\(st.bufferedPackets) packets (\(Int(st.bufferedPackets) / max(1, Int(st.rateHz))) s)")
             if st.fifoOverflows > 0 { LabeledContent("FIFO overflows", value: "\(st.fifoOverflows)") }
             if let r = pod.rssi { LabeledContent("RSSI", value: "\(r) dBm") }
             if let m = pod.mtu { LabeledContent("MTU", value: "\(m) B → \(packetsPerNotification(mtu: m)) packets/notification") }

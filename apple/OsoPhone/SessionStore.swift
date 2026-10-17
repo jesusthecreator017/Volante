@@ -53,6 +53,10 @@ final class SessionStore {
         if let i = sessions.firstIndex(where: { $0.id == meta.id }) { sessions[i] = meta }
     }
 
+    func replayURL(_ id: String) -> URL { folder(id).appendingPathComponent("replay.bin") }
+    func hasReplay(_ id: String) -> Bool { FileManager.default.fileExists(atPath: replayURL(id).path) }
+    func saveReplay(_ id: String, _ data: Data) throws { try data.write(to: replayURL(id), options: .atomic) }
+
     func delete(_ id: String) {
         try? FileManager.default.removeItem(at: folder(id))
         cache[id] = nil

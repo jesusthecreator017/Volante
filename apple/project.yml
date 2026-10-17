@@ -36,6 +36,9 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSBluetoothAlwaysUsageDescription: oso connects to the racquet pod over Bluetooth to record your swings.
+        NSLocalNetworkUsageDescription: oso talks to your oso server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true # plain http to the Pi on the LAN (deploy/pi/README.md)
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         GoogleClientID: $(GOOGLE_CLIENT_ID)

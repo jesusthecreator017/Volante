@@ -8,19 +8,27 @@ struct OsoPhoneApp: App {
     @State private var store = SessionStore()
     @State private var pod = PodLink()
     @State private var watch = WatchReceiver()
-    @State private var fitbit = FitbitLink()
+    @State private var pi: PiServer
+    @State private var fitbit: FitbitLink
+
+    init() {
+        let pi = PiServer()
+        _pi = State(initialValue: pi)
+        _fitbit = State(initialValue: FitbitLink(pi: pi))
+    }
 
     var body: some Scene {
         WindowGroup {
             TabView {
                 PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }
                 SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }
-                WearablesView().tabItem { Label("Wearables", systemImage: "applewatch") }
+                WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }
             }
             .environment(store)
             .environment(pod)
             .environment(watch)
             .environment(fitbit)
+            .environment(pi)
             .onAppear(perform: wire)
         }
     }
