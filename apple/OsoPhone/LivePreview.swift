@@ -6,8 +6,8 @@ import SwiftUI
 
 struct LivePreviewView: View {
     private typealias State = LiveSessionAttributes.ContentState
-    private let streaming = LiveSessionAttributes(podName: "oso pod", mode: .streaming)
-    private let recording = LiveSessionAttributes(podName: "oso pod", mode: .recording)
+    private let streaming = LiveSessionAttributes(podName: "Volante pod", mode: .streaming)
+    private let recording = LiveSessionAttributes(podName: "Volante pod", mode: .recording)
     private let state = State(swings: 42, hits: 31, lastSpeed: 47.3, bestSpeed: 58.1, start: Date().addingTimeInterval(-754), connected: true)
     private var lost: State { var s = state; s.connected = false; return s }
     private var variants: [(LiveSessionAttributes, State)] { [(streaming, state), (streaming, lost), (recording, state), (recording, lost)] }

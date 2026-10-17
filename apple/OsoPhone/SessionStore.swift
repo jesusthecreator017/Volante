@@ -18,6 +18,11 @@ final class SessionStore {
         var maxSpeed: Double?
         var longestRally = 0
         var mount = Mount.racquet
+        var hits = 0
+        var meanSpeed: Double?
+        var activeS = 0.0
+        var rallies = 0
+        var strokeCounts: [StrokeType: Int] = [:]
     }
     private(set) var rowSummaries: [String: RowSummary] = [:]
     /// Personal bests across the saved sessions (sample sessions excluded), refreshed whenever a summary lands or a session is deleted.
@@ -121,7 +126,9 @@ final class SessionStore {
         if meta.heartRate.isEmpty, cache[id] == nil { cache[id] = a } // the detail screen reuses it
         rowSummaries[id] = RowSummary(
             readable: true, swings: a.summary.swingCount, durationS: a.summary.durationS,
-            maxSpeed: a.summary.maxSpeed, longestRally: a.summary.longestRally, mount: a.mount)
+            maxSpeed: a.summary.maxSpeed, longestRally: a.summary.longestRally, mount: a.mount,
+            hits: a.summary.hitCount, meanSpeed: a.summary.meanSpeed, activeS: a.summary.activeS,
+            rallies: a.summary.rallyCount, strokeCounts: a.summary.strokeCounts)
         refreshBests()
     }
 

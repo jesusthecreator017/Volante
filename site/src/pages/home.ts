@@ -16,7 +16,7 @@ export function arenaHome(root: HTMLElement) {
       h(
         "p",
         { class: "lead" },
-        "Start from our base model, pick a build and a play style, and train your own neural-network player. Upload it and it plays the ladder around the clock, plus a tournament every Sunday, all watchable in 3D.",
+        "Train a player from our base model, upload it, and watch it play the ladder in 3D.",
       ),
       h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
     ),

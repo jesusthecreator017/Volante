@@ -32,6 +32,11 @@ def test_contract_copy_is_in_sync():
         "arena/kit/oso_arena/CONTRACT.md is a copy of arena/contract/CONTRACT.md: cp arena/contract/CONTRACT.md arena/kit/oso_arena/CONTRACT.md"
 
 
+def test_style_profile_copies_are_in_sync():
+    for f in ("STYLE_PROFILE.md", "style.schema.json"):
+        assert (KIT / "oso_arena" / f).read_text() == (ROOT / "arena/contract" / f).read_text(), f"cp arena/contract/{f} arena/kit/oso_arena/{f}"
+
+
 def test_pyproject_metadata():
     if tomllib is None:
         print("skip: tomllib needs python 3.11")
@@ -44,7 +49,7 @@ def test_pyproject_metadata():
     assert [d.split(">")[0] for d in m["dependencies"]] == ["numpy", "safetensors"]
     assert [d.split(">")[0] for d in m["optional-dependencies"]["train"]] == ["torch"]
     assert m["scripts"]["oso-arena"] == "oso_arena.cli:main"
-    assert set(p["tool"]["setuptools"]["package-data"]["oso_arena"]) == {"data/*.safetensors", "CONTRACT.md"}
+    assert set(p["tool"]["setuptools"]["package-data"]["oso_arena"]) == {"data/*.safetensors", "CONTRACT.md", "STYLE_PROFILE.md", "style.schema.json"}
     lic = (KIT / "LICENSE").read_text()
     assert lic.startswith("MIT License") and "Copyright (c) 2026 oso contributors" in lic
 
@@ -81,7 +86,7 @@ def test_wheel_and_sdist_contents_and_clean_venv_t6():
     wheel, sdist = _build(src, tmp / "out")
     assert re.fullmatch(rf"oso_arena-{re.escape(KIT_VERSION)}-py3-none-any\.whl", wheel.name), wheel.name
     names = zipfile.ZipFile(wheel).namelist()
-    for need in ("oso_arena/cli.py", "oso_arena/rewards.py", "oso_arena/events.py", "oso_arena/train.py", "oso_arena/CONTRACT.md",
+    for need in ("oso_arena/cli.py", "oso_arena/rewards.py", "oso_arena/events.py", "oso_arena/train.py", "oso_arena/CONTRACT.md", "oso_arena/STYLE_PROFILE.md", "oso_arena/style.py",
                  f"oso_arena-{KIT_VERSION}.dist-info/METADATA", f"oso_arena-{KIT_VERSION}.dist-info/entry_points.txt"):
         assert need in names, need
     assert any(n.endswith("licenses/LICENSE") or n.endswith("/LICENSE") for n in names)

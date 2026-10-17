@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from oso_arena import CONTRACT, builds
+from oso_arena import CONTRACT, builds, style
 
 MAX_BYTES = 1_048_576  # 1 MiB
 MAX_HEADER = 65_536  # sanity cap on the declared JSON header size
@@ -154,6 +154,11 @@ def check_meta(meta):
             errs = builds.validate(b)
             out += ["header " + e for e in errs]
             build = None if errs else b
+    if "style_profile" in meta:  # optional Volante Twins profile (STYLE_PROFILE.md): compact JSON, at most 8 KB
+        try:
+            style.parse_profile(meta["style_profile"])
+        except ValueError as e:
+            out.append(f"header style_profile: {e}")
     return out, name, desc, build
 
 
@@ -185,6 +190,8 @@ def read_submission(path):
     mreasons, name, desc, build = check_meta(meta)
     sub.reasons += mreasons
     sub.meta.update(name=name, description=desc, build=build)
+    if "style_profile" in meta:
+        sub.meta["style_profile"] = meta["style_profile"]  # validated by check_meta; the Pi reads it from here
     if not sub.reasons or all(r.startswith("header ") for r in sub.reasons):  # tensors are structurally right: load and check values
         arrays = _load(data)
         if isinstance(arrays, str):

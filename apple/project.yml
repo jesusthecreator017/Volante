@@ -3,7 +3,7 @@ name: Oso
 options:
   bundleIdPrefix: com.oso
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.1"
     watchOS: "10.0"
 packages:
   OsoKit:
@@ -30,20 +30,29 @@ targets:
     configFiles:
       Debug: OsoPhone/Config.xcconfig
       Release: OsoPhone/Config.xcconfig
+    entitlements:
+      path: OsoPhone/OsoPhone.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(OSO_BUNDLE_PREFIX)]
     info:
       path: OsoPhone/Info.plist
       properties:
-        CFBundleDisplayName: oso
+        CFBundleDisplayName: Volante
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        NSBluetoothAlwaysUsageDescription: oso connects to the racquet pod over Bluetooth to record your swings.
-        NSLocalNetworkUsageDescription: oso talks to your oso server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
+        NSBluetoothAlwaysUsageDescription: Volante connects to the racquet pod over Bluetooth to record your swings.
+        NSLocalNetworkUsageDescription: Volante talks to your Volante server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true # plain http to the Pi on the LAN (deploy/pi/README.md)
+          NSExceptionDomains: # plain http to the Pi over Tailscale (WireGuard already encrypts the tailnet)
+            tail05420e.ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         NSSupportsLiveActivities: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         GoogleClientID: $(GOOGLE_CLIENT_ID)
+        VolanteAppGroup: group.$(OSO_BUNDLE_PREFIX)
         CFBundleURLTypes:
           - CFBundleURLSchemes: [$(GOOGLE_REDIRECT_SCHEME)]
     settings:
@@ -61,10 +70,15 @@ targets:
     configFiles:
       Debug: OsoLive/Config.xcconfig
       Release: OsoLive/Config.xcconfig
+    entitlements:
+      path: OsoLive/OsoLive.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(OSO_BUNDLE_PREFIX)]
     info:
       path: OsoLive/Info.plist
       properties:
-        CFBundleDisplayName: oso
+        CFBundleDisplayName: Volante
+        VolanteAppGroup: group.$(OSO_BUNDLE_PREFIX)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -90,13 +104,13 @@ targets:
     info:
       path: OsoWatch/Info.plist
       properties:
-        CFBundleDisplayName: oso
+        CFBundleDisplayName: Volante
         WKApplication: true
         WKCompanionAppBundleIdentifier: $(OSO_BUNDLE_PREFIX).phone
         WKBackgroundModes: [workout-processing]
-        NSHealthShareUsageDescription: oso reads your heart rate and energy during badminton workouts.
-        NSHealthUpdateUsageDescription: oso saves your badminton workouts to Health.
-        NSMotionUsageDescription: oso records your wrist motion during badminton to count and measure swings.
+        NSHealthShareUsageDescription: Volante reads your heart rate and energy during badminton workouts.
+        NSHealthUpdateUsageDescription: Volante saves your badminton workouts to Health.
+        NSMotionUsageDescription: Volante records your wrist motion during badminton to count and measure swings.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(OSO_BUNDLE_PREFIX).phone.watchkitapp

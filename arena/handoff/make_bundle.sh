@@ -41,7 +41,7 @@ rm -rf "$OUT" "$OUT.zip"
 mkdir -p "$OUT/contract" "$OUT/kit" "$OUT/docs" "$OUT/smoke"
 
 step "contract"
-cp arena/contract/CONTRACT.md arena/contract/header.schema.json "$OUT/contract/"
+cp arena/contract/CONTRACT.md arena/contract/header.schema.json arena/contract/STYLE_PROFILE.md arena/contract/style.schema.json "$OUT/contract/"
 
 step "kit wheel (python -m build)"
 TMP=$(mktemp -d)

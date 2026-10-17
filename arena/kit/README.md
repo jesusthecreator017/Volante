@@ -116,3 +116,11 @@ python arena/kit/oso_arena/test_badsim.py    # the simulator tests (needs scipy 
 
 `tests/test_package.py` builds the wheel and installs it in a clean virtual environment without torch; `tests/test_train.py` trains tiny
 runs (a few games, a short horizon) and skips itself without torch.
+
+## Volante Twins: play like me
+
+`oso-rec profile <session folders or imu.bin> -o my_style.json` turns your racquet sessions into a style profile (a few numbers; the
+raw data stays with you). Then `oso-arena train --style my_style.json` (the build comes from the profile, a small tempo reward pulls your
+model's rhythm toward yours), `oso-arena export <run>/best -o twin.safetensors --name "My twin" --style my_style.json` (embeds the
+profile), and `oso-arena eval twin.safetensors --style` prints the fidelity report the Pi uses to admit twins to the Twins ladder.
+The format and rules: `oso_arena/STYLE_PROFILE.md`.

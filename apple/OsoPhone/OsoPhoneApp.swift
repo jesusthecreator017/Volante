@@ -1,4 +1,4 @@
-// oso for iPhone: racquet pod over Bluetooth, Apple Watch sessions, Fitbit heart rate. Analysis in OsoKit.
+// Volante for iPhone: racquet pod over Bluetooth, Apple Watch sessions, Fitbit heart rate. Analysis in OsoKit.
 
 import OsoKit
 import SwiftUI
@@ -33,6 +33,8 @@ struct OsoPhoneApp: App {
                     .modifier(DebugOverrides())
             }
             .modifier(DebugOverrides())
+            // inside the .environment calls, so the sheet (its own hierarchy) inherits them
+            .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
             .environment(router)
             .environment(store)
             .environment(pod)
@@ -40,7 +42,9 @@ struct OsoPhoneApp: App {
             .environment(fitbit)
             .environment(pi)
             .onAppear(perform: wire)
-            .onChange(of: scenePhase) { _, phase in if phase == .active { pod.refreshAuthorization() } }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
+            }
         }
     }
 
@@ -54,21 +58,30 @@ struct OsoPhoneApp: App {
 
     private var tabs: some View {
         TabView(selection: Bindable(router).tab) {
-            PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }.tag(Router.Tab.pod)
-            SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }.tag(Router.Tab.sessions)
-            WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }.tag(Router.Tab.connections)
+            Tab("Summary", systemImage: "chart.line.uptrend.xyaxis", value: Router.Tab.summary) { SummaryView() }
+            Tab("Play", systemImage: "figure.badminton", value: Router.Tab.pod) { PodView() }
+            Tab("Sessions", systemImage: "list.bullet.rectangle.portrait", value: Router.Tab.sessions) { SessionsView() }
+            Tab("Devices", systemImage: "sensor.tag.radiowaves.forward", value: Router.Tab.connections) { WearablesView() }
         }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory(isEnabled: pod.isBusy) { LiveAccessory() }
     }
 
     private func wire() {
         pod.liveActivity.endStale()
         pod.onSession = { imu, meta in
-            do { try store.save(imu: imu, meta: meta) } catch { pod.lastError = "save failed: \(error)" }
+            do { try store.save(imu: imu, meta: meta); syncHeartRate() } catch { pod.lastError = "save failed: \(error)" }
         }
         watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
+        syncHeartRate()
         #if DEBUG
         applyLaunchArguments()
         #endif
+    }
+
+    /// Fitbit heart rate for recent sessions that lack it (no-op unless Fitbit is connected through the Pi).
+    private func syncHeartRate() {
+        Task { if fitbit.connected == nil { await fitbit.refreshStatus() }; await fitbit.backfill(store) }
     }
 
     #if DEBUG

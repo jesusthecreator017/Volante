@@ -84,7 +84,10 @@ export function navigate(href: string, replace = false) {
   if (replace) history.replaceState(null, "", href);
   else history.pushState(null, "", href);
   window.scrollTo(0, 0);
-  void render(document.getElementById("main")!);
+  const root = document.getElementById("main")!;
+  // Cross-fade between pages where the browser supports it; CSS turns the animation off for reduced motion.
+  if (document.startViewTransition) document.startViewTransition(() => render(root));
+  else void render(root);
 }
 
 export function start(root: HTMLElement) {

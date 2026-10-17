@@ -51,6 +51,17 @@ function applyTheme(t: Theme) {
 
 const MENU_ICON = ["M4 7h16", "M4 12h16", "M4 17h16"];
 
+/** Logo mark: a square, the shuttle's circle and a swing diagonal. */
+function logoMark(): SVGSVGElement {
+  return s(
+    "svg",
+    { viewBox: "0 0 32 32", class: "mark", "aria-hidden": "true", focusable: "false" },
+    s("rect", { width: 32, height: 32, class: "mark-sq" }),
+    s("circle", { cx: 10, cy: 22, r: 5, class: "mark-cut" }),
+    s("path", { d: "M14 28 30 4", class: "mark-bar" }),
+  );
+}
+
 function shell(): HTMLElement {
   const account = h("div", { class: "account" });
   const navLinks = NAV.map(([href, label]) => link(href, label));
@@ -79,7 +90,7 @@ function shell(): HTMLElement {
   const header = h(
     "header",
     { class: "site-header" },
-    h("div", { class: "bar" }, link("/", h("span", { class: "brand" }, "Volante")), nav, themeBtn, account, menuBtn),
+    h("div", { class: "bar" }, link("/", h("span", { class: "brand" }, logoMark(), "Volante")), nav, themeBtn, account, menuBtn),
     sub,
   );
   setOnNavigate((path) => {

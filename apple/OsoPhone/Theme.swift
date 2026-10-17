@@ -1,29 +1,35 @@
-// oso "courtside broadcast" look: court green, shuttle orange, scoreboard numbers. Shared building blocks for the three tabs.
+// Volante look: system surfaces, Liquid Glass controls, scoreboard numbers. Colors are tokens here so the palette can be swapped in one place.
 
 import OsoKit
 import SwiftUI
 
 enum Theme {
-    /// Page background: a faint green wash in light mode, near-black court in dark mode.
-    static let canvas = Color(light: 0xEBF3EE, dark: 0x0C1511)
-    static let card = Color(light: 0xFFFFFF, dark: 0x17241E)
-    /// Header banners (white text on top, in both appearances).
-    static let courtTop = Color(light: 0x1E7A54, dark: 0x1A6445)
-    static let courtBottom = Color(light: 0x0F4A33, dark: 0x0B3526)
-    /// Text and icons in court green on a card.
-    static let courtInk = Color(light: 0x0F4A33, dark: 0x6FD3A1)
-    /// Fill behind white button text: 4.94:1 (light) / 5.5:1 (dark). The accent itself is only for tints and icons.
-    static let action = Color(light: 0xC2490A, dark: 0xB84208)
-    static let good = Color(light: 0x1B8A4B, dark: 0x4CD38A)
-    static let bad = Color(light: 0xC62828, dark: 0xFF6B6B)
+    // The site's palette (site/src/style.css): paper, sage, fern, moss, pine; deep green with white accents in dark mode.
+    /// Page background (site --surface-2 / --bg) and content cards (--surface).
+    static let canvas = Color(light: 0xECEAE4, dark: 0x142019)
+    static let card = Color(light: 0xFFFFFF, dark: 0x1D2D24)
+    static let radius: CGFloat = 26
+    /// Header banners (white text on top, in both appearances): pine blocks (--court).
+    static let courtTop = Color(light: 0x3A5A40, dark: 0x26392E)
+    static let courtBottom = Color(light: 0x344E41, dark: 0x1D2D24)
+    /// Text and icons in brand ink on a card (--text / --accent).
+    static let courtInk = Color(light: 0x344E41, dark: 0xFFFFFF)
+    /// Fill of the main buttons (--btn) and the text on it (--accent-text).
+    static let action = Color(light: 0x3A5A40, dark: 0xFFFFFF)
+    static let onAction = Color(light: 0xFFFFFF, dark: 0x142019)
+    /// Status: fern / sage keep "good" readable as green (the site uses white in dark mode).
+    static let good = Color(light: 0x588157, dark: 0xA3B18A)
+    static let bad = Color(light: 0xB02A2A, dark: 0xFF7676)
     /// Destructive button fill under white text (>= 4.5:1 in both appearances).
-    static let badFill = Color(light: 0xC62828, dark: 0xB3261E)
+    static let badFill = Color(light: 0xB02A2A, dark: 0xB3261E)
+    /// Shuttle orange (--hot): graphics only.
+    static let hot = Color(light: 0xFF5A1F, dark: 0xFF6A33)
 
     static let banner = LinearGradient(colors: [courtTop, courtBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func stroke(_ s: StrokeType) -> Color {
         switch s {
-        case .smash: Color(light: 0xE5461C, dark: 0xFF6A3D)
+        case .smash: Theme.hot
         case .clear: Color(light: 0x2F6FDE, dark: 0x6AA2FF)
         case .drop: Color(light: 0x14A39A, dark: 0x3FD6CB)
         case .drive: Color(light: 0xD79A00, dark: 0xFFC83D)
@@ -70,16 +76,15 @@ struct Card<Content: View>: View {
             if let title {
                 HStack(spacing: 8) {
                     if let systemImage { Image(systemName: systemImage).foregroundStyle(.tint) }
-                    Text(title).font(.headline).foregroundStyle(Theme.courtInk)
+                    Text(title).font(.headline)
                 }
                 .accessibilityAddTraits(.isHeader)
             }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.courtInk.opacity(0.10)))
+        .padding(18)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 }
 
@@ -138,12 +143,13 @@ struct Banner<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(18)
-            .background(Theme.banner, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(20)
+            .background(Theme.banner, in: RoundedRectangle(cornerRadius: Theme.radius + 4, style: .continuous))
             .foregroundStyle(.white)
     }
 }
 
+/// Filled Liquid Glass capsule, tinted with the action color (the main action of a screen).
 struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     var destructive = false
@@ -151,26 +157,29 @@ struct PrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.headline)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, minHeight: 28)
-            .padding(.vertical, 12).padding(.horizontal, 14)
-            .foregroundStyle(.white)
-            .background((destructive ? Theme.badFill : Theme.action).opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.35),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .padding(.vertical, 12).padding(.horizontal, 16)
+            .foregroundStyle((destructive ? Color.white : Theme.onAction).opacity(enabled ? 1 : 0.6))
+            .glassEffect(.regular.tint((destructive ? Theme.badFill : Theme.action).opacity(enabled ? 1 : 0.35)).interactive(), in: .capsule)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
     }
 }
 
+/// Clear Liquid Glass capsule for the other actions.
 struct SecondaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     var destructive = false
     func makeBody(configuration: Configuration) -> some View {
-        let tint = destructive ? Theme.bad : Theme.courtInk
         configuration.label
             .font(.headline)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, minHeight: 28)
-            .padding(.vertical, 12).padding(.horizontal, 14)
-            .foregroundStyle(tint.opacity(enabled ? 1 : 0.4))
-            .background(tint.opacity(configuration.isPressed ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .padding(.vertical, 12).padding(.horizontal, 16)
+            .foregroundStyle((destructive ? Theme.bad : Color.primary).opacity(enabled ? 1 : 0.4))
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
     }
 }
 
@@ -222,13 +231,11 @@ func clock(_ seconds: Double) -> String {
 }
 
 extension View {
-    /// Keeps navigation titles legible over scrolled content: the system's soft top edge effect on iOS 26+,
-    /// an opaque canvas bar before that (which hides the large title, hence the split).
-    @ViewBuilder func canvasNavigationBar() -> some View {
-        if #available(iOS 26.0, *) {
-            scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            toolbarBackground(Theme.canvas, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
-        }
-    }
+    /// Keeps navigation titles legible over scrolled content with the system's soft top edge effect.
+    func canvasNavigationBar() -> some View { scrollEdgeEffectStyle(.soft, for: .top) }
+}
+
+extension View {
+    /// Lists and forms on the brand canvas instead of the system grey.
+    func themedList() -> some View { scrollContentBackground(.hidden).background(Theme.canvas.ignoresSafeArea()) }
 }
