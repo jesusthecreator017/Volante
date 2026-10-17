@@ -15,3 +15,8 @@ __pycache__/
 /arena/kit/build/
 /arena/kit/*.egg-info/
 runs/
+# Stroke dataset (docs/strokes): session data, video and participant lists stay in ~/Datasets/oso-strokes
+*.mp4
+*.mov
+/**/[0-9]*-[0-9]*-P[0-9][0-9]*/
+participants.csv

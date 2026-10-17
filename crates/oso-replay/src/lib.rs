@@ -1,7 +1,9 @@
 //! Replay app: recorded matches reconstructed in 3D. The shared renderer lives in `oso-render`;
 //! this crate adds calibration-free extras: the IMU pipeline, match stats and the page's stroke data.
 
-// Public (hidden) only so oso-imu and benches can reach them
+// Public (hidden) only so oso-imu, oso-rec and benches can reach them
+#[doc(hidden)]
+pub mod collect;
 #[doc(hidden)]
 pub mod imu;
 #[doc(hidden)]
