@@ -35,7 +35,7 @@ final class WorkoutManager: NSObject {
     @ObservationIgnored private var startDate = Date()
     /// CoreMotion timestamps are seconds since boot; Date = boot + timestamp
     @ObservationIgnored private let bootDate = Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
-    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -78,10 +78,14 @@ final class WorkoutManager: NSObject {
         }
         phase = .running
         startMotion()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.elapsed = Date().timeIntervalSince(self.startDate)
-            self.sendLive()
+        // Once a second on the main actor: elapsed time and the live swing count to the phone
+        ticker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                self.elapsed = Date().timeIntervalSince(self.startDate)
+                self.sendLive()
+            }
         }
     }
 
@@ -122,7 +126,7 @@ final class WorkoutManager: NSObject {
     func end() async {
         guard let session, let builder else { return }
         phase = .ending
-        timer?.invalidate()
+        ticker?.cancel()
         motionTask?.cancel()
         session.end()
         do {

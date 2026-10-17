@@ -5,3 +5,4 @@ xcuserdata/
 OsoPhone/Info.plist
 OsoWatch/Info.plist
 OsoWatch/OsoWatch.entitlements
+build/
