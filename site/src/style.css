@@ -1536,15 +1536,92 @@ select {
 }
 @media (min-width: 820px) {
   .l-hero {
-    grid-template-columns: 1.05fr 1fr;
-    gap: 40px;
-    padding-top: 24px;
+    grid-template-columns: 7fr 5fr;
+    gap: 48px;
+    padding-top: 40px;
   }
 }
-.l-hero h1 {
-  font-size: clamp(2.8rem, 9vw, 4.6rem);
+.l-hero h1.display {
+  font-size: clamp(3.25rem, 8.4vw, 7.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
   margin-top: 0;
-  max-width: 14ch;
+}
+/* shape kit (SVG classes; colours come from tokens) */
+.f-accent {
+  fill: var(--accent);
+}
+.f-paper {
+  fill: var(--paper);
+}
+.f-sage {
+  fill: var(--sage);
+}
+.f-hot {
+  fill: var(--hot);
+}
+.f-none {
+  fill: none;
+}
+.s-line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.s-hot {
+  stroke: var(--hot);
+}
+.s-2 {
+  stroke-width: 2;
+}
+.s-dot {
+  stroke-dasharray: 2 6;
+  stroke-linecap: round;
+}
+.s-arc {
+  stroke-width: 3;
+  stroke-dasharray: 1 9;
+  stroke-linecap: round;
+}
+.collage {
+  position: relative;
+  margin: 0;
+  max-width: 460px;
+  justify-self: center;
+  width: 100%;
+}
+.collage svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.collage-tag {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  background: var(--paper);
+  color: var(--pine);
+}
+.collage-tag::before {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cl-in {
+    animation: slide-in 250ms ease-out both;
+  }
+  .cl-d2 {
+    animation-delay: 80ms;
+  }
+  .cl-d3 {
+    animation-delay: 160ms;
+  }
+}
+/* shapes arrive along the swing diagonal */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translate(-28px, 28px);
+  }
 }
 .cta {
   margin: 20px 0;
@@ -1624,6 +1701,9 @@ select {
 .feature p {
   margin: 0;
   max-width: 65ch;
+}
+.feature.dev {
+  border-style: dashed;
 }
 .feature-head {
   display: flex;
@@ -1714,6 +1794,14 @@ select {
 @media (min-width: 760px) {
   .steps {
     grid-template-columns: repeat(3, 1fr);
+    align-items: start;
+  }
+  /* margins, not transforms: .reveal owns transform */
+  .step.s1 {
+    margin-top: 96px;
+  }
+  .step.s2 {
+    margin-top: 48px;
   }
 }
 .step {
@@ -1743,8 +1831,9 @@ select {
   right: 16px;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 2.4rem;
+  font-size: 3.5rem;
   line-height: 1;
+  letter-spacing: -0.04em;
   color: var(--accent);
 }
 .art-line {
@@ -1844,6 +1933,82 @@ select {
 .foot {
   margin-top: 12px;
 }
+.teasers {
+  display: grid;
+  gap: 24px;
+}
+@media (min-width: 820px) {
+  .teasers {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.teasers h2 {
+  margin-top: 0;
+  max-width: 14ch;
+}
+.arena-teaser,
+.twin-teaser {
+  position: relative;
+  overflow: hidden;
+}
+.arena-teaser > :not(.tz-art),
+.twin-teaser > :not(.tz-art) {
+  position: relative;
+}
+.tz-art {
+  position: absolute;
+  right: -20px;
+  top: -20px;
+  width: 180px;
+  height: 180px;
+}
+.tz-c1 {
+  fill: var(--tint-2);
+}
+.tz-c2 {
+  stroke: var(--moss);
+}
+.tz-bar {
+  stroke: var(--sage);
+  stroke-width: 12;
+}
+.tz-block .tz-c1 {
+  fill: var(--paper);
+}
+.tz-block .tz-c2 {
+  stroke: var(--paper);
+}
+.tz-block .tz-bar {
+  stroke: var(--paper);
+  opacity: 0.28;
+}
+.twin-teaser {
+  background: var(--paper);
+  color: var(--pine);
+  border-color: var(--paper);
+  padding: 48px 32px;
+}
+.twin-teaser h2,
+.twin-teaser .btn {
+  color: var(--pine);
+  border-color: var(--pine);
+}
+.twin-teaser :focus-visible {
+  outline-color: var(--pine);
+}
+.chip-twin {
+  background: var(--tint-3);
+  color: var(--pine);
+}
+.chip-twin::before {
+  transform: rotate(45deg) scale(0.8);
+}
+.arena-teaser .kicker {
+  color: var(--on-court);
+}
+.arena-teaser .kicker::before {
+  background: var(--on-court);
+}
 .arena-teaser {
   background: var(--court);
   color: var(--on-court);
@@ -1870,7 +2035,7 @@ select {
 @media (prefers-reduced-motion: no-preference) {
   .reveal {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translate(-28px, 28px);
     transition: opacity 0.25s ease-out, transform 0.25s ease-out;
   }
   .reveal.in {

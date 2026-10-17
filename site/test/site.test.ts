@@ -121,7 +121,7 @@ describe("landing", () => {
     landing(root);
     expect(root.querySelectorAll("[style], script").length).toBe(0);
     expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
-    expect(root.querySelector('a[href="/#features"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/#how"]')).not.toBeNull();
     expect(root.querySelector('a[href="/arena"]')).not.toBeNull();
     expect(root.textContent).toContain("Example");
   });
