@@ -321,4 +321,22 @@ mod tests {
         );
         assert!((s2[1] - shaft[1]).abs() < 1e-9 && (n2[1] - normal[1]).abs() < 1e-9);
     }
+
+    #[test]
+    fn heading_falls_back_to_the_face_normal_with_a_vertical_shaft() {
+        use crate::imu::from_axis_angle;
+        // Shaft straight up (identity maps local +Y to court +Y), then turned 0.7 rad about the vertical
+        for yaw in [0.7, -2.0, 0.0] {
+            let q = from_axis_angle([0.0, 1.0, 0.0], yaw);
+            let h = heading(q);
+            assert!(h.is_finite());
+            // Face normal +Z -> (sin yaw, 0, cos yaw): heading = atan2(-cos, sin) = yaw - pi/2
+            let want = yaw - std::f64::consts::FRAC_PI_2;
+            let d = (h - want).rem_euclid(std::f64::consts::TAU);
+            assert!(d < 1e-9 || std::f64::consts::TAU - d < 1e-9, "{h} vs {want}");
+            // After re-centring by -heading the heading is 0
+            let c = mul(yaw_quat(-h), q);
+            assert!(heading(c).abs() < 1e-9);
+        }
+    }
 }

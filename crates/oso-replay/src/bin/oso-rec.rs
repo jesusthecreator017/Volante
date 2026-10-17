@@ -495,10 +495,14 @@ async fn live(record: Option<bool>, secs: Option<f64>) -> anyhow::Result<()> {
     let bits = d.status().await?.state_bits;
     tx.send(Msg::State(bits)).ok();
     let (ctx, crx) = unbounded();
+    let stop = ctx.clone();
     let task = tokio::spawn(stream_task(d, notes, tx, crx));
     // The window runs on this (the main) thread, as winit requires; the BLE work is on the runtime's workers
-    oso_render::live::run_live(Box::new(PodView::new(rx, ctx, secs)), None)?;
+    let shown = oso_render::live::run_live(Box::new(PodView::new(rx, ctx, secs)), None);
+    // A window that failed to open must not leave the pod streaming
+    stop.unbounded_send(Cmd::Stop).ok();
     anyhow::ensure!(tokio::time::timeout(Duration::from_secs(10), task).await.is_ok(), "pod did not disconnect in time");
+    shown?;
     if record.is_some() || bits & state::RECORDING != 0 {
         eprintln!("pod still recording, run `oso-rec record stop` to end");
     } else {
