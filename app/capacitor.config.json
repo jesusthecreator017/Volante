@@ -1,0 +1,21 @@
+{
+  "appId": "dev.oso.racquet",
+  "appName": "oso",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "Looking for the oso sensor\u2026",
+        "cancel": "Cancel",
+        "availableDevices": "Available sensors",
+        "noDeviceFound": "No oso sensor found"
+      }
+    }
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
