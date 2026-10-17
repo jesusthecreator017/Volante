@@ -1,7 +1,9 @@
 """Match, log, animate, vendored body code and the CLI."""
 import gzip
 import hashlib
+import json
 import shutil
+import struct
 import subprocess
 import tempfile
 from pathlib import Path
@@ -130,6 +132,19 @@ def test_animate_replay_is_consistent_and_readable():
         assert (np.diff(ev[:, 0]) >= 0).all() and (np.diff(pts[:, 0]) > 3.0).all()
         assert np.diff(pts[:, 0]).max() > 8.0  # an interval shows as a pause (capped at 8 s)
         assert any(r["ends"] for r in l.rallies_detail)  # game 2 is played on the other ends
+        # header "match" (phase 14.4): names, builds, and the times slot 0 is A / B, which map the events back to the log's players
+        m = hd["match"]
+        assert m["a"] == {"name": l.a_name, "build": dict(zip(("power", "speed", "reach", "accuracy"), l.builds[0]))} and m["b"]["name"] == l.b_name
+        ends = m["ends"]
+        assert ends[0][0] == 0.0 and all(e[1] in (0, 1) for e in ends) and all(x[1] != y[1] for x, y in zip(ends, ends[1:]))
+        assert [e[0] for e in ends] == sorted(e[0] for e in ends) and len(ends) >= 2  # game 2 swaps the slots
+        who = lambda slot, t: int(slot) ^ [e[1] for e in ends if e[0] <= t][-1]  # noqa: E731
+        spans = animate._rally_spans(l.events)
+        assert [who(e[2], e[0]) for e in ev if e[1] == 1] == [h["p"] for r in spans for h in r["hits"]]  # hitter, by model
+        assert [who(e[2], e[0]) for e in pts] == [r["point"]["winner"] for r in spans]  # point winner, by model
+        for e, r in zip(pts, spans):  # the score is [winner's points, other's]
+            w = r["point"]["winner"]
+            assert [int(e[3]), int(e[4])] == [r["point"]["score"][w], r["point"]["score"][1 - w]]
         n_contacts = (ev[:, 1] == 1).sum()
         assert n_contacts == sum(r["shots"] for r in l.rallies_detail if r["winner"] is not None) and (ev[:, 1] == 2).sum() == len(pts)
         sh = tr["shuttle"]
@@ -149,6 +164,20 @@ def test_animate_replay_is_consistent_and_readable():
             r = subprocess.run(["cargo", "run", "--release", "-q", "-p", "oso-arena", "--", "--check-replay", str(out)], cwd=ROOT,
                                capture_output=True, text=True)
             assert r.returncode == 0 and ": ok," in r.stdout and "shuttle true" in r.stdout, (r.stdout, r.stderr)
+
+
+def test_replay_header_extra_keys_keep_the_default_bytes():
+    rng = np.random.default_rng(3)
+    tracks = [({"name": "joints3d", "layout": "x,y,z,conf"}, rng.normal(size=(3, 2, 17, 4)))]
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d) / "a.bin", Path(d) / "b.bin"
+        animate.write_replay(a, 60.0, tracks)
+        animate.write_replay(b, 60.0, tracks, {"match": {"ends": [[0.0, 0]]}})
+        n = struct.unpack("<I", a.read_bytes()[4:8])[0]
+        assert "match" not in json.loads(a.read_bytes()[8:8 + n].rstrip(b"\0")) and b"OSOR" == b.read_bytes()[:4]
+        n2 = struct.unpack("<I", b.read_bytes()[4:8])[0]
+        assert json.loads(b.read_bytes()[8:8 + n2].rstrip(b"\0"))["match"] == {"ends": [[0.0, 0]]} and (8 + n2) % 16 == 0
+        assert a.read_bytes()[8 + n:] == b.read_bytes()[8 + n2:]  # the blob is untouched
 
 
 def test_animate_refuses_a_log_without_a_finished_rally():

@@ -9,10 +9,13 @@ wasm-pack build crates/oso-arena --target web --out-dir ../../web/arena/pkg --ou
 D=web/dist/viewer
 rm -rf "$D"
 mkdir -p "$D/pkg" "$D/assets"
-cp web/arena/index.html web/arena/arena.js web/arena/arena.css web/arena/timeline.js "$D/"
+cp web/arena/index.html web/arena/arena.js web/arena/arena.css web/arena/timeline.js web/arena/fetch-replay.js web/arena/players.js "$D/"
 cp web/arena/pkg/oso.js web/arena/pkg/oso_bg.wasm "$D/pkg/"
 [ -d web/arena/pkg/snippets ] && cp -R web/arena/pkg/snippets "$D/pkg/"
-cp -R assets/calib assets/models "$D/assets/"
+# Arena draws a procedural racquet (crates/oso-arena/src/racquet.rs); the racquet OBJ's licence is unknown, so only the humanoid ships
+mkdir -p "$D/assets/models"
+cp -R assets/calib "$D/assets/"
+cp -R assets/models/humanoid "$D/assets/models/"
 
 echo "Serve with: python3 -m http.server -d web/arena 8080"
 echo "  then open http://localhost:8080/?match=assets/replay/replay.bin (or drop a match.bin)"

@@ -1,5 +1,8 @@
 // Minimal Arena timeline: polls oso_status() every animation frame, sends commands through the oso_* exports
-// and shows the score from oso_score() ("no score data" when the replay has no point events).
+// and shows the score from oso_score() ("no score data" when the replay has no point events). With a match header the score is [A, B]
+// (it does not swap at a change of ends), labelled A / B and under the names header; without one it is [P1, P2] by court side.
+import { showPlayers } from "./players.js";
+
 const $ = (id) => document.getElementById(id);
 
 const p2 = (n) => String(n).padStart(2, "0");
@@ -8,7 +11,7 @@ const clock = (t) => `${p2(Math.floor(t / 60))}:${p2(Math.floor(t % 60))}`;
 export function setupTimeline(oso) {
   const bar = $("timeline"), scrub = $("scrub"), canvas = $("canvas");
   const drag = { on: false, resume: false };
-  let ready = false, playing = true;
+  let ready = false, playing = true, labels = ["P1", "P2"];
   bar.addEventListener("click", (e) => {
     if (e.detail > 0 && e.target.closest("button")) canvas.focus();
   });
@@ -46,11 +49,14 @@ export function setupTimeline(oso) {
           bar.hidden = false;
           scrub.max = s.duration;
           scrub.step = 1 / s.fps;
+          const players = window.oso_players();
+          showPlayers(document, players);
+          if (players) labels = ["A", "B"];
         }
         playing = s.playing;
         if (!drag.on) scrub.value = s.time;
         const sc = oso.oso_score(s.time);
-        const text = `${sc.length ? `P1 ${sc[0]} – ${sc[1]} P2` : "no score data"}   ${clock(s.time)} / ${clock(s.duration)}`;
+        const text = `${sc.length ? `${labels[0]} ${sc[0]} – ${sc[1]} ${labels[1]}` : "no score data"}   ${clock(s.time)} / ${clock(s.duration)}`;
         if (text !== last) {
           last = text;
           $("readout").textContent = text;

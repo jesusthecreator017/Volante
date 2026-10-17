@@ -1,6 +1,7 @@
 // Arena entry point: window.oso_* API for the same-origin parent, replay download / drop handling, wasm start.
 // Runs under a strict CSP: no inline script or style, text goes in via textContent only.
 import init, * as oso from "./pkg/oso.js";
+import { fetchReplay } from "./fetch-replay.js";
 import { setupTimeline } from "./timeline.js";
 
 const STATUS_FIELDS = ["loaded", "time", "duration", "playing", "speed", "fps", "frame", "frame_count",
@@ -22,6 +23,16 @@ for (const name of COMMANDS) {
   };
 }
 window.oso_score = (t) => (wasmReady ? oso.oso_score(t) : new Uint32Array(0));
+// The match's names and builds ({a: {name, build: {power, speed, reach, accuracy}}, b: {...}}), null without a match header or before ready
+window.oso_players = () => {
+  if (!wasmReady) return null;
+  try {
+    const text = oso.oso_players();
+    return text ? JSON.parse(text) : null;
+  } catch (_) {
+    return null;
+  }
+};
 window.oso_replay_error = () => (wasmReady ? oso.oso_replay_error() : state.error);
 window.oso_status = () => {
   const out = { ...STATUS_DEFAULTS };
@@ -149,71 +160,15 @@ async function putStash(file) {
   }
 }
 
-// Resolves false when aborted
-function sleep(ms, signal) {
-  return new Promise((res) => {
-    if (signal.aborted) return res(false);
-    const done = () => { clearTimeout(timer); res(false); };
-    const timer = setTimeout(() => { signal.removeEventListener("abort", done); res(true); }, ms);
-    signal.addEventListener("abort", done, { once: true });
+// Returns the bytes, or null when aborted by a drop. Throws Error(message) on a fatal problem. (fetch-replay.js has the logic.)
+function fetchMatch(url, signal) {
+  const track = ({ received, total }) => { state.received = received; state.total = total; };
+  return fetchReplay(url, {
+    signal,
+    onPreparing: () => setPhase("preparing"),
+    onDownloading: (p) => { track(p); setPhase("downloading"); },
+    onProgress: (p) => { track(p); showProgress(); },
   });
-}
-function retryDelay(resp) {
-  const raw = (resp.headers.get("retry-after") || "").trim();
-  const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : 3;
-  return Math.min(30, Math.max(1, n)) * 1000;
-}
-async function errorText(resp) {
-  try {
-    const j = JSON.parse(await resp.text());
-    if (j && typeof j.detail === "string" && j.detail) return j.detail;
-    if (j && typeof j.error === "string" && j.error) return j.error;
-  } catch (_) { /* not JSON */ }
-  return `HTTP ${resp.status}`;
-}
-
-// Returns the bytes, or null when aborted by a drop. Throws Error(message) on a fatal problem.
-async function fetchMatch(url, signal) {
-  for (;;) {
-    let resp;
-    try {
-      resp = await fetch(url, { signal, credentials: "same-origin" });
-    } catch (_) {
-      if (signal.aborted) return null;
-      throw new Error("Network error");
-    }
-    if (resp.status === 202) {
-      setPhase("preparing");
-      resp.body?.cancel().catch(() => {});
-      if (!(await sleep(retryDelay(resp), signal))) return null;
-      continue;
-    }
-    if (!resp.ok) throw new Error(await errorText(resp));
-
-    const enc = (resp.headers.get("content-encoding") || "").trim().toLowerCase();
-    const len = parseInt(resp.headers.get("content-length") || "", 10);
-    state.received = 0;
-    state.total = (!enc || enc === "identity") && len > 0 ? len : null;
-    setPhase("downloading");
-    const chunks = [];
-    try {
-      const reader = resp.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        state.received += value.length;
-        showProgress();
-      }
-    } catch (_) {
-      if (signal.aborted) return null;
-      throw new Error("Network error");
-    }
-    const bytes = new Uint8Array(state.received);
-    let at = 0;
-    for (const c of chunks) { bytes.set(c, at); at += c.length; }
-    return bytes;
-  }
 }
 
 async function acquire() {

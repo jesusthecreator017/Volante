@@ -16,6 +16,22 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
 #timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
 #readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* Match header: A's name in A's colour vs B's. The colours are brightened sRGB versions of oso_render PLAYER_COLORS
+   (linear #ff730d / #00ccff) so small text stays readable on the dark court. A compact top-left card, so it never
+   covers the in-scene scoreboard at the top centre. */
+#players {
+  position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; z-index: 5; box-sizing: border-box;
+  pointer-events: none; display: flex; flex-direction: column; gap: 2px;
+  max-width: calc(50vw - 90px); padding: 6px 10px; border-radius: 6px;
+  background: rgba(10, 10, 10, 0.6); color: #eee; font: 14px/1.3 system-ui, sans-serif;
+}
+#players .pl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#players .name { font-weight: 700; }
+#players .build { font-size: 0.85em; font-variant-numeric: tabular-nums; opacity: 0.85; }
+#players .vs { opacity: 0.6; font-size: 0.85em; }
+#pl-a { color: #ff9a2e; }
+#pl-b { color: #25d5ff; }
+
 /* The overlay shows the same information as the corner text Rust writes */
 #status { display: none; }
 [hidden] { display: none !important; }
@@ -43,6 +59,7 @@ body.dragging::after {
 /* Embedded in a small iframe (the Arena match page): one compact row so the court stays visible */
 @media (max-height: 480px), (max-width: 600px) {
   #timeline { padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); font-size: 12px; }
+  #players { top: calc(4px + env(safe-area-inset-top)); left: 4px; padding: 3px 6px; font-size: 12px; }
   #scrub { margin: 0 0 2px; }
   .row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; }
   #timeline button, #timeline select { min-height: 28px; min-width: 28px; padding: 2px 6px; flex: none; }

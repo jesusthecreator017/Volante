@@ -103,6 +103,13 @@ impl Renderer {
         ));
     }
 
+    /// New body colors for the skinned pass (one per slot), e.g. after a change of ends; no-op before `set_rig`.
+    pub fn set_player_colors(&mut self, colors: &[[f32; 3]]) {
+        if let Some(skinned) = &mut self.skinned {
+            skinned.set_colors(colors);
+        }
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.gpu.resize(width, height);
         // Depth texture must match the new surface size
