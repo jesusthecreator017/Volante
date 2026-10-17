@@ -12,6 +12,7 @@ import Observation
 import OsoKit
 import Security
 
+@MainActor
 @Observable
 final class FitbitLink: NSObject, ASWebAuthenticationPresentationContextProviding {
     /// as reported by the Pi; nil = not checked yet
@@ -33,12 +34,10 @@ final class FitbitLink: NSObject, ASWebAuthenticationPresentationContextProvidin
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { ASPresentationAnchor() }
 
-    @MainActor
     func refreshStatus() async {
         do { connected = try await pi.fitbitConnected(); lastError = nil } catch { connected = nil; lastError = error.localizedDescription }
     }
 
-    @MainActor
     func connect() async {
         guard configured else { lastError = "Set GOOGLE_CLIENT_ID in Config.xcconfig first"; return }
         busy = true
@@ -70,7 +69,6 @@ final class FitbitLink: NSObject, ASWebAuthenticationPresentationContextProvidin
         }
     }
 
-    @MainActor
     func disconnect() async {
         do { try await pi.fitbitDisconnect(); connected = false } catch { lastError = error.localizedDescription }
     }
