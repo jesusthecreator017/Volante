@@ -547,7 +547,9 @@ def create_app():
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
             os.chmod(tmp, 0o640)
-            os.replace(tmp, dst)  # same filesystem; models/ is setgid oso-arena-sandbox, so the child can read it
+            # a rename keeps the group quarantine/ gave the file; give it models/ group (oso-arena-sandbox) so the child can read it
+            os.chown(tmp, -1, os.stat(cfg.models_dir).st_gid)
+            os.replace(tmp, dst)
         with db.tx(con):
             season = db.active_season(con)
             cur = con.execute("INSERT INTO models (season_id, user_id, sha256, name, description, build, status, created_at, uploaded_by) "
