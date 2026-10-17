@@ -1,0 +1,160 @@
+{
+  "version": "v0",
+  "created": "2026-10-17",
+  "candidate": "a_of",
+  "architecture": "HistGradientBoosting (class head + side head) on orientation-free features",
+  "n_params": null,
+  "classes": [
+    "not_a_hit",
+    "power",
+    "mid",
+    "touch"
+  ],
+  "sides": [
+    "FH",
+    "BH"
+  ],
+  "sideless_classes": [
+    "not_a_hit"
+  ],
+  "output_class_ids": [
+    1,
+    2,
+    3
+  ],
+  "output_class_note": "probabilities has one column per id in output_class_ids (classes absent from training are not modelled)",
+  "kind": "stroke intensity group",
+  "class_to_group": {
+    "not_a_hit": "not_a_hit",
+    "smash": "power",
+    "clear": "power",
+    "drive": "mid",
+    "drop": "mid",
+    "lift": "mid",
+    "net_kill": "mid",
+    "serve_long": "mid",
+    "net_shot": "touch",
+    "block_push": "touch",
+    "serve_short": "touch"
+  },
+  "groups_not_modelled": [
+    "not_a_hit"
+  ],
+  "note": "not_a_hit has no drill training data, so it is not modelled: this model never outputs it",
+  "window": {
+    "pre_s": 0.6,
+    "post_s": 0.4,
+    "rate_hz": 500,
+    "n": 500,
+    "centre": "gyro |w| peak at index 300"
+  },
+  "channels": [
+    "ax_g",
+    "ay_g",
+    "az_g",
+    "wx_dps",
+    "wy_dps",
+    "wz_dps",
+    "w_dps",
+    "a_g",
+    "sat_gyro",
+    "sat_acc"
+  ],
+  "input": {
+    "name": "features",
+    "shape": [
+      "batch",
+      24
+    ],
+    "dtype": "float32",
+    "note": "the listed features of the window"
+  },
+  "outputs": {
+    "probabilities": "[batch, 3] softmax over output_class_ids",
+    "side_probabilities": "[batch, 2] FH, BH (ignore for not_a_hit)"
+  },
+  "preprocessing": {
+    "features_version": 2,
+    "feature_names": [
+      "w_peak_dps",
+      "a_peak_g",
+      "buildup_s",
+      "burst_s",
+      "burst_lo_s",
+      "follow_decay",
+      "follow_to20_s",
+      "clip_gyro_n",
+      "clip_acc_n",
+      "t_apeak_minus_wpeak_s",
+      "w_prebuild_mean_dps",
+      "band0_log_share",
+      "band1_log_share",
+      "band2_log_share",
+      "band3_log_share",
+      "band4_log_share",
+      "band5_log_share",
+      "a_burst_s",
+      "clip_gyro_run_s",
+      "clip_acc_run_s",
+      "w_rise_dps2",
+      "w_fall_dps2",
+      "w_energy_pre_share",
+      "a_jerk_peak_gps"
+    ],
+    "bands_hz": [
+      [
+        0.5,
+        3
+      ],
+      [
+        3,
+        6
+      ],
+      [
+        6,
+        12
+      ],
+      [
+        12,
+        25
+      ],
+      [
+        25,
+        60
+      ],
+      [
+        60,
+        125
+      ]
+    ],
+    "note": "features.full_features(window)[feature_names order]; features.py is part of the model contract; no scaling"
+  },
+  "mount_convention": "racquet frame: +Y shaft toward the tip, +Z string-face normal, +X = Y x Z; acc in g, gyro in dps",
+  "uncertainty_threshold": 0.9992,
+  "uncertainty_rule": "max class probability < threshold -> report 'unclassified'",
+  "threshold_met_targets": false,
+  "threshold_coverage": 0.21022727272727273,
+  "threshold_accuracy": 0.8243243243243243,
+  "training_data_sha256": "5a5fbe7a7e9f7d18af74c740fae4df5a08fb23a3c18db45ffb6ca4601c0c0e3e",
+  "training_context": "drill",
+  "n_swings": 352,
+  "players": [
+    "P01"
+  ],
+  "sessions": [
+    "20261017-220845-P01"
+  ],
+  "seed": 0,
+  "metrics": {
+    "eval": "WITHIN-SESSION grouped 5-fold over drill blocks (a block never split): optimistic, not a generalisation estimate",
+    "mean_macro_f1": 0.7479841594688993,
+    "mean_accuracy": 0.7792617683462754,
+    "mean_side_accuracy": 0.4296525909906192,
+    "mean_not_a_hit_precision": null
+  },
+  "parity": {
+    "max_abs_class": 1.2283251682454477e-07,
+    "max_abs_side": 8.314047039714723e-08,
+    "n": 352
+  }
+}

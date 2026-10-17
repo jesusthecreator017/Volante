@@ -38,6 +38,7 @@
     10
   ],
   "output_class_note": "probabilities has one column per id in output_class_ids (classes absent from training are not modelled)",
+  "status": "experimental: do not use in reports (one drill session, 1-2 blocks per class)",
   "window": {
     "pre_s": 0.6,
     "post_s": 0.4,

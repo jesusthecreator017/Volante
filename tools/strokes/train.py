@@ -344,27 +344,31 @@ REQUIRED_META = ["version", "created", "candidate", "classes", "sides", "window"
 def check_meta(meta):
     missing = [k for k in REQUIRED_META if k not in meta]
     assert not missing, f"model json lacks {missing}"
-    assert meta["classes"] == F.CLASSES and meta["channels"] == F.CHANNELS
+    assert meta["classes"] == (GROUP_NAMES if "class_to_group" in meta else F.CLASSES) and meta["channels"] == F.CHANNELS
     assert 0.0 <= meta["uncertainty_threshold"] <= 1.0
 
 
-def export_model(model, cand, d, thr, summary, digest, outdir, seed, eval_note=""):
+def export_model(model, cand, d, thr, summary, digest, outdir, seed, eval_note="", group=False):
     """Train-on-all model -> ONNX + json + test vectors, parity-checked on every training swing. Returns the parity numbers."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    onnx_path = outdir / f"stroke_model_{MODEL_VERSION}.onnx"
+    stem = f"stroke_{'group' if group else 'model'}_{MODEL_VERSION}"
+    nc = len(GROUP_NAMES) if group else NC
+    y_true = GROUP_OF[d["y"]] if group else d["y"]
+    onnx_path = outdir / f"{stem}.onnx"
     cnn = is_cnn(cand)
     (export_cnn if cnn else export_gbm)(model, onnx_path)
-    ids = list(range(NC)) if cnn else [int(c) for c in model.clf.classes_]
+    ids = list(range(nc)) if cnn else [int(c) for c in model.clf.classes_]
     inp = d["x"] if cnn else F.full_features_batch(d["x"])[:, model.cols]
     pc, ps = model.predict(d["x"])
     oc, os_ = ort_probs(onnx_path, inp)
     parity = dict(max_abs_class=float(np.abs(oc - pc[:, ids]).max()), max_abs_side=float(np.abs(os_ - ps).max()), n=int(len(inp)))
     rng = np.random.default_rng(seed)
     pick = np.sort(rng.choice(len(d["x"]), 20, replace=False))
-    np.savez_compressed(outdir / f"test_vectors_{MODEL_VERSION}.npz", window=d["x"][pick].astype(np.float32),
+    vec = dict(window=d["x"][pick].astype(np.float32)) if not group else dict(window_same_as="test_vectors_v0.npz (same 20 swings: same seed and data)")
+    np.savez_compressed(outdir / (f"test_vectors_group_{MODEL_VERSION}.npz" if group else f"test_vectors_{MODEL_VERSION}.npz"), **vec,
                         inputs=inp[pick].astype(np.float32), probabilities=oc[pick].astype(np.float32),
-                        side_probabilities=os_[pick].astype(np.float32), class_id=d["y"][pick], side=d["side"][pick])
+                        side_probabilities=os_[pick].astype(np.float32), class_id=y_true[pick], side=d["side"][pick])
     if cnn:
         pre = dict(normalisation="applied inside the ONNX graph: (x - mean) / std per channel", mean=model.mean.tolist(),
                    std=model.std.tolist(), note="saturation channels have mean 0, std 1 (raw)")
@@ -380,8 +384,12 @@ def export_model(model, cand, d, thr, summary, digest, outdir, seed, eval_note="
         architecture=f"1D-CNN, 4 strided conv blocks, mean+max pool, class and side heads, mount-rotation augmentation +-{model.rot_deg:g} deg"
         if cnn else "HistGradientBoosting (class head + side head) on " + ("orientation-free features" if cand == "a_of" else "all features"),
         n_params=n_params(model.net) if cnn else None,
-        classes=F.CLASSES, sides=F.SIDES, sideless_classes=sorted(F.SIDELESS),
+        classes=GROUP_NAMES if group else F.CLASSES, sides=F.SIDES, sideless_classes=sorted(F.SIDELESS),
         output_class_ids=ids, output_class_note="probabilities has one column per id in output_class_ids (classes absent from training are not modelled)",
+        **(dict(kind="stroke intensity group", class_to_group={c: GROUP_NAMES[g] for c, g in GROUPS.items()},
+                groups_not_modelled=[GROUP_NAMES[g] for g in range(nc) if g not in ids],
+                note="not_a_hit has no drill training data, so it is not modelled: this model never outputs it")
+           if group else dict(status="experimental: do not use in reports (one drill session, 1-2 blocks per class)")),
         window=dict(pre_s=F.PRE_S, post_s=F.POST_S, rate_hz=F.RATE_HZ, n=F.WINDOW_N, centre="gyro |w| peak at index %d" % PEAK),
         channels=F.CHANNELS, input=inp_spec, outputs=dict(probabilities=f"[batch, {len(ids)}] softmax over output_class_ids",
                                                             side_probabilities="[batch, 2] FH, BH (ignore for not_a_hit)"),
@@ -396,7 +404,7 @@ def export_model(model, cand, d, thr, summary, digest, outdir, seed, eval_note="
         parity=parity,
     )
     check_meta(meta)
-    (outdir / f"stroke_model_{MODEL_VERSION}.json").write_text(json.dumps(meta, indent=2) + "\n")
+    (outdir / f"{stem}.json").write_text(json.dumps(meta, indent=2) + "\n")
     return parity, meta
 
 
@@ -509,6 +517,12 @@ def main(argv=None):
         parity, meta = export_model(model, win, d, results[win]["threshold"], results[win], data_hash(a.root, npz), a.out, a.seed,
                                     EVAL_NOTE[mode])
         print(f"  parity (onnxruntime vs python) max abs diff: class {parity['max_abs_class']:.2e}, side {parity['max_abs_side']:.2e}")
+        gres = results.get("a_of")
+        if gres is not None:
+            gm = VARIANTS["a_of"](len(GROUP_NAMES)).fit(d["x"], GROUP_OF[d["y"]], d["side"], a.seed)
+            gp, gmeta = export_model(gm, "a_of", d, gres["group4"]["threshold"], gres["group4"], data_hash(a.root, npz), a.out, a.seed,
+                                     EVAL_NOTE[mode], group=True)
+            print(f"  group model (a_of): parity class {gp['max_abs_class']:.2e}, side {gp['max_abs_side']:.2e}, groups {gmeta['output_class_ids']}")
         for f in sorted(a.out.glob("*v0*")):
             print(f"  {f.relative_to(REPO) if f.is_relative_to(REPO) else f}: {f.stat().st_size / 1024:.1f} KiB")
 

@@ -1,7 +1,13 @@
 # Stroke model v0 (personal, Phase 16.4a part 2, revised)
 
-**Status: trained and exported as plumbing, NOT usable for reports. Targets (macro-F1 >= 0.80, not_a_hit precision >= 0.90) are not met
-and cannot be assessed yet.** The only clean data is one drill session (352 swings), so there is no honest generalisation estimate.
+**Recommended v0 for reports: the stroke intensity group model (`stroke_group_v0`)**, which says whether a swing was a *power*
+(smash, clear), *mid* (drive, drop, lift, net_kill, serve_long) or *touch* (net_shot, block_push, serve_short) stroke. Orientation-free GBM
+(variant a_of), block 5-fold macro-F1 0.75 / accuracy 0.78 (within-session, optimistic; see below).
+
+**The 11-class CNN (`stroke_model_v0`) is EXPERIMENTAL: do not use it in reports.** Reason: it was trained on one drill session with only
+1-2 blocks per class (one per side), so it cannot separate strokes beyond the block it saw (block 5-fold macro-F1 0.23; its apparent
+winner status over the other 11-class variants is noise). Neither model meets the targets (macro-F1 >= 0.80, not_a_hit precision >= 0.90)
+or has a generalisation estimate: the only clean data is one drill session (352 swings).
 
 ## Data
 - Player P01, three sessions on 2026-10-17. Their context (`docs/strokes/dataset.md`):
@@ -73,7 +79,18 @@ What this says, with the caveats above:
 - Effort groups (power / mid / touch) are recognisable (touch F1 0.9+, mid ~0.8, power ~0.5 with a_of); individual strokes are not.
 - Side accuracy is 0.43-0.58 (near chance for two classes): the side head does not generalise across blocks.
 
-## Uncertainty threshold
+## Group model (`stroke_group_v0.{onnx,json}`)
+- Variant a_of trained on all 352 drill swings with 4 group labels. The ONNX input is the 24 orientation-free features listed in the json;
+  outputs `probabilities` [batch, 3] over `output_class_ids` = [1, 2, 3] = power, mid, touch, and `side_probabilities` (not reliable, see
+  above). **not_a_hit has no drill data, so the model never outputs it** (`groups_not_modelled`). The json lists the groups and the
+  `class_to_group` mapping from the 11 classes.
+- Block 5-fold: macro-F1 0.748, accuracy 0.779; pooled F1 power 0.51, mid 0.79, touch 0.95. Stored threshold 0.999 (fallback, targets not
+  met): keeps 21 % of swings at 82 % accuracy.
+- onnxruntime parity on all 352 swings: max abs difference 1.2e-07 (group), 8.3e-08 (side). 20 test vectors in `test_vectors_group_v0.npz`
+  (features and expected outputs; the windows are the same 20 swings as `test_vectors_v0.npz`, which holds them).
+- Repo size of `models/strokes/`: about 1.26 MB in total.
+
+## Uncertainty threshold (11-class CNN)
 Rule: report "unclassified" when the max class probability is below the threshold. The targets are not reachable; the stored fallback
 (best accuracy keeping >= 20 % coverage) for the exported model is **0.990**, which keeps 20 % of swings at 45 % accuracy. It comes
 from out-of-fold probabilities and must be re-picked once the model is useful.
@@ -83,10 +100,10 @@ One player, one clean session; no not_a_hit class; rally swings unused until rev
 (speeds are lower bounds). The exported model has never been tested on an unseen session.
 
 ## Intended use
-Personal v0 plumbing only: training, ONNX export and parity checking work end to end. Not validated on anyone, not for reports.
+Personal v0: the group model for rough intensity breakdowns of the owner's own swings; the 11-class model is plumbing only. Neither is validated on anyone else.
 
 ## Files and retraining
-- `models/strokes/stroke_model_v0.onnx` (input `window` [batch, 500, 10], outputs `probabilities`, `side_probabilities`),
+- Experimental 11-class: `models/strokes/stroke_model_v0.onnx` (input `window` [batch, 500, 10], outputs `probabilities`, `side_probabilities`),
   `stroke_model_v0.json`, `test_vectors_v0.npz` (20 windows with expected outputs, 615 KB). If a GBM variant wins, the input is the
   listed features of `features.py` instead and `output_class_ids` names the modelled classes.
 - onnxruntime vs Python on all 352 training swings: max abs probability difference 4.8e-07 (class), 3.0e-07 (side).

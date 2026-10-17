@@ -133,6 +133,19 @@ def test_orientation_free_features_ignore_a_mount_rotation():
     assert not np.allclose(a, b, rtol=1e-3, atol=1e-3)  # the axis-wise features do move
 
 
+def test_group_export_lists_groups_and_only_seen_ones():
+    with tempfile.TemporaryDirectory() as d:
+        c = [i for i in range(1, T.NC)]  # no not_a_hit, like the drill data
+        x, y, s = synth(12, classes=c)
+        data = dict(x=x, y=y, side=s, player=np.array(["P01"] * len(y)), session=np.array(["s"] * len(y)))
+        m = T.GBM(max_iter=10, cols=F.ORIENTATION_FREE_IDX, nc=4).fit(x, T.GROUP_OF[y], s, 0)
+        summ = dict(mean_macro_f1=0.5, mean_accuracy=0.5, mean_side_accuracy=0.5, mean_not_a_hit_precision=None)
+        parity, meta = T.export_model(m, "a_of", data, dict(threshold=0.5, met=False, coverage=0.5, accuracy=0.5), summ, "0" * 64, d, 0, group=True)
+        assert parity["max_abs_class"] <= 1e-4 and meta["output_class_ids"] == [1, 2, 3] and meta["groups_not_modelled"] == ["not_a_hit"]
+        assert meta["class_to_group"]["smash"] == "power" and (Path(d) / "stroke_group_v0.onnx").exists()
+        assert (Path(d) / "test_vectors_group_v0.npz").exists()
+
+
 def test_group_map_covers_every_class():
     assert len(T.GROUP_OF) == T.NC and set(T.GROUP_OF) == {0, 1, 2, 3} and T.GROUP_OF[F.CLASSES.index("smash")] == 1
 
