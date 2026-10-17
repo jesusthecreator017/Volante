@@ -20,11 +20,7 @@ struct OsoPhoneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView(selection: Bindable(router).tab) {
-                PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }.tag(Router.Tab.pod)
-                SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }.tag(Router.Tab.sessions)
-                WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }.tag(Router.Tab.connections)
-            }
+            root
             .modifier(DebugOverrides())
             .environment(router)
             .environment(store)
@@ -36,7 +32,24 @@ struct OsoPhoneApp: App {
         }
     }
 
+    @ViewBuilder private var root: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-osoLivePreview") { LivePreviewView() } else { tabs }
+        #else
+        tabs
+        #endif
+    }
+
+    private var tabs: some View {
+        TabView(selection: Bindable(router).tab) {
+            PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }.tag(Router.Tab.pod)
+            SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }.tag(Router.Tab.sessions)
+            WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }.tag(Router.Tab.connections)
+        }
+    }
+
     private func wire() {
+        pod.liveActivity.endStale()
         pod.onSession = { imu, meta in
             do { try store.save(imu: imu, meta: meta) } catch { pod.lastError = "save failed: \(error)" }
         }
@@ -47,9 +60,10 @@ struct OsoPhoneApp: App {
     }
 
     #if DEBUG
-    /// See DebugOverrides in Theme.swift.
+    /// See DebugOverrides in DebugOverrides.swift.
     private func applyLaunchArguments() {
         let args = ProcessInfo.processInfo.arguments
+        if args.contains("-osoLiveDemo") { pod.liveActivity.runDemo() }
         if let i = args.firstIndex(of: "-osoTab"), i + 1 < args.count, let tab = Router.Tab(rawValue: args[i + 1]) { router.tab = tab }
         if args.contains("-osoResetSample") { for m in store.sessions where m.source == .sample { store.delete(m.id) } }
         if args.contains("-osoSample") {

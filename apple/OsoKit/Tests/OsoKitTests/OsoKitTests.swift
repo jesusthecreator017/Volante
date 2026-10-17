@@ -195,3 +195,30 @@ func sampleBytes() -> [UInt8] {
         #expect(u.contains("googlehealth.health_metrics_and_measurements.readonly"))
     }
 }
+
+@Suite struct UpdateThrottleTests {
+    @Test func firstUpdateIsImmediateThenOnePerSecond() {
+        var t = UpdateThrottle()
+        #expect(t.request(at: 10) == 0)
+        #expect(abs(t.request(at: 10.25) - 0.75) < 1e-9)   // too soon: wait for the rest of the second
+        #expect(abs(t.request(at: 10.9) - 0.1) < 1e-9)
+        #expect(t.request(at: 11) == 0)                      // the trailing update goes out and restarts the window
+        #expect(abs(t.request(at: 11.5) - 0.5) < 1e-9)
+    }
+
+    @Test func neverMoreThanOnePerSecond() {
+        var t = UpdateThrottle()
+        var sent: [Double] = []
+        var now = 0.0
+        while now < 30 { if t.request(at: now) == 0 { sent.append(now) }; now += 0.1 }   // 10 requests per second
+        #expect(sent.count <= 30)
+        for (a, b) in zip(sent, sent.dropFirst()) { #expect(b - a >= 1 - 1e-9) }
+    }
+
+    @Test func resetMakesTheNextOneImmediate() {
+        var t = UpdateThrottle()
+        _ = t.request(at: 5)
+        t.reset()
+        #expect(t.request(at: 5.1) == 0)
+    }
+}
