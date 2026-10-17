@@ -13,6 +13,7 @@ final class PiServer {
     }
     private(set) var reachable: Bool?
     private(set) var busy = false
+    private(set) var checking = false
 
     init() {
         baseURL = UserDefaults.standard.string(forKey: "oso.pi.url") ?? "http://raspberrypi.local:8080"
@@ -43,6 +44,8 @@ final class PiServer {
     }
 
     func checkHealth() async {
+        checking = true
+        defer { checking = false }
         do {
             let d = try expectOK(await request("health"))
             reachable = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["app"] as? String == "oso"

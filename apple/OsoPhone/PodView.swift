@@ -1,4 +1,4 @@
-// Pod screen: connect, state, live swings, on-device recording + upload, sleep.
+// Pod screen: connect, device health, live swings, on-device recording + upload, sleep.
 
 import OsoKit
 import SwiftUI
@@ -6,24 +6,18 @@ import SwiftUI
 struct PodView: View {
     @Environment(PodLink.self) private var pod
     @Environment(SessionStore.self) private var store
+    @Environment(Router.self) private var router
     @State private var confirm: CheckedContinuation<Bool, Never>?
 
     var body: some View {
         NavigationStack {
-            List {
-                connection
-                if pod.state == .connected, let st = pod.status { device(st) }
-                if pod.state == .connected, pod.status?.sleeping == false {
-                    liveSection
-                    recordSection
-                    Section {
-                        Button("Put pod to sleep (0x08)", role: .destructive) { pod.sleep() }
-                    } footer: {
-                        Text("Stops recording and parks the pod (~70 h). To wake it, scan and connect: it advertises 2 s every 30 s.")
-                    }
+            Screen {
+                switch pod.state {
+                case .connected: connectedContent
+                default: connectContent
                 }
-                if let n = pod.notice { Section { Text(n).font(.footnote) } }
-                if let e = pod.lastError { Section { Text(e).font(.footnote).foregroundStyle(.red) } }
+                if let n = pod.notice { Card { Text(n).font(.footnote) } }
+                if let e = pod.lastError { Card { Label(e, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Theme.bad) } }
             }
             .navigationTitle("Racquet pod")
             .alert("Overwrite the stored session?", isPresented: .constant(confirm != nil)) {
@@ -38,80 +32,160 @@ struct PodView: View {
         }
     }
 
-    @ViewBuilder private var connection: some View {
-        Section("Connection") {
+    // MARK: not connected
+
+    @ViewBuilder private var connectContent: some View {
+        Banner {
+            Image(systemName: "figure.badminton").font(.system(size: 54, weight: .semibold)).accessibilityHidden(true)
+            Text("Your swing, measured.").font(.system(.title, design: .rounded, weight: .heavy))
+            Text("The oso pod clips to your racquet and counts every swing, with head speed, stroke type and impact timing, over Bluetooth.")
+                .font(.subheadline).foregroundStyle(.white.opacity(0.85))
+        }
+        Card {
             switch pod.state {
-            case .off: Text("Bluetooth is off or not allowed")
-            case .idle: Button("Scan for pods") { pod.scan() }
+            case .off:
+                Label("Bluetooth is off or not allowed. Turn it on in Settings to find your pod.", systemImage: "bolt.horizontal.circle")
+                    .font(.subheadline)
             case .scanning:
-                HStack { ProgressView(); Text("Scanning (a sleeping pod can take 30 s)…") }
+                HStack(spacing: 10) { ProgressView(); Text("Looking for your pod…").font(.headline) }
+                Text("A sleeping pod advertises for 2 s every 30 s, so this can take up to half a minute.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 ForEach(pod.found, id: \.identifier) { p in
-                    Button(p.name ?? "oso pod") { pod.connect(p) }
+                    Button { pod.connect(p) } label: { Label(p.name ?? "oso pod", systemImage: "sensor.tag.radiowaves.forward") }
+                        .buttonStyle(.primary)
                 }
-            case .connecting: HStack { ProgressView(); Text("Connecting…") }
-            case .connected:
-                LabeledContent("Pod", value: pod.peripheralName ?? "oso")
-                Button("Disconnect") { pod.disconnect() }
+            case .connecting:
+                HStack(spacing: 10) { ProgressView(); Text("Connecting…").font(.headline) }
+            default:
+                Button { pod.scan() } label: { Label("Scan for pods", systemImage: "dot.radiowaves.left.and.right") }
+                    .buttonStyle(.primary)
+            }
+            Button { openSample() } label: { Label("Try the sample session", systemImage: "play.circle") }
+                .buttonStyle(.secondary)
+        }
+    }
+
+    private func openSample() {
+        if !store.sessions.contains(where: { $0.source == .sample }) { try? store.importSample() }
+        if let m = store.sessions.first(where: { $0.source == .sample }) {
+            router.tab = .sessions
+            router.path = [m]
+        }
+    }
+
+    // MARK: connected
+
+    @ViewBuilder private var connectedContent: some View {
+        Banner {
+            HStack {
+                Label(pod.peripheralName ?? "oso pod", systemImage: "sensor.tag.radiowaves.forward").font(.headline)
+                Spacer(minLength: 8)
+                StatusChip(text: pod.status?.sleeping == true ? "Sleeping" : "Connected", systemImage: "checkmark.circle.fill", color: .white)
+            }
+            if let st = pod.status { Text(st.stateLabels.joined(separator: " · ").capitalized).font(.subheadline).foregroundStyle(.white.opacity(0.85)) }
+        }
+        if let st = pod.status { health(st) }
+        if pod.status?.sleeping == false {
+            liveCard
+            recordCard
+            Card("Sleep", systemImage: "moon.zzz") {
+                Button(role: .destructive) { pod.sleep() } label: { Label("Put pod to sleep", systemImage: "moon.fill") }
+                    .buttonStyle(.secondaryDestructive)
+                Text("Stops recording and parks the pod (about 70 h). To wake it, scan and connect: it advertises 2 s every 30 s. (Command 0x08)")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        if let st = pod.status { details(st) }
+        Button("Disconnect") { pod.disconnect() }.buttonStyle(.secondary)
+    }
+
+    private func health(_ st: PodStatus) -> some View {
+        Card("Device health", systemImage: "heart.text.square") {
+            StatGrid(minimum: 130) {
+                BigStat(value: pod.battery.map { "\($0)" } ?? "–", unit: pod.battery == nil ? nil : "%", label: pod.battery == nil ? "Battery (no divider fitted)" : "Battery", style: .title)
+                BigStat(value: st.imuOk ? "OK" : "Down", label: st.imuOk ? (st.imuIs6500 ? "IMU (MPU-6500)" : "IMU") : "IMU not responding", style: .title)
+                BigStat(value: signal, label: pod.rssi.map { "Signal (\($0) dBm)" } ?? "Signal", style: .title)
+                BigStat(value: st.sleeping ? "–" : "\(Int(st.bufferedPackets) / max(1, Int(st.rateHz)))", unit: st.sleeping ? nil : "s", label: "Stored on the pod", style: .title)
+            }
+            if st.sleeping {
+                Text("The pod is asleep. Scan and connect to wake it (it advertises 2 s every 30 s).").font(.footnote).foregroundStyle(.secondary)
+            }
+            if st.fifoOverflows > 0 {
+                Label("\(st.fifoOverflows) sensor buffer overflows", systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
             }
         }
     }
 
-    private func device(_ st: PodStatus) -> some View {
-        Section("Device") {
-            LabeledContent("State", value: st.stateLabels.joined(separator: ", "))
-            LabeledContent("Firmware", value: st.firmware)
-            LabeledContent("Battery", value: pod.battery.map { "\($0) %" } ?? "unknown (no divider fitted)")
-            LabeledContent("IMU", value: st.imuOk ? (st.imuIs6500 ? "ok (MPU-6500)" : "ok") : "not responding")
-            LabeledContent("Ranges", value: "±\(st.accelG) g, ±\(st.gyroDps) dps @ \(st.rateHz) Hz")
-            LabeledContent("Stored", value: st.sleeping
-                ? "sleeping (session kept; wake to see it)"
-                : "\(st.bufferedPackets) packets (\(Int(st.bufferedPackets) / max(1, Int(st.rateHz))) s)")
-            if st.fifoOverflows > 0 { LabeledContent("FIFO overflows", value: "\(st.fifoOverflows)") }
-            if let r = pod.rssi { LabeledContent("RSSI", value: "\(r) dBm") }
-            if let m = pod.mtu { LabeledContent("MTU", value: "\(m) B → \(packetsPerNotification(mtu: m)) packets/notification") }
+    private var signal: String {
+        guard let r = pod.rssi else { return "–" }
+        return r > -65 ? "Strong" : r > -80 ? "Fair" : "Weak"
+    }
+
+    private func details(_ st: PodStatus) -> some View {
+        Card("Details", systemImage: "info.circle") {
+            VStack(spacing: 8) {
+                LabeledContent("Firmware", value: st.firmware)
+                LabeledContent("Ranges", value: "±\(st.accelG) g, ±\(st.gyroDps) dps @ \(st.rateHz) Hz")
+                if let m = pod.mtu { LabeledContent("Link", value: "MTU \(m) B, \(packetsPerNotification(mtu: m)) packets/notification") }
+            }
+            .font(.footnote)
         }
     }
 
-    @ViewBuilder private var liveSection: some View {
-        Section("Live") {
+    @ViewBuilder private var liveCard: some View {
+        Card("Live swings", systemImage: "waveform.path.ecg") {
             if pod.streaming, let live = pod.live {
-                if !live.calibrated { Text("Hold the racquet still for 1 s to calibrate…").foregroundStyle(.orange) }
-                LabeledContent("Swings / hits", value: "\(live.swingCount) / \(live.hitCount)")
-                LabeledContent("|ω| now", value: String(format: "%.0f dps", live.currentDps))
-                if let b = live.bestSpeed { LabeledContent("Best head speed", value: String(format: "%.1f m/s", b)) }
-                ForEach(pod.liveSwings.suffix(5).reversed()) { s in
-                    LabeledContent("Swing \(s.index)", value: String(format: "%.0f dps · %.1f m/s%@", s.peakDps, s.headSpeed, s.impact ? " · hit" : ""))
+                if !live.calibrated {
+                    Label("Hold the racquet still for 1 s to calibrate…", systemImage: "hand.raised").font(.subheadline).foregroundStyle(.orange)
                 }
-                Button("Mark sync event (0x06)") { pod.send(.syncMark) }
-                Button("Stop & save") { pod.stopStream(save: true) }
-                Button("Stop & discard", role: .destructive) { pod.stopStream(save: false) }
+                StatGrid(minimum: 110) {
+                    BigStat(value: "\(live.swingCount)", label: "Swings (\(live.hitCount) hits)", style: .largeTitle)
+                    BigStat(value: pod.liveSwings.last.map { String(format: "%.1f", $0.headSpeed) } ?? "–", unit: "m/s", label: "Last swing", style: .largeTitle)
+                    BigStat(value: live.bestSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: "Peak", style: .largeTitle)
+                }
+                Text(String(format: "Now: %.0f dps", live.currentDps)).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                ForEach(pod.liveSwings.suffix(5).reversed()) { s in
+                    HStack {
+                        Circle().fill(Theme.stroke(s.stroke)).frame(width: 10, height: 10).accessibilityHidden(true)
+                        Text("#\(s.index) \(s.stroke.rawValue)").font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text(String(format: "%.1f m/s%@", s.headSpeed, s.impact ? " · hit" : "")).font(.subheadline.monospacedDigit())
+                    }
+                }
+                Button { pod.send(.syncMark) } label: { Label("Mark sync event", systemImage: "flag") }.buttonStyle(.secondary)
+                Button { pod.stopStream(save: true) } label: { Label("Stop and save", systemImage: "stop.circle.fill") }.buttonStyle(.primary)
+                Button(role: .destructive) { pod.stopStream(save: false) } label: { Label("Stop and discard", systemImage: "trash") }.buttonStyle(.secondaryDestructive)
             } else {
-                Button("Start live session") { pod.startStream(settings: store.settings) }
+                Text("Stream swings to your phone as you hit, and save the session when you stop.").font(.subheadline).foregroundStyle(.secondary)
+                Button { pod.startStream(settings: store.settings) } label: { Label("Start live session", systemImage: "play.fill") }
+                    .buttonStyle(.primary)
                     .disabled(pod.uploading)
             }
         }
     }
 
-    @ViewBuilder private var recordSection: some View {
-        Section {
+    @ViewBuilder private var recordCard: some View {
+        Card("On-device recording", systemImage: "internaldrive") {
             if pod.uploading {
                 ProgressView(value: Double(pod.uploadReceived), total: Double(max(1, pod.uploadExpected))) {
-                    Text("Uploading \(pod.uploadReceived) / \(pod.uploadExpected) packets")
+                    Text("Uploading \(pod.uploadReceived) / \(pod.uploadExpected) packets").font(.subheadline)
                 }
-                Button("Finish now (keep what arrived)") { pod.finishUploadEarly() }
+                .tint(.accentColor)
+                Button("Finish now (keep what arrived)") { pod.finishUploadEarly() }.buttonStyle(.secondary)
             } else {
                 let st = pod.status
-                Button("Start recording (0x03)") { Task { await pod.startRecording() } }
+                Button { Task { await pod.startRecording() } } label: { Label("Start recording", systemImage: "record.circle") }
+                    .buttonStyle(.primary)
                     .disabled(st?.recording == true || st?.erasing == true)
-                Button("Stop recording (0x04)") { pod.send(.stopRecording) }
+                Button { pod.send(.stopRecording) } label: { Label("Stop recording", systemImage: "stop.circle") }
+                    .buttonStyle(.secondary)
                     .disabled(st?.recording != true && st?.erasing != true)
-                Button("Upload stored session (0x05)") { pod.startUpload() }
+                Button { pod.startUpload() } label: { Label("Upload stored session", systemImage: "arrow.down.circle") }
+                    .buttonStyle(.secondary)
                     .disabled(st?.erasing == true || pod.streaming)
             }
-        } header: {
-            Text("On-device recording")
-        } footer: {
-            Text("The pod records ~12.5 min to flash, by itself at power-on unless it holds a session that wasn't uploaded. A complete upload is confirmed to the pod (0x07).")
+            Text("The pod records about 12.5 min to flash, by itself at power-on unless it holds a session that wasn't uploaded. A complete upload is confirmed to the pod. (Commands 0x03, 0x04, 0x05, 0x07)")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 }

@@ -1,4 +1,4 @@
-// Saved sessions: list, summary, swings, heart rate, share imu.bin.
+// Saved sessions: list, header, charts, swings, heart rate, Pi actions, share imu.bin.
 
 import Charts
 import OsoKit
@@ -6,26 +6,91 @@ import SwiftUI
 
 struct SessionsView: View {
     @Environment(SessionStore.self) private var store
+    @Environment(Router.self) private var router
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(store.sessions) { m in
-                    NavigationLink(value: m) {
-                        VStack(alignment: .leading) {
-                            Text(m.name)
-                            Text("\(m.source.rawValue)\(m.note.map { " · \($0)" } ?? "")").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .onDelete { idx in for i in idx { store.delete(store.sessions[i].id) } }
-                if store.sessions.isEmpty {
-                    Button("Load sample session") { try? store.importSample() }
-                }
+        NavigationStack(path: Bindable(router).path) {
+            Group {
+                if store.sessions.isEmpty { empty } else { list }
             }
             .navigationTitle("Sessions")
             .navigationDestination(for: SessionMeta.self) { SessionDetailView(meta: $0) }
         }
+    }
+
+    private var list: some View {
+        List {
+            ForEach(store.sessions) { m in
+                NavigationLink(value: m) { SessionRow(meta: m) }
+                    .listRowBackground(Theme.card)
+            }
+            .onDelete { idx in for i in idx { store.delete(store.sessions[i].id) } }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.canvas.ignoresSafeArea())
+        .canvasNavigationBar()
+    }
+
+    private var empty: some View {
+        Screen {
+            Banner {
+                Image(systemName: "chart.xyaxis.line").font(.system(size: 44, weight: .semibold)).accessibilityHidden(true)
+                Text("No sessions yet").font(.system(.title, design: .rounded, weight: .heavy))
+                Text("A session is one visit to the court: every swing, speed and rally. There are three ways to get one.")
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.85))
+            }
+            Card {
+                way("sensor.tag.radiowaves.forward", "Racquet pod", "Connect the pod on the Pod tab and record or stream a session.")
+                way("applewatch", "Apple Watch", "Start a badminton workout in oso on the watch; it sends the session here when you end it.")
+                way("testtube.2", "Sample session", "Explore the app with a built-in synthetic session.")
+                Button { try? store.importSample() } label: { Label("Load sample session", systemImage: "play.circle") }
+                    .buttonStyle(.primary)
+            }
+        }
+    }
+
+    private func way(_ icon: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.title3).foregroundStyle(.tint).frame(width: 30).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(text).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SessionRow: View {
+    @Environment(SessionStore.self) private var store
+    let meta: SessionMeta
+
+    var body: some View {
+        let row = store.rowSummaries[meta.id]
+        HStack(spacing: 12) {
+            Image(systemName: meta.source.icon)
+                .font(.title3).foregroundStyle(Theme.courtInk)
+                .frame(width: 42, height: 42)
+                .background(Theme.courtInk.opacity(0.12), in: Circle())
+                .layoutPriority(1)
+                .dynamicTypeSize(...DynamicTypeSize.xLarge)
+                .accessibilityLabel(meta.source.label)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(meta.createdAt.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())).font(.headline)
+                Text(([meta.source.label] + [meta.note].compactMap { $0 }).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if let row, row.readable {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("\(row.swings)").font(.score(.title2))
+                    Text("swings").font(.caption2).foregroundStyle(.secondary)
+                    Text(clock(row.durationS)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .task { await store.loadRowSummary(meta) }
     }
 }
 
@@ -38,93 +103,225 @@ struct SessionDetailView: View {
 
     var body: some View {
         let a = store.analysis(meta)
-        List {
+        Screen {
             if let a {
-                summary(a)
+                header(a)
+                speedChart(a)
+                strokeMix(a)
                 if !meta.heartRate.isEmpty, let anchor = meta.anchor { heartRateChart(a, anchor) }
-                Section("Swings") {
-                    ForEach(a.swings) { s in swingRow(s) }
-                }
+                swings(a)
+                details(a)
             } else {
-                Text("This file could not be read.")
+                Card { Text("This file could not be read.") }
             }
-            Section("Heart rate") {
-                if meta.heartRate.isEmpty {
-                    Text(meta.anchor == nil ? "No clock anchor for this session (connect before recording)." : "No heart rate attached.")
-                        .font(.footnote)
-                } else {
-                    LabeledContent("Source", value: meta.heartRateSource ?? "—")
-                }
-                if fitbit.connected == true, meta.anchor != nil, let a {
-                    Button("Fetch from Fitbit") { Task { await fetchFitbit(a) } }.disabled(fitbit.busy)
-                }
-                if let message { Text(message).font(.footnote) }
-            }
-            Section {
-                Button(meta.uploadedToPi == nil ? "Upload to Pi" : "Upload to Pi again") { Task { await uploadToPi() } }
-                    .disabled(pi.busy)
-                Button("Fetch replay from Pi") { Task { await fetchReplay() } }
-                if store.hasReplay(meta.id) {
-                    ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }
-                }
-                ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "square.and.arrow.up") }
-            } header: {
-                Text("Raspberry Pi")
-            } footer: {
-                Text(meta.uploadedToPi.map { "Uploaded \($0.formatted(date: .abbreviated, time: .shortened)). " } ?? ""
-                     + "The video pipeline on the Pi turns imu.bin + the two camera videos into replay.bin; open it in the web app's Replay page.")
-            }
+            heartRateCard(a)
+            piCard
         }
-        .navigationTitle(meta.name)
+        .navigationTitle(meta.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func summary(_ a: SessionAnalysis) -> some View {
+    // MARK: header
+
+    private func header(_ a: SessionAnalysis) -> some View {
         let s = a.summary
-        return Section("Summary") {
-            LabeledContent("Sensor", value: a.mount == .wrist ? "Apple Watch (wrist)" : "Racquet pod")
-            LabeledContent("Duration", value: String(format: "%.0f s (%.0f s active)", s.durationS, s.activeS))
-            LabeledContent("Swings / hits", value: "\(s.swingCount) / \(s.hitCount)")
-            LabeledContent("Hits per minute", value: String(format: "%.1f", s.hitsPerMin))
-            if let p = s.peakDps { LabeledContent("Peak |ω|", value: String(format: "%.0f dps%@", p, s.saturatedGyro > 0 ? " (saturated)" : "")) }
-            if let v = s.maxSpeed { LabeledContent(a.mount == .wrist ? "Best hand speed (proxy)" : "Best head speed", value: String(format: "%.1f m/s", v)) }
-            LabeledContent("Rallies", value: "\(s.rallyCount) (longest \(s.longestRally) hits)")
-            if s.lossPct > 0 { LabeledContent("Packet loss", value: String(format: "%.2f %%", s.lossPct)) }
-            if let kcal = meta.activeEnergyKcal { LabeledContent("Active energy", value: String(format: "%.0f kcal", kcal)) }
+        return Banner {
+            HStack {
+                Label(meta.source.label, systemImage: meta.source.icon).font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                if meta.uploadedToPi != nil { StatusChip(text: "On Pi", systemImage: "checkmark", color: .white) }
+            }
+            Text(meta.name).font(.system(.title3, design: .rounded, weight: .bold))
+            StatGrid(minimum: 130) {
+                BigStat(value: clock(s.durationS), label: "Duration", onBanner: true)
+                BigStat(value: "\(s.swingCount)", unit: "/ \(s.hitCount) hits", label: "Swings", onBanner: true)
+                BigStat(value: s.maxSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: a.mount == .wrist ? "Best hand speed" : "Best head speed", onBanner: true)
+                BigStat(value: "\(s.rallyCount)", unit: "longest \(s.longestRally)", label: "Rallies", onBanner: true)
+            }
         }
     }
 
-    private func swingRow(_ s: Swing) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text("#\(s.index) \(s.stroke.rawValue)").bold()
-                Spacer()
-                Text(String(format: "%.1f m/s", s.headSpeed))
+    // MARK: charts
+
+    private func duration(_ a: SessionAnalysis) -> Double { max(1, a.t1 - a.t0) }
+
+    /// Fixed-width y labels so the swing-speed and heart-rate charts share the same plot width (aligned time axes).
+    private func yAxis() -> some AxisContent {
+        AxisMarks(position: .leading) { v in
+            AxisGridLine()
+            AxisValueLabel {
+                if let n = v.as(Double.self) { Text("\(Int(n))").font(.caption2).frame(width: 30, alignment: .trailing) }
             }
-            Text([
-                String(format: "%.0f dps", s.peakDps),
-                s.timing.map { "impact \($0)" },
-                s.side,
-                s.handleTiltDeg.map { String(format: "tilt %.0f°", $0) },
-                s.heartRate.map { String(format: "%.0f bpm", $0) },
-                s.confidence < 0.8 ? "low confidence" : nil,
-            ].compactMap { $0 }.joined(separator: " · "))
-            .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func speedChart(_ a: SessionAnalysis) -> some View {
+        let present = StrokeType.allCases.filter { k in a.swings.contains { $0.stroke == k } }
+        return Card("Swing speed", systemImage: "speedometer") {
+            if a.swings.isEmpty {
+                Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                Chart(a.swings) { s in
+                    PointMark(x: .value("Time", s.tStart - a.t0), y: .value("m/s", s.headSpeed))
+                        .foregroundStyle(by: .value("Stroke", s.stroke.rawValue))
+                        .symbolSize(s.impact ? 70 : 36)
+                }
+                .chartForegroundStyleScale(domain: present.map(\.rawValue), range: present.map { Theme.stroke($0) })
+                .chartLegend(.hidden)
+                .chartXScale(domain: 0...duration(a))
+                .chartXAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let t = v.as(Double.self) { Text(clock(t)).font(.caption2) } } } }
+                .chartYAxis { yAxis() }
+                .chartYAxisLabel("m/s", position: .topLeading)
+                .frame(height: 190)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .accessibilityLabel("Swing speed over time")
+                .accessibilityValue("\(a.swings.count) swings, best \(String(format: "%.1f", a.summary.maxSpeed ?? 0)) metres per second")
+            }
+        }
+    }
+
+    private func strokeMix(_ a: SessionAnalysis) -> some View {
+        let counts = StrokeType.allCases.compactMap { k in a.summary.strokeCounts[k].flatMap { $0 > 0 ? (k, $0) : nil } }
+        return Card("Stroke mix", systemImage: "chart.pie") {
+            if counts.isEmpty {
+                Text("No strokes to classify.").font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                Chart(counts, id: \.0) { k, n in
+                    SectorMark(angle: .value("Swings", n), innerRadius: .ratio(0.62), angularInset: 1.5)
+                        .cornerRadius(4)
+                        .foregroundStyle(Theme.stroke(k))
+                }
+                .chartLegend(.hidden)
+                .frame(height: 160)
+                .frame(maxWidth: .infinity)
+                StatGrid(minimum: 130) {
+                    ForEach(counts, id: \.0) { k, n in
+                        HStack(spacing: 8) {
+                            Circle().fill(Theme.stroke(k)).frame(width: 12, height: 12).accessibilityHidden(true)
+                            Text(k.rawValue.capitalized).font(.subheadline)
+                            Spacer(minLength: 4)
+                            Text("\(n)").font(.score(.headline))
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
         }
     }
 
     private func heartRateChart(_ a: SessionAnalysis, _ anchor: ClockAnchor) -> some View {
-        Section("Heart rate during the session") {
+        let samples = meta.heartRate.filter { $0.t >= anchor.wall(a.t0) && $0.t <= anchor.wall(a.t1) }
+        return Card("Heart rate", systemImage: "heart.fill") {
             Chart {
-                ForEach(meta.heartRate.filter { $0.t >= anchor.wall(a.t0) - 5 && $0.t <= anchor.wall(a.t1) + 5 }, id: \.t) { h in
-                    LineMark(x: .value("s", anchor.device(h.t) - a.t0), y: .value("bpm", h.bpm))
+                ForEach(samples, id: \.t) { h in
+                    LineMark(x: .value("Time", anchor.device(h.t) - a.t0), y: .value("bpm", h.bpm))
+                        .foregroundStyle(Theme.bad)
+                        .interpolationMethod(.monotone)
                 }
                 ForEach(a.swings.filter(\.impact)) { s in
-                    RuleMark(x: .value("s", s.tStart - a.t0)).foregroundStyle(.orange.opacity(0.4))
+                    RuleMark(x: .value("Time", s.tStart - a.t0)).foregroundStyle(Color.accentColor.opacity(0.35))
                 }
             }
-            .chartXAxisLabel("s")
-            .frame(height: 160)
+            .chartXScale(domain: 0...duration(a))
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartXAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let t = v.as(Double.self) { Text(clock(t)).font(.caption2) } } } }
+            .chartYAxis { yAxis() }
+            .chartYAxisLabel("bpm", position: .topLeading)
+            .frame(height: 150)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            Text("Orange lines mark hits.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: swings and details
+
+    private func swings(_ a: SessionAnalysis) -> some View {
+        Card("Swings", systemImage: "figure.badminton") {
+            if a.swings.isEmpty {
+                Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
+            }
+            LazyVStack(spacing: 0) {
+                ForEach(a.swings) { s in
+                    swingRow(s)
+                    if s.id != a.swings.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private func swingRow(_ s: Swing) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(Theme.stroke(s.stroke)).frame(width: 12, height: 12).padding(.top, 6).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("#\(s.index) \(s.stroke.rawValue.capitalized)").font(.subheadline.weight(.semibold))
+                Text([
+                    String(format: "%.0f dps", s.peakDps),
+                    s.timing.map { "impact \($0)" },
+                    s.side,
+                    s.handleTiltDeg.map { String(format: "tilt %.0f°", $0) },
+                    s.heartRate.map { String(format: "%.0f bpm", $0) },
+                    s.confidence < 0.8 ? "low confidence" : nil,
+                ].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(String(format: "%.1f", s.headSpeed)).font(.score(.title3))
+                Text("m/s").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func details(_ a: SessionAnalysis) -> some View {
+        let s = a.summary
+        return Card("Details", systemImage: "list.bullet") {
+            VStack(spacing: 8) {
+                LabeledContent("Sensor", value: a.mount == .wrist ? "Apple Watch (wrist)" : "Racquet pod")
+                LabeledContent("Active time", value: String(format: "%.0f s of %.0f s", s.activeS, s.durationS))
+                LabeledContent("Hits per minute", value: String(format: "%.1f", s.hitsPerMin))
+                if let p = s.peakDps { LabeledContent("Peak |ω|", value: String(format: "%.0f dps%@", p, s.saturatedGyro > 0 ? " (saturated)" : "")) }
+                if s.lossPct > 0 { LabeledContent("Packet loss", value: String(format: "%.2f %%", s.lossPct)) }
+                if let kcal = meta.activeEnergyKcal { LabeledContent("Active energy", value: String(format: "%.0f kcal", kcal)) }
+            }
+            .font(.subheadline)
+        }
+    }
+
+    // MARK: heart rate source, Pi, sharing
+
+    private func heartRateCard(_ a: SessionAnalysis?) -> some View {
+        Card("Heart rate source", systemImage: "heart") {
+            if meta.heartRate.isEmpty {
+                Text(meta.anchor == nil ? "No clock anchor for this session (connect before recording)." : "No heart rate attached.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                LabeledContent("Source", value: meta.heartRateSource ?? "—").font(.subheadline)
+            }
+            if fitbit.connected == true, meta.anchor != nil, let a {
+                Button { Task { await fetchFitbit(a) } } label: { Label("Fetch from Fitbit", systemImage: "arrow.down.heart") }
+                    .buttonStyle(.secondary).disabled(fitbit.busy)
+            }
+            if let message { Text(message).font(.footnote) }
+        }
+    }
+
+    private var piCard: some View {
+        Card("Raspberry Pi and sharing", systemImage: "externaldrive.connected.to.line.below") {
+            Button { Task { await uploadToPi() } } label: {
+                Label(meta.uploadedToPi == nil ? "Upload to Pi" : "Upload to Pi again", systemImage: "icloud.and.arrow.up")
+            }
+            .buttonStyle(.primary).disabled(pi.busy)
+            Button { Task { await fetchReplay() } } label: { Label("Fetch replay from Pi", systemImage: "icloud.and.arrow.down") }
+                .buttonStyle(.secondary)
+            if store.hasReplay(meta.id) {
+                ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }.buttonStyle(.secondary)
+            }
+            ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "square.and.arrow.up") }.buttonStyle(.secondary)
+            Text((meta.uploadedToPi.map { "Uploaded \($0.formatted(date: .abbreviated, time: .shortened)). " } ?? "")
+                 + "The video pipeline on the Pi turns imu.bin + the two camera videos into replay.bin; open it in the web app's Replay page.")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
