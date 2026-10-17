@@ -11,7 +11,7 @@ import numpy as np
 from helpers import GOOD_BUILD, ROOT, random_actor, run
 from oso_arena import animate, body, cli, export, log, match, sim
 
-EVENT_KINDS = {"start", "hit", "land", "point", "game_over"}
+EVENT_KINDS = {"start", "hit", "cord", "land", "point", "game_over"}
 
 
 def model(tmp, seed=0, name="M", build=GOOD_BUILD, scale=0.2):
@@ -55,7 +55,7 @@ def test_log_round_trip_and_fields():
         # fields the Pi reads
         assert l.winner in (0, 1) and not l.voided and l.reason is None and l.score[l.winner] == 2  # games won
         assert l.rallies == len(l.rallies_detail) and l.duration_s == l.events[-1]["t"]
-        assert set(l.rallies_detail[0]) == {"game", "ends", "interval_before_s", "start_t", "end_t", "server", "winner", "reason", "shots", "score"}
+        assert set(l.rallies_detail[0]) == {"game", "ends", "interval_before_s", "start_t", "end_t", "server", "winner", "reason", "shots", "score", "contact_q"}
         assert l.wall_duration_s == l.duration_s + sum(r["interval_before_s"] for r in l.rallies_detail)
         for i, g in enumerate(l.games):
             assert set(g) == {"score", "winner", "first_server", "rallies"} and g["rallies"] == sum(r["game"] == i + 1 for r in l.rallies_detail)
