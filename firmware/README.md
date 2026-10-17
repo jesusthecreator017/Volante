@@ -21,11 +21,16 @@ cargo run --release --bin oso-rec -- scan
 cargo run --release --bin oso-rec -- status
 cargo run --release --bin oso-rec -- stream -o out/hw/stream.bin --secs 60   # live, prints rate / loss
 cargo run --release --bin oso-rec -- upload -o out/hw/imu.bin                # the session recorded since power-on
-cargo run --release --bin oso-rec -- mark | record stop | record start [--force]   # --force overwrites an un-uploaded session
+cargo run --release --bin oso-rec -- mark | record stop   # record stop ends the recording
+cargo run --release --bin oso-rec -- record start [--force] [--no-view]   # --force overwrites an un-uploaded session; opens the live racquet window unless --no-view (then it starts, prints and exits)
+cargo run --release --bin oso-rec -- live                                 # the same window without starting a recording
 cargo run --release --bin oso-imu -- --imu out/hw/imu.bin --replay assets/replay/replay.bin --sync sync.json --player 0 -o out.bin
 ```
 Power on = recording starts (after a ~5-20 s flash erase). Tap the pod (or clap) after 1 s of stillness at the start and end of each session. Switch off, switch on near the laptop, `upload`; the upload marks the session as uploaded so the next power-on records again. A session that was not uploaded is never overwritten silently.
 `imu.markers.json` next to the file lists the device-side tap times.
+
+Live racquet view (`record start` and `live`): the racquet model turns with the pod (0x01 streaming, ~500 Hz, the offline forward Madgwick filter run incrementally; hold the pod still for the first second, it calibrates the gyro bias). The window title is the readout: recording/streaming state, packets per second, loss %. Keys: `R` re-centre (current heading becomes forward, +X along the red grid line; tilt stays from gravity), `M` sync marker (0x06, the pod glows), `Esc` or close = stop streaming (0x02) and disconnect; **the recording keeps running on the pod** (`oso-rec record stop` ends it). If the link drops the title says DISCONNECTED and the window stays open (no auto-reconnect: close it and run `live` again).
+Without a pod: `oso-rec live --replay-file imu.bin [--time S --screenshot out.png]` plays a recorded file in the same window (or renders one frame at S seconds to a PNG).
 
 ## Sleep and wake (the pod has no power switch)
 ```

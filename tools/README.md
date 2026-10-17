@@ -22,7 +22,7 @@ Synthetic IMU in the firmware's packet format, then fusion + time sync + racquet
 Prints packet accounting, gyro bias, the sync table (start-clap-only offset, clap-fit offset and drift, per-impact residuals in ms: a check) and
 yaw-correction stats. Flags: `--no-video-yaw` (IMU heading as fused), `--yaw-const` (constant alignment only), `--beta B`
 (Madgwick gain, default 0.04), `--forward-only` (skip the backward fusion pass), `--report out.json`. Re-running replaces the `racquet` track (the other tracks stay byte-identical).
-Real device: `firmware/` (README there) + `oso-rec` write the same imu.bin format; or write it yourself and a sync.json `{"claps_video": [start, end]}`: do a clap/LED event at the start AND the end of each session (still ~2 s before each); the two give offset and drift.
+Real device: `firmware/` (README there) + `oso-rec` write the same imu.bin format; or write it yourself and a sync.json `{"claps_video": [start, end]}`: do a clap/LED event at the start AND the end of each session (still ~2 s before each); the two give offset and drift. `oso-rec record start` / `oso-rec live` show the pod's racquet live in a window (keys R, M, Esc): see firmware/README.md.
 Test (runs cargo): `tools/.venv/bin/python tools/test_imu.py`; Rust unit tests: `cargo test`, benches: `cargo bench --bench imu`.
 Format: ../docs/data-format.md
 
