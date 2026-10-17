@@ -114,9 +114,11 @@ describe("routes", () => {
 });
 
 describe("landing", () => {
+  afterEach(() => vi.unstubAllGlobals());
   test("statuses are honest and the page has no inline styles", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], next_before: null })));
     const status = Object.fromEntries(FEATURES.map((f) => [f.id, f.status]));
-    expect(status).toEqual({ hits: "Available", speed: "Available", strokes: "In development", insights: "In development", replay: "Available", live: "Available" });
+    expect(status).toEqual({ hits: "Available", speed: "Available", strokes: "In development", insights: "In development" });
     const root = document.createElement("div");
     landing(root);
     expect(root.querySelectorAll("[style], script").length).toBe(0);

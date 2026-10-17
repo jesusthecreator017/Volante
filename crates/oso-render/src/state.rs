@@ -38,8 +38,8 @@ const MARKER_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 const MARKER_SCALE: f32 = 0.15;
 // Net body grid, linear
 const NET_LINE_COLOR: [f32; 3] = [0.08, 0.08, 0.08];
-const HALL_FLOOR_COLOR: [f32; 4] = [0.45, 0.38, 0.32, 1.0];
-const HALL_WALL_COLOR: [f32; 4] = [0.45, 0.52, 0.65, 1.0];
+const HALL_FLOOR_COLOR: [f32; 4] = [0.42, 0.4, 0.34, 1.0];
+const HALL_WALL_COLOR: [f32; 4] = [0.42, 0.52, 0.47, 1.0];
 const HALL_CEILING_COLOR: [f32; 4] = [0.77, 0.77, 0.79, 1.0];
 // Alpha below 0.9 makes model.wgsl draw the material unlit and bright (HDR); the fixture glows warm white
 const HALL_FIXTURE_COLOR: [f32; 4] = [1.0, 0.95, 0.85, 0.5];
@@ -177,7 +177,7 @@ impl State {
         let mut world = hecs::World::new();
 
         let parts = [
-            ("Floor", court::floor(), [0.1, 0.45, 0.2, 1.0]),
+            ("Floor", court::floor(), [0.16, 0.45, 0.26, 1.0]),
             ("Lines", court::lines(), [1.0, 1.0, 1.0, 1.0]),
             ("Net tape", court::net(), [0.95, 0.95, 0.95, 1.0]),
             ("Posts", court::posts(), [0.2, 0.2, 0.2, 1.0]),
