@@ -1,0 +1,11 @@
+Model Information:
+* title:	Basic Humanoid Block Rig
+* source:	https://sketchfab.com/3d-models/basic-humanoid-block-rig-0b7834d927d545b497e9bfbb80765c08
+* author:	Trogan305 (https://sketchfab.com/trogan305)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Basic Humanoid Block Rig" (https://sketchfab.com/3d-models/basic-humanoid-block-rig-0b7834d927d545b497e9bfbb80765c08) by Trogan305 (https://sketchfab.com/trogan305) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

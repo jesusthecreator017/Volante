@@ -1,0 +1,20 @@
+opencv-python>=4,<5
+numpy>=2,<3
+scipy>=1.11,<2
+# Phase 9 (video pipeline). Install with ONE command:  pip install --no-deps -r requirements.txt
+# (--no-deps because rtmlib declares opencv-contrib-python, whose cv2 5.x would overwrite opencv-python 4.x; every runtime
+# dependency is therefore listed here explicitly.)
+rtmlib>=0.0.16
+onnxruntime>=1.17
+flatbuffers
+packaging
+protobuf
+tqdm
+# Phase 10 (stroke classifier; same --no-deps command)
+scikit-learn>=1.4
+joblib
+threadpoolctl
+cloudpickle
+narwhals
+# Phase 13 (badminton self-play, tools/badsim): torch is NOT in the --no-deps command above (it needs its own dependencies); install it
+# separately with:  pip install torch   (numpy >= 2 is already pinned; torch does not touch opencv)

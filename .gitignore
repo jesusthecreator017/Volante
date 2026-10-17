@@ -1,0 +1,10 @@
+target/
+/.claude/skills/
+/.claude/agents/
+/.claude/specs/
+/web/pkg
+/web/assets
+/tools/.venv
+/out/
+__pycache__/
+/dist/

@@ -1,0 +1,7 @@
+[package]
+name = "oso-proto"
+version = "0.1.0"
+edition = "2024"
+description = "Racquet-pod contract shared by the firmware and the host: packet v1, BLE profile, status, flash log, tap detector"
+
+[dependencies]
