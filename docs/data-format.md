@@ -3,7 +3,7 @@
 ## Court coordinates
 Meters. Origin: court center on the floor. +Y up, +X along the length (baselines at x = +-6.70),
 +Z across the width (doubles sidelines at z = +-3.05). Net plane x = 0, posts at z = +-3.05.
-Defined in `src/scene/court.rs`, mirrored in `tools/court.py`.
+Defined in `crates/oso-render/src/scene/court.rs`, mirrored in `tools/court.py`.
 
 ## Landmark names
 Landmarks are intersections of line **centerlines** (a line at measurement 6.70 is centered at 6.68).
@@ -33,7 +33,7 @@ Camera framing assumption: 108 deg HFOV ultra-wide lens (k1 -0.18, k2 0.03), pit
 ## Skeleton: COCO-17
 Joint order (all per-joint arrays below use it): 0 nose, 1 l_eye, 2 r_eye, 3 l_ear, 4 r_ear, 5 l_shoulder, 6 r_shoulder,
 7 l_elbow, 8 r_elbow, 9 l_wrist, 10 r_wrist, 11 l_hip, 12 r_hip, 13 l_knee, 14 r_knee, 15 l_ankle, 16 r_ankle.
-Bones for drawing: `tools/skeleton.py` `BONES`, mirrored in `src/replay.rs` (change together).
+Bones for drawing: `tools/skeleton.py` `BONES`, mirrored in `crates/oso-render/src/replay.rs` (change together).
 
 ## pose2d_<camera_id>.npz (swap-in point for a real pose model)
 - `kp` float32 `[F, P, 17, 3]`: u px, v px (origin top-left, distorted image), score 0..1
@@ -45,7 +45,7 @@ Bones for drawing: `tools/skeleton.py` `BONES`, mirrored in `src/replay.rs` (cha
   A missing person in a frame has all scores 0.
 Written by `tools/synth_motion.py` (with ground truth `pose_gt.npz`: `joints [F, P, 17, 3]`, `t`, `swing_player`, `swing_t0`).
 
-## replay.bin v1 (written by `tools/pose3d.py` / `tools/replay.py`, read by `src/replay.rs`)
+## replay.bin v1 (written by `tools/pose3d.py` / `tools/replay.py`, read by `crates/oso-render/src/replay.rs`)
 All numbers little-endian.
 ```
 "OSOR" (4) | u32 header_len N | N bytes UTF-8 JSON, zero-padded so that (8 + N) % 16 == 0 | data blob
@@ -55,7 +55,7 @@ Header: `{"version":1, "fps":60.0, "frame_count":F, "start_time":0.0, "coordinat
 "keypoint_format":"coco17", "players":["p0","p1"]}]}`
 - `frame_count` is the first dimension of a **per-frame** track (`joints3d`, `racquet`, `shuttle`). A track whose header has `"per_frame": false` (`events`) has its own length: readers must not take frame_count from it, and writers must not take it from the first track blindly (`tools/replay.py` skips `per_frame: false` tracks).
 - `offset` is in bytes from the start of the data blob and a multiple of 16 (tracks are zero-padded to 16).
-- Readers must ignore unknown tracks (`shuttle` and `events` came in Phase 5; later phases add more). Written by `tools/replay.py` and, for `oso-imu`, by `Container` in `src/replay.rs` (same padding rules; all existing tracks are copied byte-identical).
+- Readers must ignore unknown tracks (`shuttle` and `events` came in Phase 5; later phases add more). Written by `tools/replay.py` and, for `oso-imu`, by `Container` in `crates/oso-render/src/replay.rs` (same padding rules; all existing tracks are copied byte-identical).
 - `joints3d`: court meters; conf 1.0 triangulated, 0.5 gap-filled, 0.0 missing (position written as 0).
 - Pipeline: both scores >= 0.3 -> triangulate; reject reprojection error > 12 px in either view, implausible points,
   and temporal outliers (> 15 cm from the +-3 frame median); fill gaps <= 12 frames with a cubic spline; zero-phase
@@ -83,13 +83,13 @@ One row per stroke, sorted by `t_peak`; times in video seconds. `stroke_type` is
 - Rows with a shuttle contact: `t_contact`, `player`, `contact_h` (m), `launch_speed` (m/s), `launch_angle_deg` (+ up) from the outgoing flight (NaN if the flight was not found).
   A contact with no IMU swing (the other player, or an IMU gap) is **contact-only**: `t_start/t_peak/t_end` = `t_contact` -0.15 / 0 / +0.15 s placeholders, IMU columns NaN, `saturated` 0, `confidence` 0.
 - Air swing (IMU swing with no contact within its window +- 60 ms): `stroke_type` = `swing_only`, `t_contact`, contact and launch columns NaN.
-- Swing detection (`src/imu/swings.rs`, same contract as the BLE app spec): start when |omega| > 300 dps; end when |omega| < 120 dps for 80 ms; swings shorter than 80 ms are discarded.
+- Swing detection (`crates/oso-replay/src/imu/swings.rs`, same contract as the BLE app spec): start when |omega| > 300 dps; end when |omega| < 120 dps for 80 ms; swings shorter than 80 ms are discarded.
   Impact = a narrow accel spike (> 5 g from the 9-sample median, <= 3 samples) inside the window or within 60 ms after its end (the strongest one).
   **Peak rule**: a window can hold backswing, forward swing and follow-through when |omega| never dips below 120 dps between them, so the plain maximum can be the backswing. Runs = contiguous regions with |omega| >= 50 % of the window maximum.
   With an impact: the forward swing is the run containing the impact time, else the last run that ends before it (else the first run). Without an impact (air swing): the latest run whose maximum is >= 75 % of the window maximum.
   The peak is the highest |omega| in that run, parabola-refined between samples; the forward swing starts where that run starts; `timing_ms` = t_impact - t_peak. A single-lobe swing gives the plain maximum.
   Known ambiguity: with no impact, a follow-through lobe at >= 75 % of the window maximum (e.g. lobes 900 / 800 / 700) is picked over the forward swing.
-- Stroke label rules (`src/imu/strokes.rs`; hand-picked, to be replaced by a trained classifier; first match wins). Inputs: contact height h, |x| of the contact, launch speed v0, elevation angle, apex, |x_end| of the outgoing flight (its next contact or landing):
+- Stroke label rules (`crates/oso-replay/src/imu/strokes.rs`; hand-picked, to be replaced by a trained classifier; first match wins). Inputs: contact height h, |x| of the contact, launch speed v0, elevation angle, apex, |x_end| of the outgoing flight (its next contact or landing):
 
 | # | type | rule |
 |---|---|---|
@@ -106,7 +106,7 @@ One row per stroke, sorted by `t_peak`; times in video seconds. `stroke_type` is
 - Without an IMU (Phase 11): `oso-imu --replay R --no-imu -o out.bin` runs the same builder with no swings, so every `events` contact becomes a contact-only row
   (placeholders around the contact, IMU columns NaN, confidence 0) with the rule label; no `racquet` track is written. `classify_strokes.py` then relabels it.
 
-## Match stats (Phase 11, `src/stats.rs`)
+## Match stats (Phase 11, `crates/oso-replay/src/stats.rs`)
 Pure function of a replay's `swings` rows with a contact; `oso --stats replay.bin` prints it (pretty JSON), the web page reads it from `oso_stats()`.
 `{"players":[{"hits", "points" (rallies won from `point` events, else null), "types":{name:count}, "launch_speed_max/mean", "head_speed_max/mean" (null without IMU rows), "contact_height_mean",
 "fastest":{"speed","t","type"} | null, "positions":[{"t","x","z","type"}]}], "rallies":{"count","shots_mean","shots_max","duration_mean","duration_max",
@@ -131,7 +131,7 @@ packet, 18 bytes: u16 seq | u32 t_us | i16 ax | i16 ay | i16 az | i16 gx | i16 g
   `reordered` = a first-seen seq lower than one already seen.
 - A file whose body is not a whole number of 18-byte packets is rejected. No magnetometer (would be packet v2).
 - The racquet-pod firmware (`firmware/`) and `oso-rec` produce this file; the BLE contract, status struct and flash log are in
-  [ble-profile.md](ble-profile.md). The packet layout is defined once in `proto/` (`oso-proto`), which `src/imu/packet.rs` decodes with.
+  [ble-profile.md](ble-profile.md). The packet layout is defined once in `proto/` (`oso-proto`), which `crates/oso-replay/src/imu/packet.rs` decodes with.
 - `imu.markers.json` (optional, written next to `imu.bin` by `oso-rec` when the device reported sync markers):
   `{"markers":[{"t_us": <device clock, u32>, "source": "tap"|"command"}, ...]}`. `t_us` is on the same clock as the packets. They
   help to find the claps; `sync.json` stays video-side.
@@ -169,7 +169,7 @@ projects inside both 108 deg views; see the ponytail note in `synth_shuttle.py`)
   the fitted flight (< 6 px); 0.5: filled by the physics inside a flight; 0: outside flights (all zero, flight_id -1). Frames of one flight are
   evaluated from one drag-physics model (`tools/shuttle_physics.py`, terminal velocity 6.8 m/s), so values are exact physics between contacts.
 - `events`: f32 `[N, 6]` = `t, type, player, x, y, z`; type 1 = racquet contact (player = nearest racquet head / right wrist), 2 = floor landing
-  (player -1), 3 = `point` (Phase 13, `tools/badsim/play_match.py`): rally end, player = winner, x = winner's new score, y = the other player's score (the winner serves next), z = 0. Readers that do not know a type ignore it; `Replay::score_at(t)` / `oso_score(t)` give the score at `t`; `oso --stats` and the stats panel show points won. A replay with point events also gets a 3D scoreboard in the hall (native and web): a board hung on cables behind the far baseline (x = 9.7, z = 0, bottom edge 3.5 m) facing -x toward the default camera, orange P0 score on the left, a colon, cyan P1 score, updated from `score_at`; replays without point events draw none. Header `"per_frame": false`. Contact time is the closest approach of the extrapolated neighbouring flights (sub-frame).
+  (player -1), 3 = `point` (Phase 13, `arena/kit/oso_arena/play_match.py`): rally end, player = winner, x = winner's new score, y = the other player's score (the winner serves next), z = 0. Readers that do not know a type ignore it; `Replay::score_at(t)` gives the score at `t`; `oso --stats` and the stats panel show points won. The Arena viewer (`oso-arena`, `oso_score(t)` on its web page) draws, for a replay with point events, a 3D scoreboard in the hall (native and web); the Replay app (`oso`) parses the events but shows no score: a board hung on cables behind the far baseline (x = 9.7, z = 0, bottom edge 3.5 m) facing -x toward the default camera, orange P0 score on the left, a colon, cyan P1 score, updated from `score_at`; Arena draws no scoreboard for replays without point events. Header `"per_frame": false`. Contact time is the closest approach of the extrapolated neighbouring flights (sub-frame).
 - Rust: `Replay::sample_shuttle(t)` (linear inside a flight, never across a flight_id change), `Replay::events()`.
 - `oso-imu` matches IMU impacts to the contacts of the `events` track when the replay has any for that player, else to the wrist-speed proxy.
 - Pipeline order: synth_motion -> pose3d -> synth_shuttle -> shuttle3d -> synth_imu -> oso-imu (see `tools/README.md`).

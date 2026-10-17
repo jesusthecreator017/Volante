@@ -4,4 +4,4 @@ This work is based on "Basic Humanoid Block Rig" (https://sketchfab.com/3d-model
 
 The model is in `assets/models/humanoid/` (with its original `license.txt`).
 
-`assets/models/racquet/WhiteBadmintonRacket.obj` — source/license unknown: downloaded by the user, no author or license attached (original account may be deleted). Replace before any public or commercial release if provenance matters. Its `.mtl` was not provided; colors are assigned in `src/scene/racquet.rs`.
+`assets/models/racquet/WhiteBadmintonRacket.obj` — source/license unknown: downloaded by the user, no author or license attached (original account may be deleted). Replace before any public or commercial release if provenance matters. Its `.mtl` was not provided; colors are assigned in `crates/oso-render/src/scene/racquet.rs`.

@@ -35,7 +35,7 @@ A real TrackNet writes `shuttle2d_<cam>.npz` (docs/data-format.md) and replaces 
 Viewer: V (or the "Big shuttle" button) draws the shuttle at 3x; yellow trail = detected, orange = physics-filled.
 
 # Swings and strokes (Phase 6)
-`oso-imu` also writes the `swings` track (swing detection on the IMU gyro + shuttle contacts + rule-based stroke labels) and prints the stroke table with the rule inputs (h, v0, angle, apex, x) so the thresholds in `src/imu/strokes.rs` can be tuned. Same pipeline as Phase 4/5; re-running replaces the track. Format and rules: ../docs/data-format.md.
+`oso-imu` also writes the `swings` track (swing detection on the IMU gyro + shuttle contacts + rule-based stroke labels) and prints the stroke table with the rule inputs (h, v0, angle, apex, x) so the thresholds in `crates/oso-replay/src/imu/strokes.rs` can be tuned. Same pipeline as Phase 4/5; re-running replaces the track. Format and rules: ../docs/data-format.md.
 `oso-imu --replay R --no-imu -o out.bin` (Phase 11) writes the same track without an IMU: one contact-only row per `events` contact, no racquet track.
 Test (runs cargo): `tools/.venv/bin/python tools/test_swings.py`. Viewer: N / P (or the timeline buttons) jump to the next / previous stroke; the timeline shows stroke markers and the P0 head-speed sparkline.
 
@@ -94,16 +94,16 @@ check until a few dozen strokes are hand-tagged; the synthetic motion has no rea
 the web viewer's Stats button shows the same numbers (`oso_stats()`).
 
 # Badminton self-play (Phase 13, side project: two AIs play a 15-point game, the viewer replays it)
-`tools/badsim/`: a vectorised singles simulator (`sim.py`, numpy, N games at once, shuttle drag from `shuttle_physics.py`, net / lines / service rules,
+`arena/kit/oso_arena/`: a vectorised singles simulator (`sim.py`, numpy, N games at once, shuttle drag from `physics.py`, a numpy-only copy of `shuttle_physics.py`; `court.py` is a copy of `tools/court.py`, and `test_badsim.py` checks both copies, net / lines / service rules,
 players as point masses with a reach envelope), a scripted baseline bot (`bot.py`), PPO self-play training (`train.py`, PyTorch), evaluation
 (`evaluate.py`) and the match exporter (`play_match.py`). Setup: `.venv/bin/pip install torch` (not part of the `--no-deps` list; see requirements.txt).
 All commands from the repo root; outputs go to `out/badsim/` (gitignored).
 ```
-tools/.venv/bin/python tools/badsim/test_badsim.py                       # simulator, rules, solver, mirroring, export tests
-tools/.venv/bin/python tools/badsim/train.py --minutes 225               # PPO self-play, checkpoints + train_log.jsonl every 15 min / 2 min (--resume continues)
-tools/.venv/bin/python tools/badsim/evaluate.py                          # 200 games vs bot + 200 policy-vs-policy -> out/badsim/eval.json
-tools/.venv/bin/python tools/badsim/play_match.py --seed 0               # one game -> out/badsim/match.bin + match.json
-cargo run --release -- --screenshot out/badsim/shot.png --time 12 --replay out/badsim/match.bin
+tools/.venv/bin/python arena/kit/oso_arena/test_badsim.py                       # simulator, rules, solver, mirroring, export tests
+tools/.venv/bin/python arena/kit/oso_arena/train.py --minutes 225               # PPO self-play, checkpoints + train_log.jsonl every 15 min / 2 min (--resume continues)
+tools/.venv/bin/python arena/kit/oso_arena/evaluate.py                          # 200 games vs bot + 200 policy-vs-policy -> out/badsim/eval.json
+tools/.venv/bin/python arena/kit/oso_arena/play_match.py --seed 0               # one game -> out/badsim/match.bin + match.json
+cargo run --release -p oso-arena -- --screenshot out/badsim/shot.png --time 12 --replay out/badsim/match.bin
 ```
 - **What is learned:** where to stand, when to hit, which shot and where (target landing point + flight time). The swing is animation: players are
   point masses (5 m/s, 10 m/s^2) with a 1.5 m reach (2.0 m lunge; Phase 13 had 1.0 / 1.4, 0.25 s freeze; height 0.15-2.9 m, 3.2 m jump, 0.3 s freeze); the racquet face is not simulated.
@@ -123,4 +123,4 @@ cargo run --release -- --screenshot out/badsim/shot.png --time 12 --replay out/b
 - **Phase 13.1 (longer rallies, 3D scoreboard):** Phase 13 outputs are in `out/badsim_v1/`, the first 13.1 attempt (reach 1.3 / 1.8, depth 0.05) in `out/badsim/run1/`.
   The tuning round (reach 1.5 / 2.0, depth 0.15, no aim-noise halving, ENT0 6e-3, initial log_std 0 on aim / flight-time) raised self-play rallies from 4.8 to 10.9 shots
   but no checkpoint met the clear + lift >= 10 % gate (best 3.7 %); the shipped checkpoint is `ckpt_196min.pt` (see the report). The viewer draws a 7-segment scoreboard
-  (`src/scene/scoreboard.rs`) for replays with point events.
+  (`crates/oso-arena/src/scoreboard.rs`) for replays with point events; since the Replay / Arena split it is drawn by the Arena viewer only.

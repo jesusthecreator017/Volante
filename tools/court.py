@@ -1,6 +1,6 @@
 """Court landmarks in court coordinates (meters, +Y up, +X along length, +Z across width).
 
-NOTE: these constants mirror src/scene/court.rs; both files must change together.
+NOTE: these constants mirror crates/oso-render/src/scene/court.rs; both files must change together.
 """
 import numpy as np
 
