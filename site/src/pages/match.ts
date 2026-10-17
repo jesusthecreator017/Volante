@@ -6,6 +6,7 @@ import { buildBars, fmtDate, fmtDelta, load, modelLink, ownerChip, setChips, sta
 import { h } from "../dom";
 import type { MatchDetail, Rally, Side } from "../types";
 import { mountViewer } from "../viewer";
+import { icon } from "../icons";
 
 export function match(root: HTMLElement, p: Record<string, string>) {
   const id = Number(p.id);
@@ -81,7 +82,7 @@ function rallyList(m: MatchDetail, seek: (r: Rally) => void): HTMLElement {
                 { class: "rally" },
                 h("span", { class: "ry-score" }, `${r.score[0]}–${r.score[1]}`),
                 h("span", { class: "ry-text" }, h("strong", null, name(r.winner)), ` · ${RALLY_REASON[r.reason] ?? r.reason} · ${r.shots} ${r.shots === 1 ? "shot" : "shots"}`),
-                h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, "▶ " + fmtT(r.t_start)),
+                h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, icon("play-fill"), fmtT(r.t_start)),
               ),
             ),
         ),

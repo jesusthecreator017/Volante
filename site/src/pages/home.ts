@@ -1,5 +1,5 @@
 import { api, ApiError } from "../api";
-import { actionLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
+import { moreLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
 import { append, h, link, s } from "../dom";
 import type { Tournament, TournamentSummary } from "../types";
 
@@ -21,7 +21,7 @@ export function arenaHome(root: HTMLElement) {
       h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
     ),
     featured,
-    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, actionLink("/arena/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, moreLink("/arena/ladder", "Full ladder")), h("section", null, h("h2", null, "Latest matches"), latest)),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
