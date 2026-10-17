@@ -4,7 +4,7 @@ The public Arena site: Home, Ladder, Model, Match (3D viewer + rally list), Tour
 Get started, Terms, Privacy. Built against the API contract in `oso-web-app-PROMPT.md` section 6. The Pi agent's
 server serves the **API** and this **static build**; it does not render pages.
 
-- TypeScript + Vite, no UI framework, no runtime dependencies (~11 KB gzipped JS, ~4 KB CSS).
+- TypeScript + Vite, no UI framework, no runtime dependencies besides the bundled font (~12 KB gzipped JS, ~5 KB CSS, plus ~45 KB of self-hosted Barlow Condensed woff2).
 - Every user string is a text node (`src/dom.ts`); there is no `innerHTML`. `h()` refuses `style` attributes.
 - Works at 390 px with no horizontal scroll, light and dark (system, or the toggle in the header).
 

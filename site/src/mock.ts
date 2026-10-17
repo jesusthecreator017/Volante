@@ -95,6 +95,7 @@ const ladderItems = (): LadderItem[] =>
       return { rank: i + 1, model: summary(m), rating: m.rating!, provisional: m.games < 20, games: m.games, wins, losses: m.games - wins };
     });
 
+let nextTourneyMatchId = 900; // unique ids: the old `900 + id * 10 + matches.length` collided across tournaments
 function makeTournament(id: number, daysAgo: number, finished: boolean): Tournament {
   const top = ladderItems().filter((x) => x.games >= 20 && !("house" in x.model.owner)).slice(0, 8).map((x) => models[x.model.id - 1]);
   const order = [[0, 7], [3, 4], [2, 5], [1, 6]];
@@ -104,7 +105,7 @@ function makeTournament(id: number, daysAgo: number, finished: boolean): Tournam
     const live = !finished && r === 2;
     round = round.map((t) => {
       if (live || !t.a || !t.b) return t;
-      const m = makeMatch(900 + id * 10 + matches.length, models[t.a.id - 1], models[t.b.id - 1], "tournament", daysAgo * 1440 + 60 - r * 10);
+      const m = makeMatch(nextTourneyMatchId++, models[t.a.id - 1], models[t.b.id - 1], "tournament", daysAgo * 1440 + 60 - r * 10);
       matches.push(m);
       return { ...t, match_id: m.id, winner: m.winner };
     });

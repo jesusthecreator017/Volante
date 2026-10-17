@@ -1,5 +1,5 @@
 import { api, ApiError } from "../api";
-import { fmtDate, load, ownerChip } from "../components";
+import { actionLink, fmtDate, load, ownerChip } from "../components";
 import { h, link } from "../dom";
 import type { Tie, Tournament, TournamentSummary } from "../types";
 
@@ -66,5 +66,5 @@ function tie(x: Tie): HTMLElement {
     const seed = side === "a" ? x.seed_a : x.seed_b;
     return h("div", { class: x.winner === side ? "slot won" : x.winner ? "slot lost" : "slot" }, h("span", { class: "seed" }, seed), m ? link(`/models/${m.id}`, m.name) : h("span", { class: "muted" }, "TBD"));
   };
-  return h("li", { class: "tie" }, slot("a"), slot("b"), x.match_id ? link(`/matches/${x.match_id}`, x.winner ? "Watch" : "Match") : null);
+  return h("li", { class: "tie" }, slot("a"), slot("b"), x.match_id ? actionLink(`/matches/${x.match_id}`, x.winner ? "Watch" : "Match") : null);
 }

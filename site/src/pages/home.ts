@@ -1,6 +1,6 @@
 import { api, ApiError } from "../api";
-import { buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
-import { append, h, link } from "../dom";
+import { actionLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
+import { append, h, link, s } from "../dom";
 import type { Tournament, TournamentSummary } from "../types";
 
 export function home(root: HTMLElement) {
@@ -11,6 +11,7 @@ export function home(root: HTMLElement) {
     h(
       "section",
       { class: "hero" },
+      court(),
       h("h1", null, "Train a badminton AI. Watch it play."),
       h(
         "p",
@@ -20,7 +21,7 @@ export function home(root: HTMLElement) {
       h("div", { class: "row" }, link("/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/ladder", h("span", { class: "btn" }, "See the ladder"))),
     ),
     featured,
-    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, link("/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, actionLink("/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
@@ -33,7 +34,7 @@ export function home(root: HTMLElement) {
         l.items.map((it) =>
           h(
             "li",
-            null,
+            { class: it.rank <= 3 ? "podium" : null },
             h("span", { class: "rank" }, it.rank),
             h("span", { class: "t10-name" }, modelLink(it.model), ownerChip(it.model.owner)),
             buildBars(it.model.build),
@@ -92,4 +93,24 @@ function renderFeatured(el: HTMLElement, t: Tournament | null) {
       link(`/tournaments/${t.id}`, h("span", { class: "btn" }, "Bracket")),
     ),
   ]);
+}
+
+/** Decorative top-down badminton court (half-court view): thin lines, themed by CSS classes. */
+function court(): SVGSVGElement {
+  // 6.1 x 13.4 m court; 1 unit = 0.1 m. Singles 5.18 wide, doubles-long service line 0.76 m inside the back line.
+  const line = (x1: number, y1: number, x2: number, y2: number, cls = "court-line") => s("line", { x1, y1, x2, y2, class: cls });
+  return s(
+    "svg",
+    { viewBox: "-6 -6 73 146", class: "court", "aria-hidden": "true", focusable: "false" },
+    s("rect", { x: 0, y: 0, width: 61, height: 134, class: "court-line" }),
+    line(4.5, 0, 4.5, 134),
+    line(56.5, 0, 56.5, 134),
+    line(0, 7.6, 61, 7.6),
+    line(0, 126.4, 61, 126.4),
+    line(0, 46.9, 61, 46.9),
+    line(0, 87.1, 61, 87.1),
+    line(30.5, 46.9, 30.5, 0),
+    line(30.5, 87.1, 30.5, 134),
+    line(-4, 67, 65, 67, "court-net"),
+  );
 }
