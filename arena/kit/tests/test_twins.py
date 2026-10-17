@@ -16,7 +16,7 @@ DATA = KIT / "tests" / "data"
 GOOD = {
     "schema": "volante-style/1", "created_at": "2026-10-17T18:00:00Z",
     "source": {"sessions": 3, "swings": 1240, "minutes": 52.4, "pod_fw": "0.1", "tool": "oso-rec 0.1.0"},
-    "speed": {"p50_kmh": 58.0, "p90_kmh": 84.0, "cv": 0.27, "clipped_frac": 0.31},
+    "speed": {"p50_kmh": 58.0, "p90_kmh": 84.0, "cv": 0.12, "clipped_frac": 0.31},
     "tempo": {"median_gap_s": 1.9, "p25_gap_s": 1.4, "p75_gap_s": 2.6},
     "stroke_mix": None, "side_mix": None, "notes": "x"}
 
@@ -78,7 +78,7 @@ def test_cross_language_vector():
     sp, cl, gaps, minutes = reference_profile(DATA / "twins_vector.imu.bin", (0, 2))
     assert p["source"]["swings"] == len(sp) == 8 and abs(p["source"]["minutes"] - minutes) < 0.001
     q = lambda x: float(f"{x:.3g}")  # noqa: E731
-    assert p["speed"] == dict(p50_kmh=q(np.percentile(sp, 50)), p90_kmh=q(np.percentile(sp, 90)), cv=q(sp.std() / sp.mean()), clipped_frac=q(cl.mean()))
+    assert p["speed"] == dict(p50_kmh=q(np.percentile(sp, 50)), p90_kmh=q(np.percentile(sp, 90)), cv=q(sp[sp >= np.percentile(sp, 50)].std() / sp[sp >= np.percentile(sp, 50)].mean()), clipped_frac=q(cl.mean()))
     assert p["tempo"] == dict(median_gap_s=q(np.percentile(gaps, 50)), p25_gap_s=q(np.percentile(gaps, 25)), p75_gap_s=q(np.percentile(gaps, 75)))
     assert p["speed"]["clipped_frac"] == 0.125 and len(gaps) == 6, "one saturated swing; the 7.9 s gap splits the rally"
     assert p["stroke_mix"] is None and p["side_mix"] is None and set(p) == set(style.TOP_KEYS)
@@ -123,6 +123,8 @@ def test_real_recording_matches_the_numpy_reference():
     assert abs(top[0] - 94.6) < 0.05 * 94.6 and abs(top[:41].mean() - 68.9) < 0.05 * 68.9  # the 2026-10-17 analysis: max ~95, mean ~69 of 41
     # the numbers pinned in the Rust test (cross_language_vector_and_the_real_recording)
     assert abs(np.percentile(sp, 50) - 62.57) < 0.01 and abs(np.percentile(sp, 90) - 82.01) < 0.01 and abs(np.median(gaps) - 2.656) < 0.001
+    pw = sp[sp >= np.percentile(sp, 50)]
+    assert abs(pw.std() / pw.mean() - 0.109) < 0.001  # cv of the power swings (all swings: 0.69)
 
 
 def test_validate_edge_cases():
@@ -141,7 +143,7 @@ def test_validate_edge_cases():
     for p in bad:
         assert style.validate_profile(p), p
     # text level: size, syntax, NaN
-    for text in ("x" * (style.MAX_BYTES + 1), "{", json.dumps(GOOD).replace("0.27", "NaN"), json.dumps({**GOOD, "notes": "x" * 279}) + " " * 9000):
+    for text in ("x" * (style.MAX_BYTES + 1), "{", json.dumps(GOOD).replace("0.12", "NaN"), json.dumps({**GOOD, "notes": "x" * 279}) + " " * 9000):
         try:
             style.parse_profile(text)
             raise AssertionError(text[:40])
@@ -163,11 +165,11 @@ def test_validate_edge_cases():
 # ---------------------------------------------------------------- build from profile
 def test_build_mapping_vectors_validity_and_monotonicity():
     t = [  # (p90, cv, median gap) -> (power, speed, reach, accuracy); the test_twins vector table, also in STYLE_PROFILE.md
-        ((84, 0.27, 1.9), (6, 6, 5, 7)), ((80, 0.35, 2.0), (6, 6, 6, 6)),
-        ((40, 0.6, 3.0), (5, 5, 10, 4)),  # all minimums: reach takes 21 -> 10, the surplus of 11 is spread
-        ((120, 0.1, 1.0), (7, 8, 1, 8)),  # all maximums: reach 1, 6 points too many are spread
-        ((60, 0.5, 2.5), (5, 4, 10, 5)), ((100, 0.2, 1.2), (8, 7, 1, 8)), ((120, 0.6, 3.0), (10, 2, 10, 2)), ((40, 0.1, 1.0), (1, 10, 3, 10)),
-        ((60, 0.3, 1.5), (3, 8, 7, 6)), ((110, 0.45, 2.8), (9, 2, 9, 4)),
+        ((84, 0.12, 1.9), (6, 6, 5, 7)), ((80, 0.15, 2.0), (6, 6, 6, 6)),
+        ((40, 0.30, 3.0), (5, 5, 10, 4)),  # all minimums: reach takes 21 -> 10, the surplus of 11 is spread
+        ((120, 0.05, 1.0), (7, 8, 1, 8)),  # all maximums: reach 1, 6 points too many are spread
+        ((60, 0.25, 2.5), (5, 4, 10, 5)), ((100, 0.1, 1.2), (8, 7, 1, 8)), ((120, 0.3, 3.0), (10, 2, 10, 2)), ((40, 0.05, 1.0), (1, 10, 3, 10)),
+        ((60, 0.2, 1.5), (3, 8, 8, 5)), ((110, 0.22, 2.8), (9, 2, 9, 4)),
     ]
     for (p90, cv, gap), want in t:
         got = style.build_from_profile(prof(speed={"p90_kmh": p90, "p50_kmh": 0, "cv": cv}, tempo={"median_gap_s": gap, "p25_gap_s": 0.2, "p75_gap_s": 10}))
@@ -178,7 +180,7 @@ def test_build_mapping_vectors_validity_and_monotonicity():
     # always valid over a grid that includes every clamp and rebalance path
     n = 0
     for p90 in (0, 30, 40, 55, 80, 100, 120, 200, 400):
-        for cv in (0, 0.1, 0.3, 0.6, 1, 2):
+        for cv in (0, 0.05, 0.15, 0.3, 0.6, 2):
             for gap in (0.2, 1.0, 1.5, 2.0, 3.0, 6.0, 10.0):
                 p = prof(speed={"p90_kmh": p90, "p50_kmh": 0, "cv": cv}, tempo={"median_gap_s": gap, "p25_gap_s": 0.2, "p75_gap_s": 10})
                 b = style.build_from_profile(p)
@@ -186,8 +188,8 @@ def test_build_mapping_vectors_validity_and_monotonicity():
                 assert style.build_from_profile(p) == b  # deterministic
                 n += 1
     # monotone in each input (all others at the middle; the sweeps stay where the remainder is in 1-10 or are rebalanced evenly)
-    mid = prof(speed={"p90_kmh": 80, "p50_kmh": 30, "cv": 0.35}, tempo={"median_gap_s": 2.0, "p25_gap_s": 0.2, "p75_gap_s": 10})
-    for key, sect, field, stat, vals in (("p90", "speed", "p90_kmh", "power", np.linspace(40, 120, 41)), ("cv", "speed", "cv", "accuracy", np.linspace(0.6, 0.1, 51)),
+    mid = prof(speed={"p90_kmh": 80, "p50_kmh": 30, "cv": 0.15}, tempo={"median_gap_s": 2.0, "p25_gap_s": 0.2, "p75_gap_s": 10})
+    for key, sect, field, stat, vals in (("p90", "speed", "p90_kmh", "power", np.linspace(40, 120, 41)), ("cv", "speed", "cv", "accuracy", np.linspace(0.30, 0.05, 51)),
                                          ("gap", "tempo", "median_gap_s", "speed", np.linspace(3.0, 1.0, 41))):
         def at(v):
             q = copy.deepcopy(mid)
@@ -432,3 +434,60 @@ def test_training_with_style_keeps_the_reward_bounded():
         total = rewards.total_reward(rew, ev, None, t, shaping=0.1, base_scale=1.0)
         assert np.isfinite(total).all()
     print(f"  largest single-step tempo payment {worst:.4f}")
+
+
+def test_validator_parity_fuzz():
+    """The Python validator and Rust `profile::parse` (the ignored `parity_helper` test) agree on mutated profiles, including 400-digit
+    ints (math.isfinite raises OverflowError on them) and wrong types. Skipped without cargo."""
+    import os
+    import random
+    import shutil
+    import subprocess
+
+    if shutil.which("cargo") is None:
+        print("skip: no cargo")
+        return
+    rnd = random.Random(5)
+    vals = [0, 1, -1, 0.5, 2, 10, 0.2, 400, 401, 10**7, 10**7 + 1, 10**400, -(10**400), 5.0, True, None, "x", "", [], {}, "a/b", "x" * 65, 0.999,
+            "2026-13-45T99:99:99Z", "2026-10-17T18:00:00z", "café"]
+    texts = []
+    for _ in range(300):
+        p = copy.deepcopy({**GOOD, "side_mix": {"fh": 0.7, "bh": 0.3}})
+        for _ in range(rnd.choice([1, 1, 2])):
+            sect = rnd.choice(list(p))
+            tgt = p[sect] if isinstance(p[sect], dict) and rnd.random() < 0.8 else p
+            tgt[rnd.choice(list(tgt))] = rnd.choice(vals)
+        texts.append(json.dumps(p))
+    texts += ["{", "", "[]", '{"a":NaN}']
+
+    def py(t):
+        try:
+            style.parse_profile(t)
+            return "1"
+        except ValueError:
+            return "0"
+
+    with tempfile.TemporaryDirectory() as d:
+        i, o = Path(d) / "in.txt", Path(d) / "out.txt"
+        i.write_text("\n".join(texts) + "\n")
+        r = subprocess.run(["cargo", "test", "-q", "-p", "oso-replay", "--lib", "parity_helper", "--", "--ignored"], cwd=ROOT, capture_output=True, text=True,
+                           env={**os.environ, "OSO_PARITY_IN": str(i), "OSO_PARITY_OUT": str(o)})
+        assert o.exists(), r.stderr[-400:]
+        rs = o.read_text().split()
+    bad = [t[:200] for t, b in zip(texts, rs) if py(t) != b]
+    assert len(rs) == len(texts) and not bad, bad[:3]
+
+
+def test_default_reward_is_unchanged_without_extra():
+    """total_reward(..., extra=None) is exactly terminal + the default reward (the same float ops as before 18a); a tempo extra only adds."""
+    from oso_arena import sim
+
+    s = sim.BadSim(16, 3)
+    rng = np.random.default_rng(3)
+    t = style.TempoReward(prof(tempo={"median_gap_s": 1.0, "p25_gap_s": 0.8, "p75_gap_s": 1.3}))
+    for _ in range(150):
+        _, rew, _, _ = s.step(rng.uniform(-1, 1, (16, 2, sim.ACT_DIM)))
+        ev = s.events()
+        base = rewards.total_reward(rew, ev, None, shaping=0.1, base_scale=1.0)
+        assert np.array_equal(base, rew + rewards.default_reward(ev, shaping=0.1, base_scale=1.0))
+        assert (rewards.total_reward(rew, ev, None, t, shaping=0.1, base_scale=1.0) >= base - 1e-12).all()

@@ -14,7 +14,7 @@ Stage 1 sees racquet motion only, so a twin copies **power, rhythm and (in 18b) 
   "schema": "volante-style/1",
   "created_at": "2026-10-17T18:00:00Z",
   "source": {"sessions": 3, "swings": 1240, "minutes": 52.4, "pod_fw": "0.1", "tool": "oso-rec 0.1.0"},
-  "speed": {"p50_kmh": 58.0, "p90_kmh": 84.0, "cv": 0.27, "clipped_frac": 0.31},
+  "speed": {"p50_kmh": 58.0, "p90_kmh": 84.0, "cv": 0.12, "clipped_frac": 0.31},
   "tempo": {"median_gap_s": 1.9, "p25_gap_s": 1.4, "p75_gap_s": 2.6},
   "stroke_mix": null,
   "side_mix": null,
@@ -31,7 +31,7 @@ Stage 1 sees racquet motion only, so a twin copies **power, rhythm and (in 18b) 
 | `source.pod_fw` | 1-64 characters of `A-Z a-z 0-9 . _ - space` (the pod firmware version; `unknown` for a bare imu.bin). No pod ID |
 | `source.tool` | same character set, e.g. `oso-rec 0.1.0` |
 | `speed.p50_kmh`, `speed.p90_kmh` | 0-400, `p50 <= p90`. Estimated head speed per swing (section 2) |
-| `speed.cv` | 0-2, std / mean of the swing speeds |
+| `speed.cv` | 0-2, std / mean of the speeds of the **power swings** (swings at or above the unrounded p50 speed). All swings would mix soft and hard strokes: that is variety, not consistency |
 | `speed.clipped_frac` | 0-1, the share of swings during which the gyro clipped (the speed is then a lower bound) |
 | `tempo.median_gap_s`, `p25_gap_s`, `p75_gap_s` | 0.2-10 s, `p25 <= median <= p75`. Time between consecutive swings inside a rally |
 | `stroke_mix` | `null` until the Phase 16 classifier exists (18b); else an object class -> share (keys `[a-z_]`, at most 16), each 0-1, sum 1 +- 1e-3 |
@@ -52,7 +52,7 @@ Exactly these top-level keys (`schema`, `created_at`, `source`, `speed`, `tempo`
    (`hypot(wx, wz)` in the racquet frame) times 0.53 m (head centre) times 3.6 = km/h. The gyro bias is not removed. A saturated
    sample (an axis at the int16 limit, +-2000 dps) in that window marks the swing clipped.
 4. Tempo: gaps between consecutive swing onsets of one recording part; a gap over 6 s ends the rally and is dropped.
-5. Percentiles: linear interpolation between order statistics (numpy default). cv: population std / mean.
+5. Percentiles: linear interpolation between order statistics (numpy default). cv: population std / mean over the swings with speed >= the unrounded p50 (the power swings).
 6. Every number is rounded to 3 significant digits; keys are written in the order above, so equal input gives equal bytes.
 
 ## 3. Build mapping (`oso_arena.style.build_from_profile`, a v1 heuristic)
@@ -62,7 +62,7 @@ A deterministic map to a valid build (four integers 1-10, sum 24), rounding half
 | stat | from | 1 at | 10 at |
 |---|---|---|---|
 | power | `speed.p90_kmh` | 40 | 120 |
-| accuracy | `speed.cv` | 0.6 | 0.1 |
+| accuracy | `speed.cv` (power swings) | 0.30 | 0.05 |
 | speed | `tempo.median_gap_s` (shorter = faster) | 3.0 s | 1.0 s |
 | reach | not measurable by the pod: the remainder `24 - power - speed - accuracy` | | |
 
@@ -73,12 +73,12 @@ order power, speed, accuracy. Monotone in each input while the remainder is in 1
 
 | p90 | cv | gap | build |
 |---|---|---|---|
-| 84 | 0.27 | 1.9 | 6, 6, 5, 7 |
-| 80 | 0.35 | 2.0 | 6, 6, 6, 6 |
-| 40 | 0.6 | 3.0 | 5, 5, 10, 4 (all minimums: reach 10, the surplus spread) |
-| 120 | 0.1 | 1.0 | 7, 8, 1, 8 (all maximums: reach 1, the excess spread) |
-| 60 | 0.3 | 1.5 | 3, 8, 7, 6 |
-| 110 | 0.45 | 2.8 | 9, 2, 9, 4 |
+| 84 | 0.12 | 1.9 | 6, 6, 5, 7 |
+| 80 | 0.15 | 2.0 | 6, 6, 6, 6 |
+| 40 | 0.30 | 3.0 | 5, 5, 10, 4 (all minimums: reach 10, the surplus spread) |
+| 120 | 0.05 | 1.0 | 7, 8, 1, 8 (all maximums: reach 1, the excess spread) |
+| 60 | 0.20 | 1.5 | 3, 8, 8, 5 |
+| 110 | 0.22 | 2.8 | 9, 2, 9, 4 |
 
 ## 4. Training and fidelity
 

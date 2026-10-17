@@ -11,7 +11,7 @@
   "speed": {
     "p50_kmh": 33.3,
     "p90_kmh": 60.3,
-    "cv": 0.539,
+    "cv": 0.409,
     "clipped_frac": 0.125
   },
   "tempo": {

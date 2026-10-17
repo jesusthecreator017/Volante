@@ -31,7 +31,7 @@ type Twin = { profile: StyleProfile; fidelity: { ok: boolean; tempo_ratio: numbe
 - **Profile display** (all from `twin.profile`, shown as given: it is trusted, self-reported data, say so in one line):
   - Data volume: `source.swings` swings, `source.sessions` sessions, `source.minutes` minutes (round to whole minutes).
   - Power: head speed `p50_kmh` typical, `p90_kmh` hard; if `speed.clipped_frac` > 0.2 add "(lower bounds: the sensor clips on hard swings)".
-  - Consistency: `cv` as "steady" (< 0.3), "mixed" (0.3-0.5), "wild" (> 0.5), with the number in a tooltip.
+  - Consistency: `cv` as "steady" (< 0.1), "mixed" (0.1-0.2), "wild" (> 0.2); cv is over the power swings (at or above the median speed), with the number in a tooltip.
   - Tempo: `median_gap_s` seconds between shots, with the 25-75 % range `p25_gap_s`-`p75_gap_s`.
   - Stroke mix: `stroke_mix` is `null` for now: show "Stroke mix: coming with stroke recognition". When it is an object (18b), draw bars sorted by share. Same for `side_mix` (forehand / backhand).
 - Fidelity details: `tempo_ratio` as "plays 1.1x as slow as its profile" (ratio > 1 slower, < 1 faster, with the pass band 0.75-1.33);

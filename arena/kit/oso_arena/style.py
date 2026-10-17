@@ -26,6 +26,9 @@ _ISO = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 _ID = re.compile(r"[A-Za-z0-9._ -]{1,64}")
 _CLASS = re.compile(r"[a-z_]{1,24}")
 
+# accuracy mapping: cv of the power swings (>= p50), 1 at CV_LO, 10 at CV_HI (the upper half of any speed distribution is narrow)
+CV_LO, CV_HI = 0.30, 0.05
+
 # fidelity (spec 5): model median gap / profile median gap
 TEMPO_RATIO_LO, TEMPO_RATIO_HI = 0.75, 1.33
 
@@ -38,7 +41,7 @@ SIM_DT = 1 / 120  # the simulator step; a hit's time is (decision step * 4 + sub
 
 
 def _num(v):
-    return (type(v) in (int, float)) and math.isfinite(v)
+    return type(v) is int or (type(v) is float and math.isfinite(v))  # not math.isfinite(int): a 400-digit int raises OverflowError
 
 
 def _in(v, lo, hi):
@@ -161,14 +164,14 @@ def raw_stats(profile):
     """The unrounded, unclamped power / accuracy / speed the profile suggests (reach is not measurable)."""
     return {
         "power": _lin(profile["speed"]["p90_kmh"], 40, 1, 120, 10),
-        "accuracy": _lin(profile["speed"]["cv"], 0.6, 1, 0.1, 10),
+        "accuracy": _lin(profile["speed"]["cv"], CV_LO, 1, CV_HI, 10),
         "speed": _lin(profile["tempo"]["median_gap_s"], 3.0, 1, 1.0, 10),
     }
 
 
 def build_from_profile(profile):
-    """Deterministic and always valid (1-10 each, sum 24). power from speed.p90_kmh (40 -> 1, 120 -> 10), accuracy from cv (0.6 -> 1,
-    0.1 -> 10), speed from tempo.median_gap_s (3.0 s -> 1, 1.0 s -> 10), each rounded half up and clamped; reach takes the remainder.
+    """Deterministic and always valid (1-10 each, sum 24). power from speed.p90_kmh (40 -> 1, 120 -> 10), accuracy from cv (0.30 -> 1,
+    0.05 -> 10), speed from tempo.median_gap_s (3.0 s -> 1, 1.0 s -> 10), each rounded half up and clamped; reach takes the remainder.
     When the remainder is outside 1-10, reach is clamped and the difference is taken from the largest raw stat (too many points) or
     given to the smallest (too few), never leaving 1-10; ties go in the order power, speed, accuracy. Monotone in each input while the
     remainder lands in 1-10 (power up with p90, accuracy up as cv falls, speed up as the median gap falls)."""

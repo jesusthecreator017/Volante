@@ -28,7 +28,7 @@
       "properties": {
         "p50_kmh": {"type": "number", "minimum": 0, "maximum": 400},
         "p90_kmh": {"type": "number", "minimum": 0, "maximum": 400},
-        "cv": {"type": "number", "minimum": 0, "maximum": 2},
+        "cv": {"type": "number", "minimum": 0, "maximum": 2, "description": "population std / mean of the speeds of the power swings (swings at or above the unrounded p50 speed)"},
         "clipped_frac": {"type": "number", "minimum": 0, "maximum": 1}
       }
     },
