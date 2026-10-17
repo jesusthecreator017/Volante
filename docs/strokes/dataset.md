@@ -6,6 +6,7 @@ The data lives in `~/Datasets/oso-strokes/` (or `$OSO_STROKES_ROOT`), **never in
 raw/<session_id>/{session.json, imu.partN.bin | imu.bin, video.mp4?}   from oso-rec collect (16.1)
 labels/<session_id>.csv        swing_id,t_peak_us,class,side,source,reviewer   (review/video labels, 16.3)
 processed/swings_v<N>.npz      the windows + metadata          processed/qc_v<N>.html   the QC report
+meta/sessions.json             optional per-session overrides, e.g. {"<session_id>": {"context": "rally"}} (raw/ stays read-only)
 manifest.json                  sessions, player IDs, versions, QC results, counts
 private/participants.csv       name <-> ID, consent (never shared)
 ```
@@ -46,10 +47,18 @@ tools/.venv/bin/python tools/strokes/test_dataset.py                            
 Side is relative to the racquet face, never mirrored by handedness (`README.md`). `features.TO_REPLAY` maps our 11 classes to
 Replay's `STROKE_TYPES` names.
 
+## Session context: drill or rally
+Every session has a `context`: `drill` (clean sets: one stroke per block, ~2 s stillness between reps) or `rally` (play with a partner:
+block labels are only approximate, other strokes happen inside a block). New sessions get it from `oso-rec collect --context drill|rally`
+(default drill; stored in `session.json`; a missing field means drill). For sessions recorded before the flag, put an override in
+`meta/sessions.json`; it wins over `session.json`. The build writes it to the npz (`context`) and the manifest. The model trains on
+`drill` swings only; `rally` swings count as test data only where a reviewer labelled them (`labels/*.csv`, `source=review`), see
+`model-card.md`.
+
 ## swings_v<N>.npz
 No pickle (`np.load(path, allow_pickle=False)`). One row per swing, sorted by session, part and peak time:
 `x` float32 [n, 500, 10] (channels in `manifest.json`), `feat` float32 [n, 8] (`features.summary`), `swing_id`, `session`,
-`player`, `handed`, `part`, `t_peak_us`, `block` (-1 outside blocks), `label`, `class_id` (-1 unlabelled), `side` (0 FH, 1 BH, -1),
+`player`, `handed`, `context` (`drill` / `rally`), `part`, `t_peak_us`, `block` (-1 outside blocks), `label`, `class_id` (-1 unlabelled), `side` (0 FH, 1 BH, -1),
 `status` (`labelled` / `review` / `unlabelled` / `discarded`), `source` (`block` / `review` / `video`), `reasons` (why in review), `notes` (count mismatch, informational).
 
 ## Withdrawal

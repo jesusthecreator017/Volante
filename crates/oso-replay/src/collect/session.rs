@@ -83,6 +83,27 @@ pub struct Pod {
     pub fw: String,
 }
 
+/// What the session is: `drill` sets (clean, one stroke per block, stillness between reps) or `rally` play with a partner (block labels are
+/// approximate: other strokes happen inside a block). Missing in older session.json = drill.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Context {
+    #[default]
+    Drill,
+    Rally,
+}
+
+impl FromStr for Context {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "drill" => Ok(Context::Drill),
+            "rally" => Ok(Context::Rally),
+            _ => anyhow::bail!("--context is drill or rally"),
+        }
+    }
+}
+
 /// The racquet's shaft and face-normal axes in the sensor frame (`~/.config/oso/mount.json`)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MountAxes {
@@ -122,6 +143,11 @@ pub struct Session {
     pub protocol: ProtocolRef,
     pub pod: Pod,
     pub mount: MountAxes,
+    /// When ~/.config/oso/mount.json was last calibrated (UTC, file time); None in older sessions
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount_calibrated_at: Option<String>,
+    #[serde(default)]
+    pub context: Context,
     /// UTC, `2026-10-17T14:03:22Z`
     pub started_at: String,
     #[serde(default)]
@@ -186,6 +212,8 @@ mod tests {
             protocol: ProtocolRef { name: "drills-v1".into(), version: 1, seed: 123_456_789_012 },
             pod: Pod { mac: "AA:BB:CC:DD:EE:FF".into(), fw: "1.2".into() },
             mount: MountAxes { shaft: [0.0, 0.0, -1.0], normal: [0.0, -1.0, 0.0] },
+            mount_calibrated_at: Some(iso_utc(1_792_245_000)),
+            context: Context::Rally,
             started_at: iso_utc(1_792_245_802),
             blocks: vec![
                 Record { part: 1, index: 0, label: "clear".into(), side: Some("FH".into()), target: 25, counted: 24, t_start_us: Some(1_000_000), t_end_us: Some(61_000_000), status: Status::Done, note: None },
@@ -216,6 +244,19 @@ mod tests {
         assert_eq!(v["started_at"], "2026-10-17T14:03:22Z");
         // The player object carries the ID and the coarse attributes only
         assert_eq!(v["player"].as_object().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn context_defaults_to_drill_and_round_trips() {
+        let mut v: serde_json::Value = serde_json::from_str(&sample().to_json()).unwrap();
+        assert_eq!((v["context"].as_str(), v["mount_calibrated_at"].as_str()), (Some("rally"), Some("2026-10-17T13:50:00Z")));
+        for k in ["context", "mount_calibrated_at"] {
+            v.as_object_mut().unwrap().remove(k);
+        }
+        let s = Session::from_json(&v.to_string()).unwrap();
+        assert_eq!((s.context, s.mount_calibrated_at), (Context::Drill, None));
+        assert_eq!("rally".parse::<Context>().unwrap(), Context::Rally);
+        assert!("match".parse::<Context>().is_err());
     }
 
     #[test]

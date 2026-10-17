@@ -111,7 +111,7 @@ def summary(win):
 # ---------------------------------------------------------------------------------------------------------------------------
 # Phase 16.4 candidate A: the full feature set. Part of the model contract (stroke_model_v0.json "features_version"): a change
 # here changes the classifier input, so bump FEATURES_VERSION and retrain. Deterministic, pure numpy, window -> float32 [N_FEATURES].
-FEATURES_VERSION = 1
+FEATURES_VERSION = 2  # v2: + orientation-free timing/clipping/shape features (appended at the end)
 BANDS_HZ = [(0.5, 3), (3, 6), (6, 12), (12, 25), (25, 60), (60, 125)]  # |w| spectrum bands; log share of the window's energy
 _C = int(round(PRE_S * RATE_HZ))  # nominal peak index
 FEATURE_NAMES = (
@@ -122,7 +122,15 @@ FEATURE_NAMES = (
        "shaft_roll_share", "pre_elev_deg", "pre_ax_g", "pre_ay_g", "pre_az_g", "clip_gyro_n", "clip_acc_n",
        "t_apeak_minus_wpeak_s", "w_prebuild_mean_dps"]
     + [f"band{i}_log_share" for i in range(len(BANDS_HZ))]
+    + ["a_burst_s", "clip_gyro_run_s", "clip_acc_run_s", "w_rise_dps2", "w_fall_dps2", "w_energy_pre_share", "a_jerk_peak_gps"]
 )
+# Features that do not depend on how the pod sits in the racquet (norms, timing, clipping, spectra): the axis-wise peaks/signs,
+# at-peak values, shaft-roll share and pre-swing gravity direction are excluded. Candidate "a_of" trains on these only.
+ORIENTATION_FREE_NAMES = (
+    {"w_peak_dps", "a_peak_g", "buildup_s", "burst_s", "burst_lo_s", "follow_decay", "follow_to20_s", "clip_gyro_n", "clip_acc_n",
+     "t_apeak_minus_wpeak_s", "w_prebuild_mean_dps", "a_burst_s", "clip_gyro_run_s", "clip_acc_run_s", "w_rise_dps2", "w_fall_dps2",
+     "w_energy_pre_share", "a_jerk_peak_gps"} | {n for n in FEATURE_NAMES if n.startswith("band")})
+ORIENTATION_FREE_IDX = [i for i, n in enumerate(FEATURE_NAMES) if n in ORIENTATION_FREE_NAMES]
 N_FEATURES = len(FEATURE_NAMES)
 
 
@@ -149,6 +157,9 @@ def full_features(win):
       normalised mean a vector (pre_a*_g are the means in g).
     - clip_gyro_n / clip_acc_n: saturated sample counts in the window.
     - t_apeak_minus_wpeak_s: time of the |a| peak minus the |w| peak. w_prebuild_mean_dps: mean |w| over -600..-300 ms.
+    - v2: a_burst_s (run around the peak of ||a| - 1 g| above 50 % of it), clip_gyro_run_s / clip_acc_run_s (longest run of saturated samples),
+      w_rise_dps2 / w_fall_dps2 (steepest rise before / fall after the peak of |w| smoothed over 10 ms), w_energy_pre_share (share
+      of sum |w|^2 before the peak), a_jerk_peak_gps (max |d|a|/dt|, g/s).
     - bandK_log_share: log10(share of the Hann-windowed |w| spectrum energy, DC removed, in BANDS_HZ[K] + 1e-6)."""
     x = np.asarray(win, np.float64)
     w = x[:, 6]
@@ -183,6 +194,18 @@ def full_features(win):
     tot = max(spec.sum(), 1e-9)
     for lo_hz, hi_hz in BANDS_HZ:
         f.append(np.log10(spec[(freq >= lo_hz) & (freq < hi_hz)].sum() / tot + 1e-6))
+    dev = np.abs(x[:, 7] - 1.0)  # |a| minus gravity
+    ap = int(np.argmax(dev))
+    lo, hi = _run(dev > 0.5 * max(dev[ap], 1e-9), ap)
+    f.append((hi - lo + 1) * DT)
+    for k in (8, 9):
+        runs = np.diff(np.flatnonzero(np.diff(np.concatenate([[0], (x[:, k] > 0.5).astype(int), [0]]))).reshape(-1, 2), axis=1)
+        f.append(float(runs.max()) * DT if len(runs) else 0.0)
+    ws = np.convolve(w, np.ones(5) / 5, mode="same")
+    dw = np.diff(ws) / DT
+    f += [dw[:p].max(initial=0.0), dw[p:].min(initial=0.0)]
+    f.append((w[:p] ** 2).sum() / max((w ** 2).sum(), 1e-9))
+    f.append(np.abs(np.diff(x[:, 7]) / DT).max())
     out = np.asarray(f, np.float32)
     assert out.shape == (N_FEATURES,), out.shape
     return out

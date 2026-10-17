@@ -1,9 +1,9 @@
 {
   "version": "v0",
   "created": "2026-10-17",
-  "candidate": "A",
-  "architecture": "HistGradientBoosting (class head + side head) on features.full_features",
-  "n_params": null,
+  "candidate": "b",
+  "architecture": "1D-CNN, 4 strided conv blocks, mean+max pool, class and side heads, mount-rotation augmentation +-10 deg",
+  "n_params": 46941,
   "classes": [
     "not_a_hit",
     "serve_short",
@@ -24,6 +24,20 @@
   "sideless_classes": [
     "not_a_hit"
   ],
+  "output_class_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "output_class_note": "probabilities has one column per id in output_class_ids (classes absent from training are not modelled)",
   "window": {
     "pre_s": 0.6,
     "post_s": 0.4,
@@ -44,113 +58,73 @@
     "sat_acc"
   ],
   "input": {
-    "name": "features",
+    "name": "window",
     "shape": [
       "batch",
-      37
+      500,
+      10
     ],
     "dtype": "float32",
-    "note": "features.full_features(window)"
+    "note": "raw window from features.window(): units g, dps, flags"
   },
   "outputs": {
-    "probabilities": "[batch, 11] softmax over classes",
+    "probabilities": "[batch, 11] softmax over output_class_ids",
     "side_probabilities": "[batch, 2] FH, BH (ignore for not_a_hit)"
   },
   "preprocessing": {
-    "features_version": 1,
-    "feature_names": [
-      "ax_g_peak",
-      "ay_g_peak",
-      "az_g_peak",
-      "wx_dps_peak",
-      "wy_dps_peak",
-      "wz_dps_peak",
-      "ax_g_at_peak",
-      "ay_g_at_peak",
-      "az_g_at_peak",
-      "wx_dps_at_peak",
-      "wy_dps_at_peak",
-      "wz_dps_at_peak",
-      "wx_sign_pm50ms",
-      "wy_sign_pm50ms",
-      "wz_sign_pm50ms",
-      "w_peak_dps",
-      "a_peak_g",
-      "buildup_s",
-      "burst_s",
-      "burst_lo_s",
-      "follow_decay",
-      "follow_to20_s",
-      "shaft_roll_share",
-      "pre_elev_deg",
-      "pre_ax_g",
-      "pre_ay_g",
-      "pre_az_g",
-      "clip_gyro_n",
-      "clip_acc_n",
-      "t_apeak_minus_wpeak_s",
-      "w_prebuild_mean_dps",
-      "band0_log_share",
-      "band1_log_share",
-      "band2_log_share",
-      "band3_log_share",
-      "band4_log_share",
-      "band5_log_share"
+    "normalisation": "applied inside the ONNX graph: (x - mean) / std per channel",
+    "mean": [
+      -0.6526907086372375,
+      0.5747014284133911,
+      -0.35170671343803406,
+      22.965707778930664,
+      -12.137369155883789,
+      -34.86922836303711,
+      339.96539306640625,
+      2.8243227005004883,
+      0.0,
+      0.0
     ],
-    "bands_hz": [
-      [
-        0.5,
-        3
-      ],
-      [
-        3,
-        6
-      ],
-      [
-        6,
-        12
-      ],
-      [
-        12,
-        25
-      ],
-      [
-        25,
-        60
-      ],
-      [
-        60,
-        125
-      ]
+    "std": [
+      2.457644462585449,
+      3.019279956817627,
+      2.7818334102630615,
+      408.1501770019531,
+      301.5830078125,
+      346.02520751953125,
+      513.4512329101562,
+      3.974797010421753,
+      1.0,
+      1.0
     ],
-    "note": "features.full_features(window) is part of the model contract; no further scaling"
+    "note": "saturation channels have mean 0, std 1 (raw)"
   },
   "mount_convention": "racquet frame: +Y shaft toward the tip, +Z string-face normal, +X = Y x Z; acc in g, gyro in dps",
-  "uncertainty_threshold": 0.9468,
+  "uncertainty_threshold": 0.9897,
   "uncertainty_rule": "max class probability < threshold -> report 'unclassified'",
   "threshold_met_targets": false,
-  "threshold_coverage": 0.20943952802359883,
-  "threshold_accuracy": 0.45774647887323944,
-  "training_data_sha256": "77a2e4beccd87946c3c0f88783d9e03df8d917bf208554c93493722804e54b80",
-  "n_swings": 678,
+  "threshold_coverage": 0.20170454545454544,
+  "threshold_accuracy": 0.4507042253521127,
+  "training_data_sha256": "5a5fbe7a7e9f7d18af74c740fae4df5a08fb23a3c18db45ffb6ca4601c0c0e3e",
+  "training_context": "drill",
+  "n_swings": 352,
   "players": [
     "P01"
   ],
   "sessions": [
-    "20261017-155705-P01",
-    "20261017-190209-P01",
     "20261017-220845-P01"
   ],
   "seed": 0,
   "metrics": {
-    "loso_mean_macro_f1": 0.2347469093960217,
-    "loso_mean_accuracy": 0.3216776408949306,
-    "loso_mean_side_accuracy": 0.6435426106863023,
-    "loso_mean_not_a_hit_precision": 0.25396825396825395
+    "eval": "WITHIN-SESSION grouped 5-fold over drill blocks (a block never split): optimistic, not a generalisation estimate",
+    "mean_macro_f1": 0.23260172669074022,
+    "mean_accuracy": 0.250355638102117,
+    "mean_side_accuracy": 0.5399187013975746,
+    "mean_not_a_hit_precision": null
   },
   "parity": {
-    "max_abs_class": 3.1800181488073065e-07,
-    "max_abs_side": 8.878354218824769e-08,
-    "n": 678
+    "max_abs_class": 4.76837158203125e-07,
+    "max_abs_side": 2.980232238769531e-07,
+    "n": 352
   }
 }

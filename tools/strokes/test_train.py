@@ -105,6 +105,38 @@ def test_folds_never_share_a_group():
         raise AssertionError("one group must be refused")
 
 
+def test_block_folds_never_split_a_block():
+    x, y, s = synth(30, classes=range(5))
+    sess = np.array(["s"] * len(y))
+    block = np.repeat(np.arange(15), 10)  # 15 blocks of 10 swings
+    folds, names = T.block_folds(y, sess, block, k=5)
+    assert len(folds) == 5 and len(names) == 5
+    for tr, te in folds:
+        assert not set(block[tr]) & set(block[te]) and not set(tr) & set(te)
+    assert sorted(np.concatenate([te for _, te in folds])) == list(range(len(y)))
+    f, n, mode = T.choose_folds(dict(session=sess, y=y, block=block, player=sess), "auto")
+    assert mode == "block"
+    two = dict(session=np.where(np.arange(len(y)) % 2, "s", "t"), y=y, block=block, player=sess)
+    assert T.choose_folds(two, "auto")[2] == "loso"
+
+
+def test_orientation_free_features_ignore_a_mount_rotation():
+    x, _, _ = synth(6)
+    th = np.radians(25)
+    R = np.array([[np.cos(th), -np.sin(th), 0], [np.sin(th), np.cos(th), 0], [0, 0, 1]])
+    y = x.copy()
+    y[:, :, 0:3] = x[:, :, 0:3] @ R.T
+    y[:, :, 3:6] = x[:, :, 3:6] @ R.T
+    a, b = F.full_features_batch(x), F.full_features_batch(y)
+    i = F.ORIENTATION_FREE_IDX
+    assert len(i) > 15 and np.allclose(a[:, i], b[:, i], rtol=1e-3, atol=1e-3)
+    assert not np.allclose(a, b, rtol=1e-3, atol=1e-3)  # the axis-wise features do move
+
+
+def test_group_map_covers_every_class():
+    assert len(T.GROUP_OF) == T.NC and set(T.GROUP_OF) == {0, 1, 2, 3} and T.GROUP_OF[F.CLASSES.index("smash")] == 1
+
+
 def test_threshold_and_metrics():
     rng = np.random.default_rng(0)
     y = rng.integers(0, T.NC, 400)
