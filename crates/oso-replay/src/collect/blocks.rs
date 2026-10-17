@@ -116,6 +116,13 @@ impl Runner {
         &self.records
     }
 
+    /// Live counter threshold (dps) for what is on screen: the active block's own, `default` otherwise;
+    /// infinite when the block's counter is off (0)
+    pub fn threshold(&self, default: f64) -> f64 {
+        let t = self.cur.as_ref().and_then(|a| self.blocks[a.idx].count_threshold_dps).unwrap_or(default);
+        if t > 0.0 { t } else { f64::INFINITY }
+    }
+
     pub fn into_records(self) -> Vec<Record> {
         self.records
     }
@@ -290,7 +297,7 @@ mod tests {
     use Effect::{Bell, Marker};
 
     fn blk(label: &str, side: Option<&str>, target: u32, secs: Option<u32>) -> Block {
-        Block { label: label.into(), side: side.map(String::from), target, secs, instruction: "x".into(), optional: false }
+        Block { label: label.into(), side: side.map(String::from), target, secs, instruction: "x".into(), optional: false, count_threshold_dps: None }
     }
 
     /// clear FH x2, drop BH x3, not_a_hit 10 s
@@ -401,6 +408,19 @@ mod tests {
         assert_eq!(r.tick(111 * S), []);
         let h = headline(&r.view(112 * S));
         assert!(h.contains("NOT_A_HIT") && h.contains("0:12 / 0:10") && h.contains("DONE"), "{h}");
+    }
+
+    #[test]
+    fn threshold_follows_the_active_block() {
+        let mut b = vec![blk("clear", Some("FH"), 2, None), blk("not_a_hit", None, 0, Some(10))];
+        b[0].count_threshold_dps = Some(700.0);
+        b[1].count_threshold_dps = Some(0.0);
+        let mut r = Runner::new(b);
+        assert_eq!(r.threshold(400.0), 400.0, "idle: default");
+        r.key(Key::Next, 0);
+        assert_eq!(r.threshold(400.0), 700.0);
+        r.key(Key::Next, S);
+        assert_eq!(r.threshold(400.0), f64::INFINITY, "0 = off");
     }
 
     #[test]

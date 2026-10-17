@@ -18,7 +18,7 @@ use oso_replay::collect::blocks::{Effect, Key, Runner, Status as BlockStatus, Vi
 use oso_replay::collect::protocol::{self, Protocol};
 use oso_replay::collect::session::{self, MarkerRec, MountAxes, Pod, Player, ProtocolRef, Session};
 use oso_replay::imu::live::LiveFusion;
-use oso_replay::imu::swingdet::SwingCounter;
+use oso_replay::imu::swingdet::{SwingCounter, THRESHOLD_DPS};
 use oso_replay::imu::mount::{Calibration, Mount};
 use oso_replay::imu::packet;
 use oso_proto::uuid as gatt;
@@ -983,7 +983,7 @@ async fn run_blocks(
     shared: Arc<Shared>,
 ) -> anyhow::Result<(Dev, Notes, Collected)> {
     let (t0, mut clk) = (Instant::now(), DevClock { first: None, last: None, at: Instant::now() });
-    let (mut counter, mut markers) = (SwingCounter::new(), Vec::new());
+    let (mut counter, mut markers) = (SwingCounter::new(THRESHOLD_DPS), Vec::new());
     let (mut last_data, mut tick) = (Instant::now(), tokio::time::interval(Duration::from_millis(250)));
     let mut link = String::new();
     let apply = |effects: Vec<Effect>, d: &Dev| {
@@ -1013,6 +1013,7 @@ async fn run_blocks(
                     for p in &batch {
                         let pk = oso_proto::Packet::decode(p);
                         let t = clk.push(pk.t_us);
+                        counter.threshold = runner.threshold(THRESHOLD_DPS);
                         if counter.push(&packet::to_sample(t, pk.v)) {
                             apply(runner.swing(), &d);
                         }
@@ -1064,6 +1065,7 @@ async fn run_blocks(
     }
     // Let the last marker write go out before the recording is stopped
     tokio::time::sleep(Duration::from_millis(300)).await;
+    shared.done.store(true, Ordering::Relaxed);
     Ok((d, notes, Collected { runner, markers, first_t32: clk.first, keys }))
 }
 
@@ -1284,7 +1286,7 @@ mod tests {
     #[test]
     fn screen_shows_block_side_count_and_done() {
         use oso_replay::collect::protocol::Block;
-        let b = Block { label: "clear".into(), side: Some("FH".into()), target: 25, secs: None, instruction: "Hit to the back line.".into(), optional: false };
+        let b = Block { label: "clear".into(), side: Some("FH".into()), target: 25, secs: None, instruction: "Hit to the back line.".into(), optional: false, count_threshold_dps: None };
         let mut r = Runner::new(vec![b]);
         assert!(screen(&r.view(0), "P07", 0.0, "").contains("Press SPACE to start"));
         r.key(Key::Next, 0);

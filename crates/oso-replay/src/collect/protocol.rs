@@ -26,12 +26,19 @@ pub struct Block {
     /// Shown as "(optional)": the operator may skip it
     #[serde(default)]
     pub optional: bool,
+    /// Live counter threshold in dps for this block; 0 = counter off; None = the protocol's default.
+    /// Starting guesses to tune in the pilot.
+    #[serde(default)]
+    pub count_threshold_dps: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Protocol {
     pub name: String,
     pub version: u32,
+    /// Default live counter threshold (dps) for blocks without their own; None = `swingdet::THRESHOLD_DPS`
+    #[serde(default)]
+    pub count_threshold_dps: Option<f64>,
     #[serde(default)]
     pub warmup: Vec<Block>,
     /// Shuffled per session
@@ -67,6 +74,7 @@ impl Protocol {
             }
             anyhow::ensure!((b.target > 0) != b.secs.is_some_and(|s| s > 0), "{who}: needs either target reps or secs");
             anyhow::ensure!(!b.instruction.trim().is_empty(), "{who}: no instruction");
+            anyhow::ensure!(b.count_threshold_dps.is_none_or(|t| t.is_finite() && t >= 0.0), "{who}: bad count_threshold_dps");
         }
         Ok(())
     }
@@ -75,7 +83,11 @@ impl Protocol {
     pub fn order(&self, seed: u64) -> Vec<Block> {
         let mut mid = self.blocks.clone();
         shuffle(&mut mid, seed);
-        self.warmup.iter().cloned().chain(mid).chain(self.finale.iter().cloned()).collect()
+        let dflt = self.count_threshold_dps;
+        let mut all: Vec<Block> = self.warmup.iter().cloned().chain(mid).chain(self.finale.iter().cloned()).collect();
+        // Resolve the protocol default so a block carries its own threshold
+        all.iter_mut().for_each(|b| b.count_threshold_dps = b.count_threshold_dps.or(dflt));
+        all
     }
 }
 
@@ -119,6 +131,8 @@ mod tests {
         assert!(all.iter().filter(|b| b.target > 0).all(|b| b.target == if b.label.starts_with("serve") { 15 } else { 25 }));
         let smoke = Protocol::parse(builtin("smoke").unwrap()).unwrap().order(0);
         assert_eq!(smoke.len(), 2);
+        let thr = |l: &str| all.iter().find(|b| b.label == l).and_then(|b| b.count_threshold_dps);
+        assert_eq!((thr("smash"), thr("drop"), thr("net_shot"), thr("not_a_hit"), thr("free")), (Some(700.0), Some(300.0), Some(200.0), Some(0.0), Some(400.0)));
         assert!(smoke.iter().all(|b| b.target == 3));
     }
 
@@ -135,6 +149,18 @@ mod tests {
         assert_eq!(v, PINNED);
     }
     const PINNED: [u32; 8] = [4, 3, 2, 7, 5, 6, 0, 1];
+
+    #[test]
+    fn block_threshold_overrides_protocol_default() {
+        let t = r#"{"name":"x","version":1,"count_threshold_dps":500,"blocks":[
+            {"label":"clear","side":"FH","target":5,"instruction":"a","count_threshold_dps":700},
+            {"label":"drop","side":"FH","target":5,"instruction":"b"}]}"#;
+        let o = Protocol::parse(t).unwrap().order(0);
+        let mut v: Vec<_> = o.iter().map(|b| (b.label.as_str(), b.count_threshold_dps)).collect();
+        v.sort_by(|a, b| a.0.cmp(b.0));
+        assert_eq!(v, [("clear", Some(700.0)), ("drop", Some(500.0))]);
+        assert!(Protocol::parse(&t.replace("700", "-1")).is_err());
+    }
 
     #[test]
     fn invalid_protocols_are_rejected() {

@@ -53,9 +53,13 @@ Order is shuffled per session (the seed is stored in `session.json`): warm-up fi
 | `p` | pause: ends the block, a break with no label; `space` starts the next |
 | `q` (or Ctrl-C) | finish the session early |
 
-The pod's LED glows at every block start and end (a `0x06` marker). The live counter (gyro peak above 400 °/s, 0.8 s apart) rings
+The pod's LED glows at every block start and end (a `0x06` marker). The live counter (gyro peak above the block's threshold, 0.8 s apart) rings
 the terminal bell and shows **DONE: press SPACE** at the target; it is a guide, the block's reps are re-counted offline, and soft
 swings may be counted too, so the target is approximate. Let the player finish the swing, then press space.
+
+The threshold is per block (`count_threshold_dps` in the protocol JSON, `0` = counter off, default 400). drills-v1 starting guesses,
+to tune in the pilot: smash, clear, long serve 700; drive, lift 450; drop, block/push 300; net shot, short serve 200; net kill 350;
+not_a_hit off. If a block over- or under-counts in the pilot, change the number in `tools/strokes/protocols/drills-v1.json`.
 
 When the blocks are done: the recording stops, you may type a free-text note (no names), the session is downloaded from the pod
 with the packet count checked, and the folder is printed. The pod is only told it is uploaded after a complete download.

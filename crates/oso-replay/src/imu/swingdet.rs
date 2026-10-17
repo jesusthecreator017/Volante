@@ -3,7 +3,7 @@
 //! The Python segmentation of Phase 16.2 (`tools/strokes/`) must port exactly this, constants included:
 //! 1. `|w|` = gyro vector norm in dps (frame-independent, so no mount is needed), averaged over the trailing
 //!    `SMOOTH_S` (20 ms) of samples.
-//! 2. Armed: the smoothed value rises through `THRESHOLD_DPS` (400) -> one swing, stamped with that sample's time.
+//! 2. Armed: the smoothed value rises through the threshold (per block, default `THRESHOLD_DPS` 400) -> one swing, stamped with that sample's time.
 //!    The counter is then disarmed.
 //! 3. Re-armed when `REFRACTORY_S` (0.8 s) has passed since the last count AND the smoothed value has dropped below
 //!    `STILL_DPS` (150) (the racquet came to rest between reps; a swing's own follow-through cannot count twice).
@@ -15,6 +15,7 @@ use super::packet::Sample;
 use std::collections::VecDeque;
 
 pub const SMOOTH_S: f64 = 0.020;
+/// Default when a protocol gives none
 pub const THRESHOLD_DPS: f64 = 400.0;
 pub const REFRACTORY_S: f64 = 0.8;
 pub const STILL_DPS: f64 = 150.0;
@@ -27,14 +28,14 @@ pub struct SwingCounter {
     armed: bool,
     last: Option<f64>,
     pub count: u32,
-    threshold: f64,
+    /// Rising-through level in dps; infinite switches the counter off. Per block in `collect` (protocol `count_threshold_dps`)
+    pub threshold: f64,
     refractory: f64,
 }
 
 impl SwingCounter {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self::with_params(THRESHOLD_DPS, REFRACTORY_S)
+    pub fn new(threshold: f64) -> Self {
+        Self::with_params(threshold, REFRACTORY_S)
     }
 
     /// Other threshold/refractory (tests comparing against the offline analysis)
@@ -80,7 +81,7 @@ mod tests {
     }
 
     fn count(samples: &[Sample]) -> u32 {
-        count_with(SwingCounter::new(), samples)
+        count_with(SwingCounter::new(THRESHOLD_DPS), samples)
     }
 
     fn count_with(mut c: SwingCounter, samples: &[Sample]) -> u32 {
@@ -120,17 +121,26 @@ mod tests {
 
     #[test]
     fn real_smash_recordings_count_near_the_offline_analysis() {
-        // The 2026-10-17 analysis found 41 and 18 smashes: peaks > 700 dps with a 1 s refractory. The live counter's
-        // 400 dps threshold also takes the softer swings in between, so it counts more; the analysis' own definition
-        // must reproduce its numbers within 1, and the live count must not be lower.
+        // The 2026-10-17 analysis found 41 and 18 smashes: peaks > 700 dps with a 1 s refractory. The live counter with
+        // the smash block's 700 dps (drills-v1) must land within 1 of both; at 400 dps it over-counts hard strokes (48).
         for (file, found) in [("smashes_live1.bin", 41u32), ("smashes.bin", 18)] {
             let Some(s) = hw(file) else { continue };
             let strict = count_with(SwingCounter::with_params(700.0, 1.0), &s);
-            let live = count(&s);
-            eprintln!("{file}: analysis {found}, 700 dps/1 s {strict}, live (400 dps/0.8 s) {live}");
+            let live = count_with(SwingCounter::new(700.0), &s);
+            eprintln!("{file}: analysis {found}, 700 dps/1 s {strict}, live (700 dps/0.8 s) {live}, at 400 dps {}", count(&s));
             assert!(strict.abs_diff(found) <= 1, "{file}: {strict} vs {found}");
-            assert!(live >= strict, "{file}");
+            assert!(live.abs_diff(found) <= 1, "{file}: live {live} vs {found}");
         }
+    }
+
+    #[test]
+    fn per_block_thresholds_soft_strokes_and_off() {
+        let soft = synth(4.0, &[(1.0, 260.0), (2.0, 260.0)]);
+        assert_eq!(count_with(SwingCounter::new(THRESHOLD_DPS), &soft), 0);
+        assert_eq!(count_with(SwingCounter::new(200.0), &soft), 2);
+        assert_eq!(count_with(SwingCounter::new(f64::INFINITY), &synth(4.0, &[(1.0, 1500.0)])), 0);
+        // A hard stroke is below a smash threshold only when it is soft enough
+        assert_eq!(count_with(SwingCounter::new(700.0), &synth(4.0, &[(1.0, 500.0)])), 0);
     }
 
     #[test]
