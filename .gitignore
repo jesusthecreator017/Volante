@@ -8,4 +8,5 @@ target/
 /out/
 __pycache__/
 /dist/
+/web/dist
 .DS_Store
