@@ -7,6 +7,7 @@ struct WearablesView: View {
     @Environment(FitbitLink.self) private var fitbit
     @Environment(PiServer.self) private var pi
     @State private var checking = false
+    @AppStorage("oso.onboarded") private var onboarded = false
 
     var body: some View {
         @Bindable var pi = pi
@@ -65,6 +66,12 @@ struct WearablesView: View {
                     }
                     if let e = fitbit.lastError { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                     foot("Sign in once here; the Pi keeps the Google token and fetches heart rate (1 s) from the Google Health API. Fitbit has no motion data for apps. Open a session and tap Fetch from Fitbit to put your heart rate on its swings.")
+                }
+
+                Card("Welcome", systemImage: "hand.wave") {
+                    Button { onboarded = false } label: { Label("Show intro again", systemImage: "arrow.counterclockwise") }
+                        .buttonStyle(.secondary)
+                    foot("Replays the first-launch tour: the pod, Bluetooth and the optional Pi.")
                 }
             }
             .navigationTitle("Connections")

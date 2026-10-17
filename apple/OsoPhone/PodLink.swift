@@ -40,7 +40,11 @@ final class PodLink: NSObject {
     /// Called with each finished session (stream stop or upload_done).
     var onSession: ((_ imu: [UInt8], _ meta: SessionMeta) -> Void)?
 
-    @ObservationIgnored private var central: CBCentralManager!
+    /// Created lazily: creating it is what makes iOS show the Bluetooth prompt, so a fresh install waits for
+    /// `enableBluetooth()` (onboarding / the Pod tab) or `scan()`. With permission already granted it is created in init.
+    @ObservationIgnored private var central: CBCentralManager?
+    /// A `scan()` that arrived before the central existed: runs once the radio reports powered on.
+    @ObservationIgnored private var pendingScan = false
     @ObservationIgnored private var pod: CBPeripheral?
     @ObservationIgnored private var control: CBCharacteristic?
     @ObservationIgnored private var statusChar: CBCharacteristic?
@@ -62,12 +66,62 @@ final class PodLink: NSObject {
 
     override init() {
         super.init()
-        central = CBCentralManager(delegate: self, queue: .main)
+        // Only a granted permission creates the central at launch (reconnect flows need it); .notDetermined must not.
+        if authorization == .allowedAlways { central = CBCentralManager(delegate: self, queue: .main) }
+    }
+
+    // MARK: Bluetooth access
+
+    /// What the Pod tab and onboarding show for Bluetooth.
+    enum Access: Equatable { case notDetermined, denied, poweredOff, unsupported, checking, ready }
+
+    /// The permission as of the last check (the central's callbacks and `refreshAuthorization` keep it current).
+    private(set) var authorization = CBCentralManager.authorization
+    /// The radio as the central last reported it; `.unknown` until the first callback.
+    private(set) var radio: CBManagerState = .unknown
+    #if DEBUG
+    /// -osoBluetooth override, so every card can be screenshotted without touching the real permission.
+    var accessOverride: Access?
+    #endif
+
+    var access: Access {
+        #if DEBUG
+        if let accessOverride { return accessOverride }
+        #endif
+        switch authorization {
+        case .notDetermined: return .notDetermined
+        case .denied, .restricted: return .denied
+        default: break
+        }
+        switch radio {
+        case .poweredOn: return .ready
+        case .poweredOff: return .poweredOff
+        case .unsupported: return .unsupported
+        default: return .checking
+        }
+    }
+
+    /// Creates the central, which shows the system prompt the first time. Safe to call repeatedly.
+    func enableBluetooth() {
+        authorization = CBCentralManager.authorization
+        if central == nil { central = CBCentralManager(delegate: self, queue: .main) }
+    }
+
+    /// Re-reads the permission (the app calls it when it becomes active, e.g. back from Settings).
+    func refreshAuthorization() {
+        authorization = CBCentralManager.authorization
+        if authorization == .allowedAlways, central == nil { central = CBCentralManager(delegate: self, queue: .main) }
     }
 
     // MARK: connection
 
     func scan() {
+        guard let central else {
+            // First need: create it (this may show the prompt) and scan once it reports powered on
+            pendingScan = true
+            enableBluetooth()
+            return
+        }
         guard central.state == .poweredOn else { lastError = "Bluetooth is off or not allowed"; return }
         found = []
         state = .scanning
@@ -76,12 +130,13 @@ final class PodLink: NSObject {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(40))
             guard let self, self.state == .scanning else { return }
-            self.central.stopScan()
+            self.central?.stopScan()
             self.state = .idle
         }
     }
 
     func connect(_ p: CBPeripheral) {
+        guard let central else { return }   // a peripheral comes from a scan, so the central exists
         central.stopScan()
         pod = p
         p.delegate = self
@@ -91,7 +146,7 @@ final class PodLink: NSObject {
     }
 
     func disconnect() {
-        if let pod { central.cancelPeripheralConnection(pod) }
+        if let pod { central?.cancelPeripheralConnection(pod) }
     }
 
     // MARK: commands
@@ -284,7 +339,12 @@ final class PodLink: NSObject {
 extension PodLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
         MainActor.assumeIsolated {
+            radio = c.state
+            authorization = CBCentralManager.authorization
             state = c.state == .poweredOn ? .idle : .off
+            guard pendingScan, c.state != .unknown, c.state != .resetting else { return }
+            pendingScan = false
+            if c.state == .poweredOn { scan() } else { lastError = "Bluetooth is off or not allowed" }
         }
     }
 
