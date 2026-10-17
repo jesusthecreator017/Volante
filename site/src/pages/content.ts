@@ -21,7 +21,7 @@ export function getStarted(root: HTMLElement) {
       null,
       "The kit needs Python 3.10 or newer. It isn't on PyPI: install it from the repository as above, or build a wheel with ",
       h("code", null, "python -m build arena/kit"),
-      " and install that. It contains the simulator, a scripted bot, the trainer, export and check tools, a local match runner and an animator for your own matches (drag the resulting match.bin onto the viewer; nothing is uploaded). The base model to start training from is not bundled in this version of the kit yet; until it is, a run starts from scratch.",
+      " and install that. It contains the simulator, a scripted bot, the trainer, export and check tools, a local match runner and an animator for your own matches (drag the resulting match.bin onto the viewer; nothing is uploaded). It also contains the base model, House Base, to start training from (--init base).",
     ),
     h("h2", null, "2. Choose a build"),
     h("p", null, `Four stats, each 1–10, summing to ${BUILD_TOTAL}. 6/6/6/6 is balanced.`),

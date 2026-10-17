@@ -55,7 +55,8 @@ describe("get started copy", () => {
     expect(text).toContain('pip install "./arena/kit[train]"');
     expect(text).toContain("oso-arena train");
     expect(text).toContain("skills/oso-arena-coach");
-    expect(text).toContain("not bundled in this version of the kit");
+    expect(text).toContain("House Base"); // the kit ships the base model (arena/kit/oso_arena/data/)
+    expect(text).not.toContain("not bundled");
     expect(root.querySelectorAll("[style], script").length).toBe(0);
   });
 });
