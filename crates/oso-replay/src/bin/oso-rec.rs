@@ -1022,7 +1022,7 @@ async fn run_blocks(
     keys: &mut UnboundedReceiver<u8>,
     cfg: &Cfg,
     data: &SyncSender<Vec<[u8; PACKET_LEN]>>,
-    shared: &Shared,
+    env: &mut Env,
 ) -> anyhow::Result<PartRun> {
     let mut clk = DevClock { first: None, last: None, at: Instant::now() };
     let (mut counter, mut markers) = (SwingCounter::new(THRESHOLD_DPS), Vec::new());
@@ -1114,6 +1114,7 @@ async fn run_blocks(
                 }
                 if let Some(now) = clk.now() {
                     apply(runner.tick(now), &d);
+                    env.checkpoint(runner, cfg.part);
                     // Between blocks (a pause) and the flash is filling: do the boundary now rather than at the next SPACE
                     if !runner.is_active() && !runner.finished()
                         && parts::should_split(estimated_packets(&clk), flash_full, next_est(runner), blocks_in_part(runner), cfg.every, true)
@@ -1123,7 +1124,7 @@ async fn run_blocks(
                     let warn = if flash_full && runner.is_active() { "  FLASH FULL: finish this block; a new part follows" } else { "" };
                     let v = runner.view(now);
                     print!("{}", screen(&v, &cfg.player, cfg.t0.elapsed().as_secs_f64(), &format!("part {} {link}{warn}", cfg.part)));
-                    if let Ok(mut t) = shared.title.lock() {
+                    if let Ok(mut t) = env.shared.title.lock() {
                         *t = format!("{} | part {} | SPACE next, r redo, s skip, p pause, b break (terminal), q finish{warn}", headline(&v), cfg.part);
                     }
                 } else {
@@ -1227,7 +1228,21 @@ struct Env {
 
 impl Env {
     fn write(&self) -> anyhow::Result<()> {
-        std::fs::write(self.dir.join("session.json"), self.meta.to_json()).with_context(|| format!("writing {}/session.json", self.dir.display()))
+        // Temp file + rename: a crash mid-write leaves the previous session.json, never a torn one
+        let (tmp, dst) = (self.dir.join("session.json.tmp"), self.dir.join("session.json"));
+        std::fs::write(&tmp, self.meta.to_json()).and_then(|()| std::fs::rename(&tmp, &dst)).with_context(|| format!("writing {}", dst.display()))
+    }
+
+    /// Saves `part`'s block records as they stand, when they changed: a crash mid-part keeps every finished block's times
+    fn checkpoint(&mut self, runner: &Runner, part: u32) {
+        let now: Vec<_> = runner.records().iter().filter(|b| b.part == part).collect();
+        if now.len() == self.meta.blocks.iter().filter(|b| b.part == part).count() && now.iter().all(|r| self.meta.blocks.contains(r)) {
+            return;
+        }
+        self.sync_blocks(runner, part);
+        if let Err(e) = self.write() {
+            eprintln!("could not checkpoint session.json: {e:#}");
+        }
     }
 
     /// A status line for the terminal and the window title
@@ -1328,7 +1343,7 @@ async fn session_loop(mut l: Loop, mut d: Dev, mut notes: Notes, mut part: u32) 
         l.env.write()?;
         l.runner.set_part(part);
         let cfg = Cfg { player: player.clone(), part, every: l.every, t0: l.t0 };
-        let PartRun { d: dd, notes: nn, stop, markers } = run_blocks(d, notes, &mut l.runner, &mut l.keys, &cfg, &l.data, &l.env.shared).await?;
+        let PartRun { d: dd, notes: nn, stop, markers } = run_blocks(d, notes, &mut l.runner, &mut l.keys, &cfg, &l.data, &mut l.env).await?;
         let last = matches!(stop, Stop::Finished);
         if last {
             finish_notes(&mut l);
