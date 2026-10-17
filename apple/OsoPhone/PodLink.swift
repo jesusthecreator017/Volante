@@ -2,11 +2,15 @@
 // (docs/ble-profile.md): binary status, events only as notifications, record confirm, upload handshake with
 // mark-uploaded, sleep/wake. Protocol details live in OsoKit (PodProtocol.swift, ImuFile.swift).
 
-import CoreBluetooth
+@preconcurrency import CoreBluetooth
 import Foundation
 import Observation
 import OsoKit
 
+// Main-actor by design: the central runs on the main queue and every timer is a main-actor task, so all state
+// (waiters, collectors, @Observable properties) is touched from one place. The CoreBluetooth delegate methods are
+// nonisolated and re-enter the actor with assumeIsolated, which is correct because of `queue: .main` below.
+@MainActor
 @Observable
 final class PodLink: NSObject {
     enum State: String { case off, idle, scanning, connecting, connected }
@@ -67,7 +71,8 @@ final class PodLink: NSObject {
         state = .scanning
         // A sleeping pod advertises 2 s every 30 s: scan long enough to catch it
         central.scanForPeripherals(withServices: [CBUUID(string: PodUUID.service)])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 40) { [weak self] in
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(40))
             guard let self, self.state == .scanning else { return }
             self.central.stopScan()
             self.state = .idle
@@ -107,7 +112,8 @@ final class PodLink: NSObject {
                 return true
             }
             waiters.append(w)
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
                 guard !done else { return }
                 done = true
                 k.resume(returning: nil)
@@ -159,9 +165,12 @@ final class PodLink: NSObject {
         notice = nil
         send(.upload)
         stallTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, let u = self.upload, Date().timeIntervalSince(u.lastData) > 20 else { return }
-            self.stallTimer?.invalidate()
-            self.lastError = "upload stalled for 20 s: Finish now keeps what arrived (the pod still holds the session)"
+            // Scheduled from the main run loop, so this fires on the main thread
+            MainActor.assumeIsolated {
+                guard let self, let u = self.upload, Date().timeIntervalSince(u.lastData) > 20 else { return }
+                self.stallTimer?.invalidate()
+                self.lastError = "upload stalled for 20 s: Finish now keeps what arrived (the pod still holds the session)"
+            }
         }
     }
 
@@ -255,87 +264,111 @@ final class PodLink: NSObject {
 }
 
 // MARK: CoreBluetooth delegates
+// The central is created with queue: .main, so every callback arrives on the main thread: assumeIsolated checks that.
 
 extension PodLink: CBCentralManagerDelegate, CBPeripheralDelegate {
-    func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        state = c.state == .poweredOn ? .idle : .off
-    }
-
-    func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
-        if !found.contains(where: { $0.identifier == p.identifier }) { found.append(p) }
-    }
-
-    func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
-        mtu = p.maximumWriteValueLength(for: .withoutResponse) + 3
-        p.discoverServices([CBUUID(string: PodUUID.service), CBUUID(string: PodUUID.batteryService)])
-    }
-
-    func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        state = .idle
-        lastError = error?.localizedDescription ?? "could not connect"
-    }
-
-    func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        if upload != nil {
-            lastError = "link lost during the upload: the pod keeps the session, upload again"
-            finishUploadEarly()
+    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
+        MainActor.assumeIsolated {
+            state = c.state == .poweredOn ? .idle : .off
         }
-        if streaming { stopStream(save: true) }
-        state = .idle
-        control = nil
-        statusChar = nil
-        pod = nil
-        anchor = nil
     }
 
-    func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
+    nonisolated func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral, advertisementData: [String: Any], rssi: NSNumber) {
+        MainActor.assumeIsolated {
+            if !found.contains(where: { $0.identifier == p.identifier }) { found.append(p) }
+        }
+    }
+
+    nonisolated func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
+        MainActor.assumeIsolated {
+            mtu = p.maximumWriteValueLength(for: .withoutResponse) + 3
+            p.discoverServices([CBUUID(string: PodUUID.service), CBUUID(string: PodUUID.batteryService)])
+        }
+    }
+
+    nonisolated func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
+        let message = error?.localizedDescription ?? "could not connect"
+        MainActor.assumeIsolated {
+            state = .idle
+            lastError = message
+        }
+    }
+
+    nonisolated func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        MainActor.assumeIsolated {
+            if upload != nil {
+                lastError = "link lost during the upload: the pod keeps the session, upload again"
+                finishUploadEarly()
+            }
+            if streaming { stopStream(save: true) }
+            state = .idle
+            control = nil
+            statusChar = nil
+            pod = nil
+            anchor = nil
+        }
+    }
+
+    nonisolated func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         for s in p.services ?? [] { p.discoverCharacteristics(nil, for: s) }
     }
 
-    func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor s: CBService, error: Error?) {
-        for ch in s.characteristics ?? [] {
-            switch ch.uuid {
-            case CBUUID(string: PodUUID.imuStream): p.setNotifyValue(true, for: ch)
-            case CBUUID(string: PodUUID.control): control = ch
+    nonisolated func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor s: CBService, error: Error?) {
+        MainActor.assumeIsolated {
+            for ch in s.characteristics ?? [] {
+                switch ch.uuid {
+                case CBUUID(string: PodUUID.imuStream): p.setNotifyValue(true, for: ch)
+                case CBUUID(string: PodUUID.control): control = ch
+                case CBUUID(string: PodUUID.status):
+                    statusChar = ch
+                    p.setNotifyValue(true, for: ch)
+                    p.readValue(for: ch)
+                case CBUUID(string: PodUUID.batteryLevel): p.readValue(for: ch)
+                default: break
+                }
+            }
+            guard control != nil, statusChar != nil, state == .connecting else { return }
+            state = .connected
+            p.readRSSI()
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, let st = self.status else { return }
+                if st.sleeping {
+                    // Caught the 2 s advert window: wake within the pod's 10 s, it resets into the normal boot
+                    self.notice = "The pod was sleeping: sent wake. It restarts (~7 s); then connect again."
+                    self.send(.wake)
+                } else {
+                    // Clock anchor for heart rate: the marker's t_us arrives with the phone time
+                    self.send(.syncMark)
+                }
+            }
+        }
+    }
+
+    nonisolated func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
+        guard let v = ch.value else { return }
+        let uuid = ch.uuid
+        MainActor.assumeIsolated {
+            switch uuid {
+            case CBUUID(string: PodUUID.imuStream): onData([UInt8](v))
             case CBUUID(string: PodUUID.status):
-                statusChar = ch
-                p.setNotifyValue(true, for: ch)
-                p.readValue(for: ch)
-            case CBUUID(string: PodUUID.batteryLevel): p.readValue(for: ch)
+                // Reads always carry event = none, so treating every update as a possible event is safe
+                if let s = PodStatus([UInt8](v)) { onStatus(s, notification: true) }
+            case CBUUID(string: PodUUID.batteryLevel):
+                if let b = v.first, b != 255 { battery = Int(b) }
             default: break
             }
         }
-        guard control != nil, statusChar != nil, state == .connecting else { return }
-        state = .connected
-        p.readRSSI()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, let st = self.status else { return }
-            if st.sleeping {
-                // Caught the 2 s advert window: wake within the pod's 10 s, it resets into the normal boot
-                self.notice = "The pod was sleeping: sent wake. It restarts (~7 s); then connect again."
-                self.send(.wake)
-            } else {
-                // Clock anchor for heart rate: the marker's t_us arrives with the phone time
-                self.send(.syncMark)
+    }
+
+    nonisolated func peripheral(_ p: CBPeripheral, didReadRSSI value: NSNumber, error: Error?) {
+        let r = value.intValue
+        MainActor.assumeIsolated {
+            rssi = r
+            Task { [weak p] in
+                try? await Task.sleep(for: .seconds(2))
+                p?.readRSSI()
             }
         }
-    }
-
-    func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
-        guard let v = ch.value else { return }
-        switch ch.uuid {
-        case CBUUID(string: PodUUID.imuStream): onData([UInt8](v))
-        case CBUUID(string: PodUUID.status):
-            // Reads always carry event = none, so treating every update as a possible event is safe
-            if let s = PodStatus([UInt8](v)) { onStatus(s, notification: true) }
-        case CBUUID(string: PodUUID.batteryLevel):
-            if let b = v.first, b != 255 { battery = Int(b) }
-        default: break
-        }
-    }
-
-    func peripheral(_ p: CBPeripheral, didReadRSSI value: NSNumber, error: Error?) {
-        rssi = value.intValue
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak p] in p?.readRSSI() }
     }
 }

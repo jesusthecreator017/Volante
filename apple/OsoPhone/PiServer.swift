@@ -5,6 +5,7 @@ import Foundation
 import Observation
 import OsoKit
 
+@MainActor
 @Observable
 final class PiServer {
     var baseURL: String {
@@ -41,7 +42,6 @@ final class PiServer {
         return r.0
     }
 
-    @MainActor
     func checkHealth() async {
         do {
             let d = try expectOK(await request("health"))

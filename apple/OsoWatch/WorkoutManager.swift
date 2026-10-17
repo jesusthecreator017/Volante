@@ -3,13 +3,17 @@
 // packets (OsoKit WristEncoder, mount 1), swings are counted live with the same detector as the phone, and at the
 // end the imu.bin + heart rate go to the phone over WatchConnectivity.
 
-import CoreMotion
+@preconcurrency import CoreMotion
 import Foundation
-import HealthKit
+@preconcurrency import HealthKit
 import Observation
 import OsoKit
-import WatchConnectivity
+@preconcurrency import WatchConnectivity
 
+// Main-actor state. HealthKit and WatchConnectivity call their delegates on background queues, so those callbacks
+// are nonisolated: they read what they need from the (non-Sendable) HealthKit objects, then hop to the main actor
+// with plain values.
+@MainActor
 @Observable
 final class WorkoutManager: NSObject {
     enum Phase { case idle, starting, running, ending, sent }
@@ -35,7 +39,7 @@ final class WorkoutManager: NSObject {
     @ObservationIgnored private var startDate = Date()
     /// CoreMotion timestamps are seconds since boot; Date = boot + timestamp
     @ObservationIgnored private let bootDate = Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
-    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -50,7 +54,6 @@ final class WorkoutManager: NSObject {
 
     // MARK: workout
 
-    @MainActor
     func start() async {
         guard CMBatchedSensorManager.isDeviceMotionSupported else { error = "This watch has no batched device motion (watchOS 10+, Series 8 / Ultra or later)"; return }
         phase = .starting
@@ -78,10 +81,14 @@ final class WorkoutManager: NSObject {
         }
         phase = .running
         startMotion()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.elapsed = Date().timeIntervalSince(self.startDate)
-            self.sendLive()
+        // Once a second on the main actor: elapsed time and the live swing count to the phone
+        ticker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                self.elapsed = Date().timeIntervalSince(self.startDate)
+                self.sendLive()
+            }
         }
     }
 
@@ -90,15 +97,14 @@ final class WorkoutManager: NSObject {
             guard let self else { return }
             do {
                 for try await batch in self.motion.deviceMotionUpdates() {
-                    await self.ingest(batch)
+                    self.ingest(batch)
                 }
             } catch {
-                await MainActor.run { self.error = "motion: \(error.localizedDescription)" }
+                self.error = "motion: \(error.localizedDescription)"
             }
         }
     }
 
-    @MainActor
     private func ingest(_ batch: [CMDeviceMotion]) {
         var fresh: [Sample] = []
         for m in batch {
@@ -118,11 +124,10 @@ final class WorkoutManager: NSObject {
         }
     }
 
-    @MainActor
     func end() async {
         guard let session, let builder else { return }
         phase = .ending
-        timer?.invalidate()
+        ticker?.cancel()
         motionTask?.cancel()
         session.end()
         do {
@@ -145,7 +150,6 @@ final class WorkoutManager: NSObject {
         WCSession.default.sendMessage(msg, replyHandler: nil)
     }
 
-    @MainActor
     private func send() {
         guard !encoder.packets.isEmpty, let t0 = encoder.startTime else { phase = .idle; return }
         let meta = SessionMeta(
@@ -169,34 +173,39 @@ final class WorkoutManager: NSObject {
 }
 
 extension WorkoutManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate, WCSessionDelegate {
-    func workoutSession(_ s: HKWorkoutSession, didChangeTo to: HKWorkoutSessionState, from: HKWorkoutSessionState, date: Date) {}
-    func workoutSession(_ s: HKWorkoutSession, didFailWithError error: Error) {
-        DispatchQueue.main.async { self.error = error.localizedDescription }
+    nonisolated func workoutSession(_ s: HKWorkoutSession, didChangeTo to: HKWorkoutSessionState, from: HKWorkoutSessionState, date: Date) {}
+    nonisolated func workoutSession(_ s: HKWorkoutSession, didFailWithError error: Error) {
+        let message = error.localizedDescription
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.error = message } }
     }
-    func workoutBuilderDidCollectEvent(_ b: HKLiveWorkoutBuilder) {}
+    nonisolated func workoutBuilderDidCollectEvent(_ b: HKLiveWorkoutBuilder) {}
 
-    func workoutBuilder(_ b: HKLiveWorkoutBuilder, didCollectDataOf types: Set<HKSampleType>) {
+    nonisolated func workoutBuilder(_ b: HKLiveWorkoutBuilder, didCollectDataOf types: Set<HKSampleType>) {
         for case let type as HKQuantityType in types {
             guard let stats = b.statistics(for: type) else { continue }
-            DispatchQueue.main.async {
-                switch type {
-                case HKQuantityType(.heartRate):
-                    let unit = HKUnit.count().unitDivided(by: .minute())
-                    if let q = stats.mostRecentQuantity() {
-                        let bpm = q.doubleValue(for: unit)
+            switch type {
+            case HKQuantityType(.heartRate):
+                let unit = HKUnit.count().unitDivided(by: .minute())
+                if let q = stats.mostRecentQuantity() {
+                    let bpm = q.doubleValue(for: unit)
+                    let at = stats.mostRecentQuantityDateInterval()?.end ?? Date()
+                    // The main queue (FIFO, unlike Task hops) keeps the heart-rate samples in order
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
                         self.heartRate = bpm
-                        let at = stats.mostRecentQuantityDateInterval()?.end ?? Date()
                         self.hr.append(HeartRateSample(t: at.timeIntervalSince1970, bpm: bpm))
-                    }
-                case HKQuantityType(.activeEnergyBurned):
-                    self.activeEnergy = stats.sumQuantity()?.doubleValue(for: .kilocalorie()) ?? self.activeEnergy
-                default: break
+                    } }
                 }
+            case HKQuantityType(.activeEnergyBurned):
+                let kcal = stats.sumQuantity()?.doubleValue(for: .kilocalorie())
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    self.activeEnergy = kcal ?? self.activeEnergy
+                } }
+            default: break
             }
         }
     }
 
-    func session(_ s: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+    nonisolated func session(_ s: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
 }
 
 extension JSONEncoder {
