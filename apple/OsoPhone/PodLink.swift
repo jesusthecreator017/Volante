@@ -49,6 +49,8 @@ final class PodLink: NSObject {
     @ObservationIgnored private var anchor: ClockAnchor?
     @ObservationIgnored private var waiters: [(PodStatus) -> Bool] = []
     @ObservationIgnored private var stallTimer: Timer?
+    /// Lock Screen / Dynamic Island activity for a streaming or recording session.
+    @ObservationIgnored let liveActivity = LiveActivityController()
 
     /// Packets in arrival order (exactly what imu.bin stores), unwrapped for live analysis.
     private final class Collector {
@@ -144,6 +146,7 @@ final class PodLink: NSObject {
         liveSwings = []
         livePackets = 0
         send(.startStream)
+        updateActivity()
     }
 
     func stopStream(save: Bool) {
@@ -151,8 +154,17 @@ final class PodLink: NSObject {
         send(.stopStream)
         stream = nil
         live = nil
+        updateActivity()
         guard save, !c.packets.isEmpty else { return }
         finish(c, source: .podStream, note: nil)
+    }
+
+    /// Mirrors the session onto the Live Activity; the controller throttles and ends it.
+    private func updateActivity() {
+        let mode: LiveSessionAttributes.Mode? = streaming ? .streaming : (status?.recording == true ? .recording : nil)
+        liveActivity.sync(LiveSnapshot(
+            mode: mode, podName: peripheralName ?? "oso pod", swings: live?.swingCount ?? 0, hits: live?.hitCount ?? 0,
+            lastSpeed: liveSwings.last?.headSpeed, bestSpeed: live?.bestSpeed ?? 0, connected: state == .connected))
     }
 
     // MARK: upload
@@ -214,6 +226,7 @@ final class PodLink: NSObject {
     fileprivate func onStatus(_ s: PodStatus, notification: Bool) {
         status = s
         if let b = s.battery { battery = b }
+        updateActivity()
         guard notification, let ev = s.event, ev != .none else { return }
         let before = waiters.count
         waiters.removeAll { $0(s) }
@@ -256,9 +269,11 @@ final class PodLink: NSObject {
             uploadReceived = c.packets.count
         } else if var a = live {
             // ponytail: the reorder buffer of the web app is skipped here; out-of-order packets just look like noise
-            liveSwings += a.push(samples)
+            let ended = a.push(samples)
+            liveSwings += ended
             live = a
             livePackets = c.packets.count
+            if !ended.isEmpty { updateActivity() }
         }
     }
 }
@@ -300,12 +315,13 @@ extension PodLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 lastError = "link lost during the upload: the pod keeps the session, upload again"
                 finishUploadEarly()
             }
+            state = .idle   // before stopStream: the activity then shows "reconnecting" instead of ending
             if streaming { stopStream(save: true) }
-            state = .idle
             control = nil
             statusChar = nil
             pod = nil
             anchor = nil
+            updateActivity()
         }
     }
 

@@ -8,6 +8,8 @@ import SwiftUI
 ///   -osoResetSample                    delete saved sample sessions first
 ///   -osoHeartRate                      with -osoSample: attach synthetic heart rate (not saved)
 ///   -osoDark / -osoLargeType           force dark appearance / accessibility Dynamic Type
+///   -osoLiveDemo                       start a Live Activity with a simulated 60 s session (no pod needed)
+///   -osoLivePreview                    show the Live Activity layouts in the app instead of the tabs
 ///   -osoBottom                         start Screens scrolled to the bottom
 struct DebugOverrides: ViewModifier {
     func body(content: Content) -> some View {
