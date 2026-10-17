@@ -32,8 +32,8 @@ Fitbit -> Google Health API --HTTPS--> iPhone -- HR samples for the session wind
 ```
 Watch sessions are written in the **same `imu.bin` format** (`docs/data-format.md`), quantized to the pod's scales, with
 `mount_id = 1` (wrist). So every tool that reads a pod session (`oso-imu`, the web app, OsoKit) reads a watch session.
-The analysis in OsoKit is rate-aware (block sizes and spike widths scale with `rate_hz`). The TypeScript app and
-`oso-imu` still assume 500 Hz.
+The analysis in OsoKit is rate-aware (block sizes and spike widths scale with `rate_hz`). The web app's analysis
+is rate-aware the same way (so it opens watch sessions too); `oso-imu` still assumes 500 Hz.
 
 **Clocks.** Pod time is the pod's `micros()`. To put pod sessions on wall-clock time (needed for heart rate), the phone
 sends a sync marker (0x06) right after connecting and records (marker `t_us`, phone time) as the session's clock

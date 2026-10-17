@@ -5,18 +5,20 @@ import { G, DEG } from "./quat";
 
 export const CLAP_G = 6.0;
 export const IMPACT_G = 5.0;
-const MAX_WIDTH_SAMPLES = 3;
+/** Narrow-spike width in samples: 3 at 500 Hz (6 ms), never fewer (Apple Watch sessions are 200 Hz). */
+const maxWidth = (rateHz: number) => Math.max(3, Math.round(0.006 * rateHz));
 const HALF = 4;
 export const MAX_DRIFT = 200e-6;
 
 /** Per-sample deviation of accel components from the 9-sample median, in g; 0 next to a lost-packet gap. */
-export function spikeStrength(samples: Sample[]): Float64Array {
+export function spikeStrength(samples: Sample[], rateHz = 500): Float64Array {
+  const maxSpan = 9.5 / rateHz; // 19 ms at 500 Hz: the 9-sample window must not straddle a hole
   const n = samples.length;
   const out = new Float64Array(n);
   if (n < 2 * HALF + 1) return out;
   const v = new Float32Array(2 * HALF + 1);
   for (let i = HALF; i < n - HALF; i++) {
-    if (samples[i + HALF].t - samples[i - HALF].t > 0.019) continue;
+    if (samples[i + HALF].t - samples[i - HALF].t > maxSpan) continue;
     let d2 = 0;
     for (let a = 0; a < 3; a++) {
       for (let k = 0; k < 2 * HALF + 1; k++) v[k] = samples[i - HALF + k].acc[a];
@@ -39,7 +41,7 @@ export interface Spike {
 }
 
 /** Narrow spikes (<= 3 samples) above thrG at or after sample `from`. sync.rs `spikes`, plus peak strength. */
-export function spikes(samples: Sample[], strength: Float64Array, from: number, thrG: number): Spike[] {
+export function spikes(samples: Sample[], strength: Float64Array, from: number, thrG: number, rateHz = 500): Spike[] {
   const out: Spike[] = [];
   let i = from;
   while (i < samples.length) {
@@ -49,7 +51,7 @@ export function spikes(samples: Sample[], strength: Float64Array, from: number, 
     }
     const s = i;
     while (i < samples.length && strength[i] > thrG) i++;
-    if (i - s <= MAX_WIDTH_SAMPLES) {
+    if (i - s <= maxWidth(rateHz)) {
       const lo = Math.max(0, s - 1);
       const hi = Math.min(i + 1, samples.length);
       let num = 0;
@@ -99,8 +101,8 @@ export function lowerBound(samples: Sample[], t: number): number {
  * stillness rule sync.rs `find_end_clap` applies to the end clap. Applied to every candidate here because the app
  * doesn't have video annotations to predict where the claps are.
  */
-export function findClaps(samples: Sample[], strength: Float64Array, from = 0): Spike[] {
-  return spikes(samples, strength, from, CLAP_G).filter((sp) => stillBefore(samples, sp.t));
+export function findClaps(samples: Sample[], strength: Float64Array, from = 0, rateHz = 500): Spike[] {
+  return spikes(samples, strength, from, CLAP_G, rateHz).filter((sp) => stillBefore(samples, sp.t));
 }
 
 /** Racquet still in the 0.3 s before t (mean raw |gyro| < 30 dps; the bias is up to ~5 dps). */

@@ -89,7 +89,8 @@ export function detectSwings(t: ArrayLike<number>, wDps: ArrayLike<number>, th =
   return out;
 }
 
-export type StrokeType = "smash" | "clear" | "drop" | "drive" | "lift" | "net" | "no contact";
+/** "unclassified": wrist sensor (Apple Watch), contact seen but the stroke rules need the racquet's axes */
+export type StrokeType = "smash" | "clear" | "drop" | "drive" | "lift" | "net" | "no contact" | "unclassified";
 
 export interface RacquetGeometry {
   lengthM: number;
@@ -109,6 +110,8 @@ export interface SwingContext {
   handedness: "right" | "left";
   /** session start (device time) for relative times */
   t0: number;
+  /** false for a wrist sensor: tilt, face, side and stroke type assume racquet axes */
+  racquetFrame?: boolean;
 }
 
 export interface Swing {
@@ -226,7 +229,8 @@ export function analyzeSwing(ctx: SwingContext, w: SwingWindow, index: number): 
   let handleTiltDeg: number | null = null;
   let faceAngleDeg: number | null = null;
   let overhead: boolean | null = null;
-  if (q) {
+  const racquet = ctx.racquetFrame !== false;
+  if (q && racquet) {
     const handle = rotate(q, [0, 1, 0]);
     const normal = rotate(q, [0, 0, 1]);
     handleTiltDeg = Math.asin(clamp(handle[1])) / DEG;
@@ -238,7 +242,7 @@ export function analyzeSwing(ctx: SwingContext, w: SwingWindow, index: number): 
   // real recordings. Left-handed flips it.
   const wz = ctx.track.w[iFwd][2] / DEG;
   const sideSign = ctx.handedness === "right" ? 1 : -1;
-  const side: Swing["side"] = Math.abs(wz) < 50 ? null : wz * sideSign > 0 ? "forehand" : "backhand";
+  const side: Swing["side"] = !racquet || Math.abs(wz) < 50 ? null : wz * sideSign > 0 ? "forehand" : "backhand";
 
   const headSpeed = peakDps * DEG * ctx.geometry.headCenterM;
   let impactVsPeakMs: number | null = null;
@@ -304,7 +308,7 @@ export function analyzeSwing(ctx: SwingContext, w: SwingWindow, index: number): 
     overhead,
     side,
     faceNormalRateDps: wz,
-    stroke: classifyStroke(headSpeed, overhead, handleTiltDeg, !!imp, sat > 0),
+    stroke: racquet ? classifyStroke(headSpeed, overhead, handleTiltDeg, !!imp, sat > 0) : imp ? "unclassified" : "no contact",
     saturatedSamples: sat,
     accSaturatedSamples: accSat,
     lostPackets: lost,
