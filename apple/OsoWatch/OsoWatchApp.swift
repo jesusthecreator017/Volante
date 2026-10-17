@@ -9,7 +9,13 @@ struct OsoWatchApp: App {
     var body: some Scene {
         WindowGroup {
             WorkoutView().environment(workout)
-                .task { await workout.requestAuthorization() }
+                .task {
+                    await workout.requestAuthorization()
+                    #if DEBUG
+                    // -osoDemoWorkout: start a workout at launch (screenshots, and the simulator's demo motion source)
+                    if ProcessInfo.processInfo.arguments.contains("-osoDemoWorkout") { await workout.start() }
+                    #endif
+                }
         }
     }
 }

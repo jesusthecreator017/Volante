@@ -55,7 +55,13 @@ final class WorkoutManager: NSObject {
     // MARK: workout
 
     func start() async {
+        #if targetEnvironment(simulator)
+        // Simulators have no motion sensors: a demo source feeds synthetic swings through the same pipeline (see SimulatedMotion)
+        let simulated = !CMBatchedSensorManager.isDeviceMotionSupported
+        #else
+        let simulated = false
         guard CMBatchedSensorManager.isDeviceMotionSupported else { error = "This watch has no batched device motion (watchOS 10+, Series 8 / Ultra or later)"; return }
+        #endif
         phase = .starting
         swings = 0; hits = 0; lastSwingDps = nil; heartRate = nil; activeEnergy = 0; samples = 0; hr = []
         encoder = WristEncoder(rateHz: 200)
@@ -75,12 +81,15 @@ final class WorkoutManager: NSObject {
             s.startActivity(with: startDate)
             try await b.beginCollection(at: startDate)
         } catch {
-            self.error = error.localizedDescription
-            phase = .idle
-            return
+            if !simulated {
+                self.error = error.localizedDescription
+                phase = .idle
+                return
+            }
+            startDate = Date() // the simulator may refuse a workout session: the demo runs without one
         }
         phase = .running
-        startMotion()
+        if simulated { startSimulatedMotion() } else { startMotion() }
         // Once a second on the main actor: elapsed time and the live swing count to the phone
         ticker = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -106,15 +115,22 @@ final class WorkoutManager: NSObject {
     }
 
     private func ingest(_ batch: [CMDeviceMotion]) {
-        var fresh: [Sample] = []
-        for m in batch {
-            let p = encoder.append(WristMotion(
+        ingest(motion: batch.map { m in
+            WristMotion(
                 t: m.timestamp,
                 userAcc: Vec3(m.userAcceleration.x, m.userAcceleration.y, m.userAcceleration.z),
                 gravity: Vec3(m.gravity.x, m.gravity.y, m.gravity.z),
                 rotationRate: Vec3(m.rotationRate.x, m.rotationRate.y, m.rotationRate.z)
-            ))
-            fresh.append(Sample(tUs: (m.timestamp - (encoder.startTime ?? m.timestamp)) * 1e6, v: p.v))
+            )
+        })
+    }
+
+    /// Device-motion samples (real or simulated) -> pod-format packets + live swing analysis.
+    private func ingest(motion batch: [WristMotion]) {
+        var fresh: [Sample] = []
+        for m in batch {
+            let p = encoder.append(m)
+            fresh.append(Sample(tUs: (m.t - (encoder.startTime ?? m.t)) * 1e6, v: p.v))
         }
         samples = encoder.packets.count
         for s in live.push(fresh) {
@@ -215,3 +231,46 @@ extension JSONEncoder {
         return e
     }()
 }
+
+#if targetEnvironment(simulator)
+extension WorkoutManager {
+    /// Simulator only: one second of 200 Hz wrist motion per tick, with a swing every ~2.5 s (a 120 ms rotation burst of
+    /// 700-1500 dps, every third one with a 6 g contact tap), and a heart rate drifting between 110 and 165 bpm.
+    func startSimulatedMotion() {
+        motionTask = Task { @MainActor [weak self] in
+            var rng = SystemRandomNumberGenerator()
+            let t0 = ProcessInfo.processInfo.systemUptime
+            var nextSwing = 2.0, swingAt = -10.0, peak = 0.0, tap = false, n = 0, bpm = 112.0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled, self.phase == .running else { return }
+                var batch: [WristMotion] = []
+                for _ in 0..<200 {
+                    let t = Double(n) / 200
+                    n += 1
+                    if t >= nextSwing {
+                        swingAt = t + 0.06
+                        peak = Double.random(in: 700...1500, using: &rng) * .pi / 180
+                        tap = Int.random(in: 0..<3, using: &rng) == 0
+                        nextSwing = t + Double.random(in: 1.8...3.2, using: &rng)
+                    }
+                    let bump = exp(-0.5 * pow((t - swingAt) / 0.035, 2))
+                    let hit = tap && abs(t - swingAt) < 0.004 ? 6.0 : 0.0
+                    let noise = { Double.random(in: -0.004...0.004, using: &rng) }
+                    batch.append(WristMotion(
+                        t: t0 + t,
+                        userAcc: Vec3(hit + 1.5 * bump + noise(), noise(), noise()),
+                        gravity: Vec3(0, 0, -1),
+                        rotationRate: Vec3(0.3 * peak * bump, 0.2 * peak * bump, -peak * bump)
+                    ))
+                }
+                self.ingest(motion: batch)
+                bpm = min(165, max(110, bpm + Double.random(in: -2...4, using: &rng)))
+                self.heartRate = bpm
+                self.hr.append(HeartRateSample(t: Date().timeIntervalSince1970, bpm: bpm))
+                self.activeEnergy += 0.15
+            }
+        }
+    }
+}
+#endif
