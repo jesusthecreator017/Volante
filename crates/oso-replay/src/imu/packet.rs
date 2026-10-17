@@ -49,6 +49,18 @@ pub struct Capture {
     pub stats: Stats,
 }
 
+/// Scales one raw packet (device time in unwrapped microseconds) to SI units
+pub fn to_sample(t_us: i64, v: [i16; 6]) -> Sample {
+    let acc_k = G / ACC_LSB_PER_G;
+    let gyro_k = (std::f64::consts::PI / 180.0) / GYRO_LSB_PER_DPS;
+    Sample {
+        t_dev: t_us as f64 * 1e-6,
+        acc: std::array::from_fn(|i| (v[i] as f64 * acc_k) as f32),
+        gyro: std::array::from_fn(|i| (v[3 + i] as f64 * gyro_k) as f32),
+        saturated: v[3..].iter().any(|&c| c == i16::MAX || c == i16::MIN),
+    }
+}
+
 pub fn parse(bytes: &[u8]) -> anyhow::Result<Capture> {
     anyhow::ensure!(
         bytes.len() >= HEADER_LEN,
@@ -119,17 +131,7 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Capture> {
         }
     }
 
-    let acc_k = G / ACC_LSB_PER_G;
-    let gyro_k = (std::f64::consts::PI / 180.0) / GYRO_LSB_PER_DPS;
-    let samples = raws
-        .iter()
-        .map(|r| Sample {
-            t_dev: r.t_us as f64 * 1e-6,
-            acc: std::array::from_fn(|i| (r.v[i] as f64 * acc_k) as f32),
-            gyro: std::array::from_fn(|i| (r.v[3 + i] as f64 * gyro_k) as f32),
-            saturated: r.v[3..].iter().any(|&c| c == i16::MAX || c == i16::MIN),
-        })
-        .collect();
+    let samples = raws.iter().map(|r| to_sample(r.t_us, r.v)).collect();
     Ok(Capture {
         rate_hz,
         samples,

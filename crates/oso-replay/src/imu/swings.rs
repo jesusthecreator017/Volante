@@ -47,7 +47,7 @@ impl Swing {
     }
 }
 
-/// `bias` in rad/s (sensor frame); `t_video = t_dev * (1 + a) + b`; `rate_hz`: the capture's sample rate.
+/// `bias` in rad/s (racquet frame, after the mount rotation); `t_video = t_dev * (1 + a) + b`; `rate_hz`: the capture's sample rate.
 /// (GAP_PACKETS counts packets, not seconds, so it is the same at any rate.)
 pub fn detect(
     samples: &[Sample],

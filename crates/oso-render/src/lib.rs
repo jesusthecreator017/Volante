@@ -4,6 +4,8 @@
 pub mod app;
 pub mod assets;
 pub mod calib;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod live;
 pub mod playback;
 pub mod renderer;
 pub mod replay;

@@ -934,7 +934,7 @@ async fn load_rig() -> anyhow::Result<Rig> {
 // Spawns one racquet per player, hidden until the first update: the app's procedural racquet (Extras::racquet_parts, one model per
 // player color; returns the first model's index), else the OBJ model (one draw per material), or the blocky two-mesh fallback if it
 // fails to load. Players without an IMU get the arm estimate (racquet::estimate_from_arm).
-async fn spawn_racquets(
+pub(crate) async fn spawn_racquets(
     world: &mut hecs::World,
     models: &mut Vec<Model>,
     players: usize,

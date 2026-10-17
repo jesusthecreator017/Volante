@@ -48,9 +48,11 @@ Unknown opcodes: status event `error` with code 1.
 | 15 | `event` | u8 | 0 none, 1 marker_tap, 2 marker_cmd, 3 upload_done, 4 error |
 | 16 | `event_value` | u32 | marker `t_us` / packet count / error code |
 | 20 | `state_ext` | u8 | 1 sleeping (the pod is in its sleeping cycle). `state_bits` is full, hence the extra byte |
-| 21 | reserved | 3 bytes | 0 |
+| 21 | `stream_drops` | u16 | live-stream packets dropped on notify errors since the last connect |
+| 23 | reserved | 1 byte | 0 |
 
 Error codes: 1 bad opcode, 2 no session, 3 un-uploaded session (repeat `0x03` within 5 s), 4 busy, 5 sleeping (any opcode but `0x09` while sleeping; the pod then goes back to sleep).
+A connection with no host write to `control` and no successful data notify for 30 s is closed by the pod (so a forgotten connection frees the advert); a host that only listens to `status` must write something (reads and status notifies do not count) within 30 s.
 `status` is notified when an event happens and otherwise once per second. The readable value is refreshed every 20 ms.
 
 ## Sync markers (one deviation from the app spec)

@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use oso_render::replay::{Container, RACQUET_FIELDS, Replay, STROKE_FIELDS};
 use oso_replay::imu::correct::{self, YawMode};
 use oso_replay::imu::strokes::{self, STROKE_TYPES};
+use oso_replay::imu::mount::Mount;
 use oso_replay::imu::{fusion, packet, pose, swings, sync};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
@@ -22,16 +23,19 @@ struct Args {
     mode: YawMode,
     beta: f64,
     forward_only: bool,
+    /// `--mount` value (identity | flat | file); None = ~/.config/oso/mount.json, else flat
+    mount: Option<String>,
 }
 
 const USAGE: &str = "usage: oso-imu (--imu imu.bin --sync sync.json | --no-imu) --replay replay.bin [--player N] -o out.bin \
-                     [--no-video-yaw | --yaw-const] [--beta B] [--forward-only] [--report report.json]";
+                     [--no-video-yaw | --yaw-const] [--beta B] [--forward-only] [--mount identity|flat|FILE] [--report report.json]";
 
 fn parse_args() -> anyhow::Result<Args> {
     let mut it = std::env::args().skip(1);
     let (mut imu, mut replay, mut sync, mut out, mut report) = (None, None, None, None, None);
     let (mut player, mut mode, mut beta) = (0usize, YawMode::Full, fusion::DEFAULT_BETA);
     let (mut forward_only, mut no_imu) = (false, false);
+    let mut mount = None;
     while let Some(a) = it.next() {
         let mut val = |name: &str| {
             it.next()
@@ -46,6 +50,7 @@ fn parse_args() -> anyhow::Result<Args> {
             "--player" => player = val(&a)?.parse()?,
             "--forward-only" => forward_only = true,
             "--no-imu" => no_imu = true,
+            "--mount" => mount = Some(val(&a)?),
             "--beta" => beta = val(&a)?.parse()?,
             "--no-video-yaw" => mode = YawMode::None,
             "--yaw-const" => mode = YawMode::ConstOnly,
@@ -75,6 +80,7 @@ fn parse_args() -> anyhow::Result<Args> {
         mode,
         beta,
         forward_only,
+        mount,
     })
 }
 
@@ -170,8 +176,18 @@ fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     };
-    let cap =
+    let mut cap =
         packet::parse(&std::fs::read(imu_path).with_context(|| imu_path.display().to_string())?)?;
+    let mount = Mount::resolve(args.mount.as_deref())?;
+    eprintln!(
+        "mount: {} (--mount identity|flat|FILE, else ~/.config/oso/mount.json, else flat)",
+        match args.mount.as_deref() {
+            Some(m) => m.to_string(),
+            None if mount == Mount::FLAT => "flat (default)".to_string(),
+            None => "~/.config/oso/mount.json".to_string(),
+        }
+    );
+    mount.apply_all(&mut cap.samples);
     let s = cap.stats;
     println!(
         "packets: {} read, {} unique, {} lost, {} duplicate, {} reordered ({} gaps)",
