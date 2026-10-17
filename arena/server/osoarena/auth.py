@@ -108,22 +108,42 @@ def valid_avatar(url):
     return PLACEHOLDER_AVATAR
 
 
+class SignInError(Exception):
+    """Why a GitHub sign-in failed, as a short code that is safe to log and to show (never a token or secret)."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
 async def github_user(code):
-    """Exchange the code; return {id, login, avatar_url} or None. The access token is used once and never stored."""
+    """Exchange the code; return {id, login, avatar_url} or raise SignInError. The access token is used once and never stored."""
     import httpx
     cfg = config.get()
     async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post("https://github.com/login/oauth/access_token", headers={"accept": "application/json"},
-                         data={"client_id": cfg.github_client_id, "client_secret": cfg.github_client_secret, "code": code,
-                               "redirect_uri": cfg.base_url + "/auth/github/callback"})
-        tok = r.json().get("access_token") if r.status_code == 200 else None
+        try:
+            r = await c.post("https://github.com/login/oauth/access_token", headers={"accept": "application/json"},
+                             data={"client_id": cfg.github_client_id, "client_secret": cfg.github_client_secret, "code": code,
+                                   "redirect_uri": cfg.base_url + "/auth/github/callback"})
+        except httpx.HTTPError as e:
+            raise SignInError("github_unreachable") from e
+        try:
+            body = r.json() if r.status_code == 200 else {}
+        except ValueError:
+            body = {}
+        tok = body.get("access_token")
         if not tok:
-            return None
-        u = await c.get("https://api.github.com/user", headers={"authorization": f"Bearer {tok}",
-                                                                 "accept": "application/vnd.github+json"})
+            # GitHub answers 200 with {"error": "incorrect_client_credentials" | "bad_verification_code" | "redirect_uri_mismatch" ...}
+            err = body.get("error") if isinstance(body.get("error"), str) else f"token_http_{r.status_code}"
+            raise SignInError(err[:60])
+        try:
+            u = await c.get("https://api.github.com/user", headers={"authorization": f"Bearer {tok}",
+                                                                     "accept": "application/vnd.github+json"})
+        except httpx.HTTPError as e:
+            raise SignInError("github_unreachable") from e
         if u.status_code != 200:
-            return None
+            raise SignInError(f"user_http_{u.status_code}")
         d = u.json()
     if type(d.get("id")) is not int or d["id"] <= 0:
-        return None
+        raise SignInError("bad_user")
     return {"id": d["id"], "login": safe_login(d.get("login")), "avatar_url": valid_avatar(d.get("avatar_url"))}

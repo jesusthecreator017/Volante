@@ -663,19 +663,32 @@ def create_app():
 
     @app.get("/auth/github/callback")
     async def gh_callback(request: Request):
-        fail = RedirectResponse("/", status_code=302)
-        fail.delete_cookie(auth.OAUTH_COOKIE, path="/auth/github")
-        st = auth.oauth_cookie_state(request.cookies.get(auth.OAUTH_COOKIE, ""))
+        def fail(reason):
+            reason = re.sub(r"[^a-z0-9_]", "", reason.lower())[:40] or "unknown"
+            # Every failure says why (a short code, never a secret), in the log and to the site, which shows a message.
+            print(f"github sign-in failed: {reason}", flush=True)
+            r = RedirectResponse(f"/arena?signin=failed&reason={reason}", status_code=302)
+            r.delete_cookie(auth.OAUTH_COOKIE, path="/auth/github")
+            r.headers["cache-control"] = "no-store"
+            return r
+
+        if request.query_params.get("error"):  # the user pressed Cancel on GitHub, or the app is suspended
+            return fail("denied" if request.query_params.get("error") == "access_denied" else "github_error")
+        raw = request.cookies.get(auth.OAUTH_COOKIE, "")
+        st = auth.oauth_cookie_state(raw)
         state, code = request.query_params.get("state", ""), request.query_params.get("code", "")
-        if not st or not state or not code or len(code) > 200 or not auth.csrf_ok(st[0], state):
-            return fail
+        if not raw:
+            return fail("no_state_cookie")
+        if not st:
+            return fail("state_expired")
+        if not state or not code or len(code) > 200 or not auth.csrf_ok(st[0], state):
+            return fail("state_mismatch")
         try:
             gh = await auth.github_user(code)
+        except auth.SignInError as e:
+            return fail(e.code)
         except Exception as e:  # noqa: BLE001
-            print(f"github sign-in failed: {type(e).__name__}", flush=True)
-            gh = None
-        if not gh:
-            return fail
+            return fail(f"error_{type(e).__name__}"[:40])
 
         def login():
             con = conn()
@@ -690,7 +703,7 @@ def create_app():
                 return auth.create_session(con, gh["id"])
         sid = await asyncio.to_thread(login)
         if not sid:
-            return fail
+            return fail("banned")
         resp = RedirectResponse(st[1], status_code=302)
         resp.delete_cookie(auth.OAUTH_COOKIE, path="/auth/github")
         set_cookie(resp, auth.SESSION_COOKIE, sid, auth.SESSION_DAYS * 86400)
