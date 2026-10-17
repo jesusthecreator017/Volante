@@ -1,0 +1,5 @@
+// Fitbit (Google Health API): an iOS OAuth client from Google Cloud Console, with the Google Health API enabled.
+// GOOGLE_CLIENT_ID looks like 1234-abcd.apps.googleusercontent.com; the redirect scheme is it reversed:
+// com.googleusercontent.apps.1234-abcd
+GOOGLE_CLIENT_ID =
+GOOGLE_REDIRECT_SCHEME = com.oso.unconfigured

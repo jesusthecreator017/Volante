@@ -1,0 +1,15 @@
+{
+  "name": "oso",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "oso_bg.wasm",
+    "oso.js",
+    "oso.d.ts"
+  ],
+  "main": "oso.js",
+  "types": "oso.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

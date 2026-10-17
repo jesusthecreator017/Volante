@@ -1,0 +1,22 @@
+[Unit]
+Description=oso server (web app, session exchange, Fitbit proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=oso
+Group=oso
+WorkingDirectory=/opt/oso/app
+# https on 8443 for browsers (Web Bluetooth), http on 8080 for the sideloaded iPhone/Watch apps
+ExecStart=/usr/bin/node /opt/oso/app/server/server.mjs --port 8443 --http-port 8080 --dist /opt/oso/app/dist --data /var/lib/oso --cert /etc/oso/cert.pem --key /etc/oso/key.pem
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oso
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
