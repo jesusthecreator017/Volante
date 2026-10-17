@@ -39,3 +39,13 @@ body.dragging::after {
   content: ""; position: fixed; inset: 8px; z-index: 20; pointer-events: none;
   border: 3px dashed #8ab4f8; border-radius: 12px; background: rgba(138, 180, 248, 0.12);
 }
+
+/* Embedded in a small iframe (the Arena match page): one compact row so the court stays visible */
+@media (max-height: 480px), (max-width: 600px) {
+  #timeline { padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); font-size: 12px; }
+  #scrub { margin: 0 0 2px; }
+  .row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  #timeline button, #timeline select { min-height: 28px; min-width: 28px; padding: 2px 6px; flex: none; }
+  #timeline label { flex: none; }
+  #readout { flex: none; }
+}

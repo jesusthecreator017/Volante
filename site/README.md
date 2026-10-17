@@ -16,6 +16,16 @@ npm test             # 11 unit tests: rules, DOM safety, router, API client (CSR
 npm run build        # -> dist/  (mock code is compiled out)
 ```
 
+**Site + real viewer under the production CSP** (no Pi needed): a mock-API build, the real viewer bundle and a real
+match replay, served with the Pi's headers by `scripts/serve-pi.mjs` (dev tool, not for production):
+```bash
+(cd .. && web/arena/build.sh)                                   # viewer -> web/dist/viewer/
+(cd ../arena/kit && python3 -m oso_arena match bot bot -o ../../out/e2e/match.log \
+  && python3 -m oso_arena animate ../../out/e2e/match.log -o ../../out/e2e/match.bin)
+npx vite build --mode mock                                     # fake API compiled in: never deploy this dist
+OSO_REPLAY=../out/e2e/match.bin node scripts/serve-pi.mjs      # http://localhost:8090/matches/905
+```
+
 ## For the Pi agent: serving the build
 
 1. **Static files:** serve `site/dist/` at `/`. `assets/*` are content-hashed (`Cache-Control: immutable`);
@@ -23,14 +33,17 @@ npm run build        # -> dist/  (mock code is compiled out)
 2. **History routing:** answer these page paths with `dist/index.html` (status 200):
    `/`, `/ladder`, `/models/<id>`, `/matches/<id>`, `/tournaments`, `/tournaments/<id>`, `/my-models`,
    `/get-started`, `/terms`, `/privacy`. Any other unknown path can also fall back to it; the site shows "Not found".
-3. **Viewer bundle:** serve the oso team's viewer at `/viewer/` (same origin, so the rally list can call
-   `iframe.contentWindow.oso_seek(t)`). The Match page embeds `/viewer/index.html?match=/api/matches/<id>/replay.bin`.
+3. **Viewer bundle:** build it with `web/arena/build.sh` (repo root; needs Rust + wasm-pack) and serve the result,
+   `web/dist/viewer/`, at `/viewer/` (same origin, so the rally list can call `iframe.contentWindow.oso_seek(t)`).
+   The Match page embeds `/viewer/index.html?match=/api/matches/<id>/replay.bin`; the viewer retries `202` with
+   `Retry-After`, shows `{detail}` on errors and accepts a gzip-encoded body. Its exports: `web/arena/README.md`.
 4. **CSP:** the build needs no inline script or style. This policy is verified to work (no violations):
    ```
    default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://avatars.githubusercontent.com;
    connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'
    ```
-   Add whatever the viewer needs (e.g. `'wasm-unsafe-eval'` in `script-src` for WebAssembly) on `/viewer/` only.
+   On `/viewer/` only, add `'wasm-unsafe-eval'` to `script-src` (WebAssembly). Verified with the real viewer and a
+   real 20 MB match: no violations.
 5. **Sign-in:** the site links to `/auth/github/login?next=<path>`. Please honor `next` (same-origin paths only)
    when redirecting after the callback, defaulting to `/my-models` as in the contract.
 
