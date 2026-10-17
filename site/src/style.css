@@ -1617,24 +1617,6 @@ select {
   color: var(--text);
 }
 .l-hero-art picture,
-.viz-still picture {
-  display: block;
-}
-.l-hero-art img,
-.viz-still img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 5 / 4;
-  border-radius: 14px;
-  background: var(--viewer-bg);
-  border: 1px solid var(--border);
-}
-.viz-still img {
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: 0;
-}
 .l-sec {
   margin-top: 56px;
 }
@@ -1654,9 +1636,9 @@ select {
     grid-template-columns: 1fr 1fr;
   }
 }
-@media (min-width: 960px) {
+@media (min-width: 1080px) {
   .features {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 .feature {
@@ -2117,4 +2099,30 @@ select {
 }
 .site-header {
   view-transition-name: header; /* the glass bar stays put while the page cross-fades */
+}
+
+/* landing: Arena poster, button loads the viewer in place */
+.arena-watch p {
+  margin: 10px 0 0;
+}
+.viewer.watch {
+  position: relative;
+}
+.viewer.watch picture,
+.viewer.watch img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.viewer.watch img {
+  object-fit: cover;
+}
+.viewer.watch > * {
+  grid-area: 1 / 1;
+}
+.watch-play {
+  align-self: end;
+  justify-self: center;
+  margin-bottom: 18px;
+  max-width: calc(100% - 32px);
 }

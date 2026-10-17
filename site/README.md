@@ -3,8 +3,8 @@
 Volante is the product name; command and package names keep the `oso` prefix.
 
 The site is the **racquet pod's** landing page (`/`: hero, features with honest status chips, how it works, an example
-report, an Arena teaser), Settings (`/settings`: pod display names, delete account), Terms and Privacy. The **Arena** (AI
-badminton) is a sub-section under `/arena`: Home, Ladder, Model, Match (3D viewer + rally list), Tournaments, My models
+report, "Watch AI matches in 3D" poster that loads the real viewer on tap, an Arena teaser), Settings (`/settings`: pod display names, delete account), Terms and Privacy. The **Arena** (AI
+badminton) is a sub-section under `/arena`: Home, Ladder, Model, Match (3D viewer + rally list; the model page also embeds the model's latest finished match), Tournaments, My models
 (upload), Get started. Built against the API contract in `oso-web-app-PROMPT.md` section 6. The Pi agent's
 server serves the **API** and this **static build**; it does not render pages.
 
@@ -15,10 +15,21 @@ server serves the **API** and this **static build**; it does not render pages.
 ```bash
 cd site
 npm install
-npm run dev:mock     # every page against a fake API with fixtures (src/mock.ts) + a viewer placeholder
+npm run dev:mock     # every page against a fake API with fixtures (src/mock.ts); /viewer/ = the real viewer if built, else a placeholder
 npm test             # unit tests: rules, DOM safety, routes + redirects, landing, pod rename, mock API, API client
 npm run build        # -> dist/  (mock code is compiled out)
 ```
+
+**Real matches in the dev server** (no Pi, no mock placeholder): build the viewer, play a few short kit matches, run the mock site:
+```bash
+web/arena/build.sh && site/scripts/make-mock-replays.sh && (cd site && npm run dev:mock)
+```
+`vite.config.ts` (mock mode only) serves `web/dist/viewer/` at `/viewer/` (falls back to `mock-viewer/` with a console hint when it isn't
+built) and `site/.mock-replays/<id>.bin` at `/api/matches/<id>/replay.bin` (404 for ids without a file: the viewer shows its error).
+`make-mock-replays.sh` needs Python with numpy + safetensors (`PY=path/to/python`); it plays matches 497-500 (a 7-point game, or best of 3
+to 7) with the packaged base model if the kit has one, else `$OSO_LOCAL_BASE` (a local `.safetensors`), else the bot, versus the bot
+(`OSO_MODEL_A` / `OSO_MODEL_B` override: a file, `base` or `bot`). It also writes `matches.json`; `mock.ts` uses it so those matches'
+names, score, games and rally list are what plays in the viewer. Both are gitignored. The Pi serves the same bundle, `web/dist/viewer/`, at `/viewer/`.
 
 **Site + real viewer under the production CSP** (no Pi needed): a mock-API build, the real viewer bundle and a real
 match replay, served with the Pi's headers by `scripts/serve-pi.mjs` (dev tool, not for production):
@@ -45,9 +56,15 @@ client-side (`history.replaceState`) to the `/arena/...` equivalent. Anything el
 
 ## Landing page notes
 
-- Imagery is **our own renders** (`src/assets/{ready,swing,follow}.{webp,png}`, 640x512, each under 15 KB) from
-  `oso-rec live --replay-file out/hw/smashes_live1.bin --time 6|27|36 --screenshot` (cropped 640x512+130+100, `cwebp -q 80`,
-  PNG quantised to 64 colours), plus inline SVG. No third-party images, no live 3D.
+- Imagery is **our own renders**: `src/assets/ready.{webp,png}` (640x512, under 15 KB) from
+  `oso-rec live --replay-file out/hw/smashes_live1.bin --time 6 --screenshot` (cropped 640x512+130+100, `cwebp -q 80`, PNG quantised to
+  64 colours), and `arena-poster.{webp,png}` (1280x720, 40 KB / 74 KB), a frame of the Arena viewer:
+  `cargo run --release -p oso-arena -- --replay site/.mock-replays/500.bin --screenshot p.png --time 9 --preset 1 --size 1280x720`, then
+  `cwebp -q 78` and `magick p.png -colors 48 -dither None -strip PNG8:arena-poster.png`. Plus inline SVG. No third-party images.
+- "Watch AI matches in 3D": the poster, then a button that mounts the viewer iframe in place on the latest finished **ladder** match
+  (`GET /api/matches?kind=ladder&limit=5`; no finished match or an API error: the poster links to `/arena`). Never autoplays. The match page,
+  the model page and this teaser share `src/viewer.ts` (`mountViewer`: auto, or load-on-tap on phones / data saver / cellular).
+- The website no longer mentions camera Replay or the live racquet view (the code and the iPhone app keep them).
 - Feature statuses live in `FEATURES` in `src/pages/landing.ts`; flip `status` when something ships. Proof chips use only
   verified figures (500 Hz, 6-axis IMU, Bluetooth LE; about 12 minutes recorded per session on the pod).
 - The example report uses the real 2026-10-17 smash session numbers (41 smashes, mean ~69 km/h, max ~95 km/h, estimated);

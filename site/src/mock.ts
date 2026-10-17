@@ -4,6 +4,10 @@
 import { checkPodName } from "./pods";
 import type { LadderItem, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, Side, Tie, Tournament } from "./types";
 
+/** Real kit matches from scripts/make-mock-replays.sh (gitignored); empty when they haven't been made. Keyed by match id. */
+type Fixture = Pick<MatchDetail, "games_won" | "winner" | "games" | "seed" | "rallies"> & { a: Pick<ModelSummary, "name" | "build">; b: Pick<ModelSummary, "name" | "build"> };
+const FIXTURES: Record<string, Fixture> = Object.values(import.meta.glob<Record<string, Fixture>>("../.mock-replays/matches.json", { eager: true, import: "default" }))[0] ?? {};
+
 let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
@@ -82,7 +86,10 @@ for (let i = 0; i < 60; i++) {
   const a = pick(ms);
   let b = pick(ms);
   while (b.id === a.id) b = pick(ms);
-  matches.push(makeMatch(500 - i, a, b, pick(["ladder", "ladder", "ladder", "placement"] as const), i * 17 + 2));
+  const m = makeMatch(500 - i, a, b, pick(["ladder", "ladder", "ladder", "placement"] as const), i * 17 + 2);
+  const f = FIXTURES[m.id];
+  if (f) Object.assign(m, f, { a: { ...m.a, ...f.a }, b: { ...m.b, ...f.b }, rating_delta: f.winner === "a" ? { a: 9.4, b: -9.4 } : { a: -9.4, b: 9.4 } });
+  matches.push(m);
 }
 const running: MatchDetail = { ...makeMatch(501, models[3], models[4], "ladder", 0), status: "running", finished_at: null, winner: null, games: [], games_won: [0, 0], rallies: [], rating_delta: null };
 matches.unshift(running);
