@@ -4,6 +4,7 @@
 import { api } from "../api";
 import { h, link, s } from "../dom";
 import { mountViewer } from "../viewer";
+import { icon, type IconName } from "../icons";
 
 type Status = "Available" | "In development";
 type Viz = "hits" | "gauge" | "tags" | "bars";
@@ -69,7 +70,8 @@ export function arenaWatch(): HTMLElement {
             mountViewer(box, m, false);
           },
         },
-        "▶ Watch ",
+        icon("play-fill"),
+        "Watch ",
         `${m.a.name} vs ${m.b.name}`,
       );
       box.append(play);
@@ -79,18 +81,9 @@ export function arenaWatch(): HTMLElement {
   return h("div", { class: "arena-watch" }, box, h("p", { class: "muted small" }, "The latest finished ladder match, played in 3D in your browser (10–30 MB)."));
 }
 
-// ---------------------------------------------------------------- icons: 24px grid, one stroke width (CSS .ico)
+// ---------------------------------------------------------------- icons (Phosphor, src/icons.ts)
 
-const ICONS: Record<string, string[]> = {
-  hit: ["M12 4a8 8 0 1 0 0 16a8 8 0 0 0 0-16z", "M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6z", "M12 1v3M12 20v3M1 12h3M20 12h3"],
-  speed: ["M4 17a8 8 0 1 1 16 0", "M12 17l4-5", "M7 17h.01M17 17h.01"],
-  strokes: ["M9 6h11M9 12h11M9 18h11", "M4 6h.01M4 12h.01M4 18h.01"],
-  insights: ["M4 4v16h16", "M8 15l4-4 3 3 5-6"],
-};
-
-function icon(name: string): SVGSVGElement {
-  return s("svg", { viewBox: "0 0 24 24", class: "ico", "aria-hidden": "true", focusable: "false" }, ICONS[name].map((d) => s("path", { d })));
-}
+const FEATURE_ICON: Record<string, IconName> = { hit: "target", speed: "gauge", strokes: "list-checks", insights: "chart-line-up" };
 
 /** The pod: a small rounded body clipped to a racquet grip, with a status LED. Used in the hero and step 1. */
 function podArt(cls: string): SVGSVGElement {
@@ -175,7 +168,7 @@ function feature(f: Feature): HTMLElement {
   return h(
     "article",
     { class: avail ? "feature reveal" : "feature reveal dev" },
-    h("div", { class: "feature-head" }, icon(f.icon), h("h3", null, f.title), h("span", { class: avail ? "chip chip-ok" : "chip chip-dev" }, f.status)),
+    h("div", { class: "feature-head" }, icon(FEATURE_ICON[f.icon], { cls: "feature-ico" }), h("h3", null, f.title), h("span", { class: avail ? "chip chip-ok" : "chip chip-dev" }, f.status)),
     h("p", null, f.text),
     viz(f.viz),
   );

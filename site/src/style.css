@@ -546,6 +546,25 @@ ul.plain li {
   flex-wrap: nowrap;
   overflow-x: auto;
   gap: 4px;
+  scrollbar-width: none; /* scrolls like an iOS tab strip; the fade below says there is more */
+  overscroll-behavior-x: contain;
+}
+.sub-nav .bar::-webkit-scrollbar {
+  display: none;
+}
+.sub-nav .bar.more-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.sub-nav .bar.more-left {
+  mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+}
+.sub-nav .bar.more-left.more-right {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+@media (max-width: 420px) {
+  .sub-nav a {
+    padding: 0 8px;
+  }
 }
 .sub-nav a {
   color: var(--on-court-2);
@@ -1046,12 +1065,8 @@ td.rating {
   cursor: pointer;
   padding: 0;
 }
-th[aria-sort="ascending"] .sort::after {
-  content: " ▲";
-}
-th[aria-sort="descending"] .sort::after {
-  content: " ▼";
-}
+.sort { display: inline-flex; align-items: center; gap: 4px; }
+.sort-ico { width: 0.85em; height: 0.85em; }
 .cell-model {
   display: flex;
   flex-direction: column;
@@ -1658,14 +1673,12 @@ select {
   border-style: dashed;
 }
 .feature-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px 10px;
 }
-.feature-head .ico {
-  color: var(--accent);
-}
+
 .feature .feature-head h3,
 .step h3,
 .report-head h3 {
@@ -1675,8 +1688,11 @@ select {
   color: var(--accent);
   margin: 0;
 }
+/* The status is an eyebrow above the icon + title, so every card's title sits on the same line whatever its width */
 .feature-head .chip {
-  margin-left: auto;
+  grid-row: 1;
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 .viz {
   margin-top: auto;
@@ -2125,4 +2141,32 @@ select {
   justify-self: center;
   margin-bottom: 18px;
   max-width: calc(100% - 32px);
+}
+
+/* ---------------------------------------------------------------- Phosphor icons (src/icons.ts) */
+.ph { width: 1.25em; height: 1.25em; flex: none; vertical-align: -0.22em; }
+.icon-btn .ph { width: 22px; height: 22px; vertical-align: middle; }
+.with-icon, .btn:has(> .ph), .link-btn:has(> .ph), .act.more, .menu button { display: inline-flex; align-items: center; gap: 0.4em; }
+.act.more .ph { width: 1em; height: 1em; transition: transform 0.18s var(--ease, ease); }
+.act.more:hover .ph { transform: translateX(3px); }
+.house-badge.ph { width: 0.95em; height: 0.95em; }
+.feature-ico.ph { width: 28px; height: 28px; color: var(--accent); }
+.code-wrap {
+  position: relative;
+}
+.code-wrap pre.code {
+  padding-right: 56px; /* room for the copy button */
+}
+.copy-btn.icon-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+.copy-btn .ph {
+  width: 18px;
+  height: 18px;
 }

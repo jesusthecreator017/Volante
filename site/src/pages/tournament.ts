@@ -1,5 +1,5 @@
 import { api, ApiError } from "../api";
-import { actionLink, fmtDate, load, ownerChip } from "../components";
+import { actionLink, fmtDate, load, moreLink, ownerChip } from "../components";
 import { h, link } from "../dom";
 import type { Tie, Tournament, TournamentSummary } from "../types";
 
@@ -38,7 +38,7 @@ export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) 
 
 export function tournament(root: HTMLElement, p: Record<string, string>) {
   void load(root, () => api.tournament(Number(p.id)), (t) => {
-    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), link("/arena/tournaments", "All tournaments →"));
+    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), moreLink("/arena/tournaments", "All tournaments"));
   });
 }
 

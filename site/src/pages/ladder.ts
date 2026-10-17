@@ -3,6 +3,7 @@ import { buildBars, load, modelLink, ownerChip, provisional } from "../component
 import { h, replace } from "../dom";
 import { navigate } from "../router";
 import type { Ladder, LadderItem, Season } from "../types";
+import { icon } from "../icons";
 
 const PAGE = 50;
 type SortKey = "rank" | "name" | "rating" | "games" | "wins";
@@ -25,7 +26,8 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
       h(
         "th",
         { class: cls, "aria-sort": sort === key ? (asc ? "ascending" : "descending") : "none", scope: "col" },
-        h("button", { type: "button", class: "sort", onclick: () => ((asc = sort === key ? !asc : key === "rank" || key === "name"), (sort = key), draw(l)) }, label),
+        h("button", { type: "button", class: "sort", onclick: () => ((asc = sort === key ? !asc : key === "rank" || key === "name"), (sort = key), draw(l)) }, label,
+          sort === key ? icon(asc ? "caret-up-bold" : "caret-down-bold", { cls: "sort-ico" }) : null),
       );
     replace(
       table,
@@ -72,9 +74,9 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
     return h(
       "nav",
       { class: "pager", "aria-label": "Ladder pages" },
-      h("button", { type: "button", class: "btn", disabled: offset === 0, onclick: go(Math.max(0, offset - PAGE)) }, "← Previous"),
+      h("button", { type: "button", class: "btn", disabled: offset === 0, onclick: go(Math.max(0, offset - PAGE)) }, icon("caret-left-bold"), "Previous"),
       h("span", { class: "muted" }, `${offset + 1}–${Math.min(l.total, offset + PAGE)} of ${l.total}`),
-      h("button", { type: "button", class: "btn", disabled: offset + PAGE >= l.total, onclick: go(offset + PAGE) }, "Next →"),
+      h("button", { type: "button", class: "btn", disabled: offset + PAGE >= l.total, onclick: go(offset + PAGE) }, "Next", icon("caret-right-bold")),
     );
   }
 }
