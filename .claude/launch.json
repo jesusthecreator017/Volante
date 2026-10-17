@@ -1,6 +1,30 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "oso-app", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "app", "run", "dev"], "port": 5173 }
+    {
+      "name": "oso-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "app",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "site",
+        "run",
+        "dev:mock",
+        "--",
+        "--port",
+        "5174"
+      ],
+      "port": 5174
+    }
   ]
 }
