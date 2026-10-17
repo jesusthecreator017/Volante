@@ -218,7 +218,7 @@ final class PodLink: NSObject {
     private func updateActivity() {
         let mode: LiveSessionAttributes.Mode? = streaming ? .streaming : (status?.recording == true ? .recording : nil)
         liveActivity.sync(LiveSnapshot(
-            mode: mode, podName: peripheralName ?? "oso pod", swings: live?.swingCount ?? 0, hits: live?.hitCount ?? 0,
+            mode: mode, podName: peripheralName ?? "Volante pod", swings: live?.swingCount ?? 0, hits: live?.hitCount ?? 0,
             lastSpeed: liveSwings.last?.headSpeed, bestSpeed: live?.bestSpeed ?? 0, connected: state == .connected))
     }
 

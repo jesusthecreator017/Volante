@@ -1,4 +1,4 @@
-// oso for iPhone: racquet pod over Bluetooth, Apple Watch sessions, Fitbit heart rate. Analysis in OsoKit.
+// Volante for iPhone: racquet pod over Bluetooth, Apple Watch sessions, Fitbit heart rate. Analysis in OsoKit.
 
 import OsoKit
 import SwiftUI
@@ -54,10 +54,12 @@ struct OsoPhoneApp: App {
 
     private var tabs: some View {
         TabView(selection: Bindable(router).tab) {
-            PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }.tag(Router.Tab.pod)
-            SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }.tag(Router.Tab.sessions)
-            WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }.tag(Router.Tab.connections)
+            Tab("Play", systemImage: "figure.badminton", value: Router.Tab.pod) { PodView() }
+            Tab("Sessions", systemImage: "chart.bar.xaxis", value: Router.Tab.sessions) { SessionsView() }
+            Tab("Devices", systemImage: "sensor.tag.radiowaves.forward", value: Router.Tab.connections) { WearablesView() }
         }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory(isEnabled: pod.isBusy) { LiveAccessory() }
     }
 
     private func wire() {

@@ -8,7 +8,7 @@ import Foundation
 extension LiveActivityController {
     func runDemo() {
         Task { [weak self] in
-            var s = LiveSnapshot(mode: .streaming, podName: "oso pod (demo)")
+            var s = LiveSnapshot(mode: .streaming, podName: "Volante pod (demo)")
             self?.sync(s)
             try? await Task.sleep(for: .seconds(1))
             print("[oso-live] demo activities=\(Activity<LiveSessionAttributes>.activities.count) enabled=\(ActivityAuthorizationInfo().areActivitiesEnabled)")

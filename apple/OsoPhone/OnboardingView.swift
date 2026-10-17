@@ -129,7 +129,7 @@ struct OnboardingView: View {
 
     @ViewBuilder private var welcome: some View {
         hero("figure.badminton", "Your swing, measured.",
-             "The oso pod clips to your racquet and counts every swing over Bluetooth, with head speed, stroke type and impact timing.")
+             "The Volante pod clips to your racquet and counts every swing over Bluetooth, with head speed, stroke type and impact timing.")
         Card {
             point("speedometer", "Head speed on every swing")
             point("tag", "Smash, clear, drop, drive, lift or net")
@@ -139,20 +139,20 @@ struct OnboardingView: View {
 
     @ViewBuilder private var bluetooth: some View {
         hero("dot.radiowaves.left.and.right", "Find your pod",
-             "oso uses Bluetooth to find the pod on your racquet and stream its swings. It is not used for anything else.")
+             "Volante uses Bluetooth to find the pod on your racquet and stream its swings. It is not used for anything else.")
         Card("Bluetooth", systemImage: "bolt.horizontal.circle") {
             switch pod.access {
             case .notDetermined:
                 Text("iOS will ask once. Tap Allow Bluetooth, then choose Allow.").font(.subheadline)
             case .ready:
                 StatusChip(text: "Bluetooth is on", systemImage: "checkmark.circle.fill", color: Theme.good)
-                Text("oso can find your pod.").font(.subheadline)
+                Text("Volante can find your pod.").font(.subheadline)
             case .denied:
-                StatusChip(text: "Bluetooth is blocked for oso", systemImage: "xmark.circle.fill", color: Theme.bad)
-                Text("Turn it on in Settings, under oso, to find your pod. You can still try the sample session.").font(.subheadline)
+                StatusChip(text: "Bluetooth is blocked for Volante", systemImage: "xmark.circle.fill", color: Theme.bad)
+                Text("Turn it on in Settings, under Volante, to find your pod. You can still try the sample session.").font(.subheadline)
             case .poweredOff:
                 StatusChip(text: "Bluetooth is off", systemImage: "exclamationmark.circle.fill", color: Theme.bad)
-                Text("Open Control Center and tap Bluetooth. oso finds your pod as soon as it is on.").font(.subheadline)
+                Text("Open Control Center and tap Bluetooth. Volante finds your pod as soon as it is on.").font(.subheadline)
             case .unsupported:
                 StatusChip(text: "Not available here", systemImage: "xmark.circle", color: .secondary)
                 Text("This device can't use Bluetooth, so the pod won't connect. The sample session still works.").font(.subheadline)
@@ -164,9 +164,9 @@ struct OnboardingView: View {
 
     @ViewBuilder private var network: some View {
         hero("server.rack", "Your Raspberry Pi",
-             "Optional. If you run the oso server on a Pi, it stores sessions and brings in Fitbit heart rate over your Wi-Fi.")
+             "Optional. If you run the Volante server on a Pi, it stores sessions and brings in Fitbit heart rate over your Wi-Fi.")
         Card("Local network", systemImage: "wifi") {
-            point("iphone.gen3", "The first time oso looks for the Pi, iOS asks to find devices on your local network.")
+            point("iphone.gen3", "The first time Volante looks for the Pi, iOS asks to find devices on your local network.")
             point("checkmark.circle", "Only the Pi on your Wi-Fi is contacted. The pod and Apple Watch need nothing else.")
             point("clock", "No Pi? Set up later; you can add it any time in Connections.")
         }

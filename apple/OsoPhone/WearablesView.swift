@@ -1,8 +1,10 @@
-// Raspberry Pi server, Apple Watch status and Fitbit connection.
+// Devices tab: the racquet pod, Apple Watch, Fitbit and the Raspberry Pi server, as a Settings-style form.
 
 import SwiftUI
 
 struct WearablesView: View {
+    @Environment(PodLink.self) private var pod
+    @Environment(Router.self) private var router
     @Environment(WatchReceiver.self) private var watch
     @Environment(FitbitLink.self) private var fitbit
     @Environment(PiServer.self) private var pi
@@ -12,82 +14,126 @@ struct WearablesView: View {
     var body: some View {
         @Bindable var pi = pi
         NavigationStack {
-            Screen {
-                Card("Raspberry Pi server", systemImage: "server.rack") {
-                    if pi.checking || checking {
-                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Checking…").font(.caption.weight(.semibold)) }
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Color.secondary.opacity(0.14), in: Capsule())
-                    } else { chip(for: pi.reachable) }
-                    TextField("http://raspberrypi.local:8080", text: $pi.baseURL)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .padding(12)
-                        .background(Theme.canvas, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    Button {
-                        Task { checking = true; await pi.checkHealth(); await fitbit.refreshStatus(); checking = false }
-                    } label: { Label("Check connection", systemImage: "arrow.clockwise") }
-                        .buttonStyle(.primary)
-                        .disabled(pi.checking || checking)
-                    foot("Sessions, replays and Fitbit heart rate go through the oso server on the Pi (deploy/pi/README.md). Use its http port on the same Wi-Fi; if .local doesn't resolve, use the Pi's IP.")
-                }
-
-                Card("Apple Watch", systemImage: "applewatch") {
-                    HStack(spacing: 8) {
-                        if watch.reachable { StatusChip(text: "Connected", systemImage: "checkmark.circle.fill", color: Theme.good) }
-                        else if watch.installed { StatusChip(text: "Installed, not reachable", systemImage: "applewatch", color: .orange) }
-                        else if watch.paired { StatusChip(text: "Paired, oso not installed", systemImage: "applewatch", color: .orange) }
-                        else { StatusChip(text: "Not paired", systemImage: "xmark.circle", color: .secondary) }
+            Form {
+                Section {
+                    Button { router.tab = .pod } label: {
+                        DeviceRow(icon: "sensor.tag.radiowaves.forward.fill", tint: .orange, title: "Racquet pod",
+                                  status: podStatus, statusColor: pod.state == .connected ? Theme.good : .secondary, chevron: true)
                     }
+                    .buttonStyle(.plain)
+                    DeviceRow(icon: "applewatch", tint: .gray, title: "Apple Watch", status: watchStatus,
+                              statusColor: watch.reachable ? Theme.good : watch.installed || watch.paired ? .orange : .secondary)
                     if let n = watch.liveSwings {
-                        StatGrid(minimum: 110) {
-                            BigStat(value: "\(n)", label: "Live swings", style: .title)
-                            if let bpm = watch.liveHeartRate { BigStat(value: String(format: "%.0f", bpm), unit: "bpm", label: "Heart rate", style: .title) }
-                        }
+                        LabeledContent("Live swings", value: "\(n)")
+                        if let bpm = watch.liveHeartRate { LabeledContent("Heart rate", value: String(format: "%.0f bpm", bpm)) }
                     }
-                    if let last = watch.lastReceived { LabeledContent("Last session", value: last).font(.subheadline) }
-                    foot("Start a badminton workout in oso on the watch. It records wrist motion (200 Hz) and heart rate, counts swings on the wrist, and sends the session here when you end it.")
+                    if let last = watch.lastReceived { LabeledContent("Last watch session", value: last) }
+                } header: {
+                    Text("Sensors")
+                } footer: {
+                    Text("On the watch, open Volante and start a badminton workout. It records your wrist and heart rate and sends the session here when you end it.")
                 }
 
-                Card("Fitbit", systemImage: "heart.circle") {
+                Section {
+                    DeviceRow(icon: "heart.fill", tint: .pink, title: "Fitbit", status: fitbitStatus,
+                              statusColor: fitbit.connected == true ? Theme.good : .secondary)
                     switch fitbit.connected {
                     case true?:
-                        StatusChip(text: "Connected (token on the Pi)", systemImage: "checkmark.circle.fill", color: Theme.good)
-                        Button(role: .destructive) { Task { await fitbit.disconnect() } } label: { Text("Disconnect") }
-                            .buttonStyle(.secondaryDestructive)
+                        Button("Disconnect Fitbit", role: .destructive) { Task { await fitbit.disconnect() } }
                     case false?:
-                        StatusChip(text: "Not connected", systemImage: "xmark.circle", color: .secondary)
-                        Button { Task { await fitbit.connect() } } label: { Label("Connect Fitbit (Google account)", systemImage: "link") }
-                            .buttonStyle(.primary)
+                        Button("Connect with Google") { Task { await fitbit.connect() } }
                             .disabled(fitbit.busy || !fitbit.configured)
-                        if !fitbit.configured { foot("Set GOOGLE_CLIENT_ID in Config.xcconfig (see apple/README.md).") }
                     case nil:
-                        StatusChip(text: "Needs the Pi", systemImage: "questionmark.circle", color: .secondary)
-                        foot("Connect to the Pi first: Fitbit runs through it.")
+                        EmptyView()
                     }
                     if let e = fitbit.lastError { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
-                    foot("Sign in once here; the Pi keeps the Google token and fetches heart rate (1 s) from the Google Health API. Fitbit has no motion data for apps. Open a session and tap Fetch from Fitbit to put your heart rate on its swings.")
+                } header: {
+                    Text("Heart rate")
+                } footer: {
+                    Text(fitbit.connected == nil
+                         ? "Fitbit runs through your Pi server; connect to it below first."
+                         : !fitbit.configured ? "Set GOOGLE_CLIENT_ID in Config.xcconfig (apple/README.md)."
+                         : "Sign in once. Your Pi keeps the token and adds heart rate to your sessions.")
                 }
 
-                Card("Welcome", systemImage: "hand.wave") {
-                    Button { onboarded = false } label: { Label("Show intro again", systemImage: "arrow.counterclockwise") }
-                        .buttonStyle(.secondary)
-                    foot("Replays the first-launch tour: the pod, Bluetooth and the optional Pi.")
+                Section {
+                    DeviceRow(icon: "server.rack", tint: .blue, title: "Raspberry Pi", status: piStatus,
+                              statusColor: pi.reachable == true ? Theme.good : pi.reachable == false ? Theme.bad : .secondary,
+                              busy: pi.checking || checking)
+                    TextField("http://raspberrypi.local:8080", text: $pi.baseURL)
+                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onSubmit(check)
+                    Button("Check connection", action: check).disabled(pi.checking || checking)
+                } header: {
+                    Text("Server")
+                } footer: {
+                    Text("Your Pi stores sessions, builds 3D replays and fetches Fitbit heart rate. Use its http address on the same Wi-Fi, or its IP if .local doesn't resolve.")
+                }
+
+                Section {
+                    Button("Show the intro again") { onboarded = false }
+                } footer: {
+                    Text("Volante \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                 }
             }
-            .navigationTitle("Connections")
+            .navigationTitle("Devices")
             .task { await pi.checkHealth(); await fitbit.refreshStatus() }
+            .refreshable { await pi.checkHealth(); await fitbit.refreshStatus() }
         }
     }
 
-    @ViewBuilder private func chip(for reachable: Bool?) -> some View {
-        switch reachable {
-        case true?: StatusChip(text: "Connected", systemImage: "checkmark.circle.fill", color: Theme.good)
-        case false?: StatusChip(text: "Unreachable", systemImage: "exclamationmark.circle.fill", color: Theme.bad)
-        case nil: StatusChip(text: "Not checked", systemImage: "questionmark.circle", color: .secondary)
-        }
+    private func check() {
+        Task { checking = true; await pi.checkHealth(); await fitbit.refreshStatus(); checking = false }
     }
 
-    private func foot(_ text: String) -> some View {
-        Text(text).font(.footnote).foregroundStyle(.secondary)
+    private var podStatus: String {
+        switch pod.state {
+        case .connected: pod.status?.sleeping == true ? "Asleep" : "Connected"
+        case .scanning: "Searching…"
+        case .connecting: "Connecting…"
+        default: "Not connected"
+        }
+    }
+    private var watchStatus: String {
+        watch.reachable ? "Connected" : watch.installed ? "Installed, not reachable" : watch.paired ? "Volante not installed" : "Not paired"
+    }
+    private var fitbitStatus: String {
+        switch fitbit.connected { case true?: "Connected"; case false?: "Not connected"; case nil: "Needs the Pi" }
+    }
+    private var piStatus: String {
+        switch pi.reachable { case true?: "Connected"; case false?: "Unreachable"; case nil: "Not checked" }
+    }
+}
+
+/// An icon tile, a title and a status line, like a row in Settings.
+private struct DeviceRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let status: String
+    var statusColor: Color = .secondary
+    var busy = false
+    var chevron = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .accessibilityHidden(true)
+            Text(title)
+            Spacer(minLength: 8)
+            if busy { ProgressView().controlSize(.small) } else {
+                HStack(spacing: 5) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
+                    Text(status).foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+            }
+            if chevron { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
