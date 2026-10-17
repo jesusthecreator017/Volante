@@ -1,0 +1,27 @@
+[package]
+name = "oso-arena"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "oso-arena"
+path = "src/main.rs"
+
+[dependencies]
+oso-render.workspace = true
+cgmath.workspace = true
+hecs.workspace = true
+log.workspace = true
+anyhow.workspace = true
+wgpu.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook.workspace = true
+wasm-bindgen.workspace = true
+getrandom.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-sign-ext", "--enable-nontrapping-float-to-int", "--enable-mutable-globals", "--enable-reference-types"]

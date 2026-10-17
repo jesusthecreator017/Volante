@@ -1,6 +1,6 @@
 # Racquet pod BLE profile (firmware 0.1)
 
-Implemented by `firmware/` (ESP32-S3, esp-hal + trouble), spoken by `src/bin/oso-rec.rs`; the constants live in `proto/` (`oso-proto`).
+Implemented by `firmware/` (ESP32-S3, esp-hal + trouble), spoken by `crates/oso-replay/src/bin/oso-rec.rs`; the constants live in `proto/` (`oso-proto`).
 The app in `app/` follows this document (`app/src/ble/profile.ts`, checked by `app/test/protocol.test.ts`). Everything is little-endian.
 
 ## Advertising and link
@@ -57,12 +57,12 @@ Error codes: 1 bad opcode, 2 no session, 3 un-uploaded session (repeat `0x03` wi
 The app spec has the device emit a "marker packet" on `0x06`. Packets are 18-byte IMU samples with a contiguous `seq`, so a marker packet would be
 a fake sample. Instead markers go out on `status` as events 1 (tap detected on the device) and 2 (`0x06`), with the device-clock `t_us` in
 `event_value`. Taps are detected on the device: the gyro quiet (< 20 dps) for 1 s, then an accelerometer spike > 5 g above the 9-sample median,
-at most 3 samples wide (the same shape as the clap detector in `src/imu/sync.rs`). While recording, the first 32 markers are stored with the
+at most 3 samples wide (the same shape as the clap detector in `crates/oso-replay/src/imu/sync.rs`). While recording, the first 32 markers are stored with the
 session and replayed on upload before `upload_done`.
 
 ## Timestamps and loss
 - `seq` +1 per sample; `t_us` = low 32 bits of the ESP clock in microseconds, reconstructed per FIFO batch from the MPU sample clock
-  (accurate to roughly 0.2 ms). The MPU clock can be ~1 % off the ESP clock; the clap fit in `src/imu/sync.rs` handles drift.
+  (accurate to roughly 0.2 ms). The MPU clock can be ~1 % off the ESP clock; the clap fit in `crates/oso-replay/src/imu/sync.rs` handles drift.
 - A FIFO overflow resets the FIFO and advances `seq` by the estimated lost samples: a real gap, counted in `fifo_overflows`.
 
 ## Flash session (device internal)

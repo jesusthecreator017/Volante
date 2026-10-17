@@ -15,7 +15,7 @@ cargo build --release --features sim   # synthetic sampler for bench tests when 
 The firmware waits 3.5 s before the first log line (the USB serial port re-enumerates on reset).
 Boot log: `WHO_AM_I`, the config registers read back, then `imu NNN Hz measured ... last [ax ay az gx gy gz]` every 5 s. On the desk |a| is about 2048 counts and the gyro near 0.
 
-## Record and upload (from the repo root; macOS asks to allow Bluetooth for the terminal the first time)
+## Record and upload (from the repo root, where `cargo run --release --bin X` resolves to the `oso-replay` package, i.e. `-p oso-replay`; macOS asks to allow Bluetooth for the terminal the first time)
 ```
 cargo run --release --bin oso-rec -- scan
 cargo run --release --bin oso-rec -- status
