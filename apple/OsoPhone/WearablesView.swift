@@ -1,4 +1,4 @@
-// Devices tab: the racquet pod, Apple Watch, Fitbit and the Raspberry Pi server, as a Settings-style form.
+// Devices tab: the racquet pod, Apple Watch and Fitbit, as a Settings-style form. The Pi server is in Settings.
 
 import SwiftUI
 
@@ -8,11 +8,8 @@ struct WearablesView: View {
     @Environment(WatchReceiver.self) private var watch
     @Environment(FitbitLink.self) private var fitbit
     @Environment(PiServer.self) private var pi
-    @State private var checking = false
-    @AppStorage("oso.onboarded") private var onboarded = false
 
     var body: some View {
-        @Bindable var pi = pi
         NavigationStack {
             Form {
                 Section {
@@ -44,46 +41,29 @@ struct WearablesView: View {
                         Button("Connect with Google") { Task { await fitbit.connect() } }
                             .disabled(fitbit.busy || !fitbit.configured)
                     case nil:
-                        EmptyView()
+                        Button("Set up the Volante server") { router.showSettings = true }
                     }
                     if let e = fitbit.lastError { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 } header: {
                     Text("Heart rate")
                 } footer: {
                     Text(fitbit.connected == nil
-                         ? "Fitbit runs through your Pi server; connect to it below first."
+                         ? "Fitbit runs through your Volante server (Settings)."
                          : !fitbit.configured ? "Set GOOGLE_CLIENT_ID in Config.xcconfig (apple/README.md)."
-                         : "Sign in once. Your Pi keeps the token and adds heart rate to your sessions.")
+                         : "Sign in once. Your heart rate is added to each session after your tracker syncs.")
                 }
 
                 Section {
-                    DeviceRow(icon: "server.rack", tint: .blue, title: "Raspberry Pi", status: piStatus,
-                              statusColor: pi.reachable == true ? Theme.good : pi.reachable == false ? Theme.bad : .secondary,
-                              busy: pi.checking || checking)
-                    TextField("http://raspberrypi.local:8080", text: $pi.baseURL)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onSubmit(check)
-                    Button("Check connection", action: check).disabled(pi.checking || checking)
-                } header: {
-                    Text("Server")
-                } footer: {
-                    Text("Your Pi stores sessions, builds 3D replays and fetches Fitbit heart rate. Use its http address on the same Wi-Fi, or its IP if .local doesn't resolve.")
-                }
-
-                Section {
-                    Button("Show the intro again") { onboarded = false }
-                } footer: {
-                    Text("Volante \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                    Button { router.showSettings = true } label: {
+                        DeviceRow(icon: "gearshape.fill", tint: .gray, title: "Settings", status: "", chevron: true)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .navigationTitle("Devices")
             .task { await pi.checkHealth(); await fitbit.refreshStatus() }
             .refreshable { await pi.checkHealth(); await fitbit.refreshStatus() }
         }
-    }
-
-    private func check() {
-        Task { checking = true; await pi.checkHealth(); await fitbit.refreshStatus(); checking = false }
     }
 
     private var podStatus: String {
@@ -99,9 +79,6 @@ struct WearablesView: View {
     }
     private var fitbitStatus: String {
         switch fitbit.connected { case true?: "Connected"; case false?: "Not connected"; case nil: "Needs the Pi" }
-    }
-    private var piStatus: String {
-        switch pi.reachable { case true?: "Connected"; case false?: "Unreachable"; case nil: "Not checked" }
     }
 }
 
@@ -124,7 +101,7 @@ private struct DeviceRow: View {
                 .accessibilityHidden(true)
             Text(title)
             Spacer(minLength: 8)
-            if busy { ProgressView().controlSize(.small) } else {
+            if busy { ProgressView().controlSize(.small) } else if !status.isEmpty {
                 HStack(spacing: 5) {
                     Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
                     Text(status).foregroundStyle(.secondary)

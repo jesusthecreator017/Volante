@@ -40,7 +40,10 @@ struct OsoPhoneApp: App {
             .environment(fitbit)
             .environment(pi)
             .onAppear(perform: wire)
-            .onChange(of: scenePhase) { _, phase in if phase == .active { pod.refreshAuthorization() } }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
+            }
+            .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
         }
     }
 
@@ -54,8 +57,9 @@ struct OsoPhoneApp: App {
 
     private var tabs: some View {
         TabView(selection: Bindable(router).tab) {
+            Tab("Summary", systemImage: "chart.line.uptrend.xyaxis", value: Router.Tab.summary) { SummaryView() }
             Tab("Play", systemImage: "figure.badminton", value: Router.Tab.pod) { PodView() }
-            Tab("Sessions", systemImage: "chart.bar.xaxis", value: Router.Tab.sessions) { SessionsView() }
+            Tab("Sessions", systemImage: "list.bullet.rectangle.portrait", value: Router.Tab.sessions) { SessionsView() }
             Tab("Devices", systemImage: "sensor.tag.radiowaves.forward", value: Router.Tab.connections) { WearablesView() }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -65,12 +69,18 @@ struct OsoPhoneApp: App {
     private func wire() {
         pod.liveActivity.endStale()
         pod.onSession = { imu, meta in
-            do { try store.save(imu: imu, meta: meta) } catch { pod.lastError = "save failed: \(error)" }
+            do { try store.save(imu: imu, meta: meta); syncHeartRate() } catch { pod.lastError = "save failed: \(error)" }
         }
         watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
+        syncHeartRate()
         #if DEBUG
         applyLaunchArguments()
         #endif
+    }
+
+    /// Fitbit heart rate for recent sessions that lack it (no-op unless Fitbit is connected through the Pi).
+    private func syncHeartRate() {
+        Task { if fitbit.connected == nil { await fitbit.refreshStatus() }; await fitbit.backfill(store) }
     }
 
     #if DEBUG

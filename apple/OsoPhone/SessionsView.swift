@@ -6,6 +6,7 @@ import SwiftUI
 
 struct SessionsView: View {
     @Environment(SessionStore.self) private var store
+    @Environment(FitbitLink.self) private var fitbit
     @Environment(Router.self) private var router
 
     var body: some View {
@@ -14,6 +15,7 @@ struct SessionsView: View {
                 if store.sessions.isEmpty { empty } else { list }
             }
             .navigationTitle("Sessions")
+            .task { await fitbit.backfill(store) }
             .navigationDestination(for: SessionMeta.self) { SessionDetailView(meta: $0) }
         }
         #if DEBUG
