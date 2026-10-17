@@ -11,7 +11,19 @@ import SwiftUI
 ///   -osoLiveDemo                       start a Live Activity with a simulated 60 s session (no pod needed)
 ///   -osoLivePreview                    show the Live Activity layouts in the app instead of the tabs
 ///   -osoBottom                         start Screens scrolled to the bottom
+///   -osoOnboarding                     show the first-launch intro even if it was seen
+///                                      (-osoTab, -osoSample, -osoLiveDemo and -osoLivePreview otherwise skip it)
+///   -osoBluetooth notDetermined|denied|off|ready   fake the Bluetooth state the Pod tab and intro show
 struct DebugOverrides: ViewModifier {
+    #if DEBUG
+    static let forcesIntro = ProcessInfo.processInfo.arguments.contains("-osoOnboarding")
+    /// Screenshot flows that name a screen must not land on the intro of a fresh install.
+    static let skipsIntro = ["-osoTab", "-osoSample", "-osoLiveDemo", "-osoLivePreview"].contains { ProcessInfo.processInfo.arguments.contains($0) }
+    #else
+    static let forcesIntro = false
+    static let skipsIntro = false
+    #endif
+
     func body(content: Content) -> some View {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments

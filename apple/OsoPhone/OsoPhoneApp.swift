@@ -11,6 +11,10 @@ struct OsoPhoneApp: App {
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
     @State private var router = Router()
+    @AppStorage("oso.onboarded") private var onboarded = false
+    /// DEBUG: -osoOnboarding shows the intro even when it was seen, until it ends.
+    @State private var forceIntro = DebugOverrides.forcesIntro
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let pi = PiServer()
@@ -21,6 +25,13 @@ struct OsoPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             root
+            .fullScreenCover(isPresented: Binding(
+                get: { !onboarded && !DebugOverrides.skipsIntro || forceIntro },
+                set: { if !$0 { onboarded = true; forceIntro = false } }
+            )) {
+                OnboardingView { onboarded = true; forceIntro = false }
+                    .modifier(DebugOverrides())
+            }
             .modifier(DebugOverrides())
             .environment(router)
             .environment(store)
@@ -29,6 +40,7 @@ struct OsoPhoneApp: App {
             .environment(fitbit)
             .environment(pi)
             .onAppear(perform: wire)
+            .onChange(of: scenePhase) { _, phase in if phase == .active { pod.refreshAuthorization() } }
         }
     }
 
@@ -63,6 +75,9 @@ struct OsoPhoneApp: App {
     /// See DebugOverrides in DebugOverrides.swift.
     private func applyLaunchArguments() {
         let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-osoBluetooth"), i + 1 < args.count {
+            pod.accessOverride = ["notDetermined": .notDetermined, "denied": .denied, "off": .poweredOff, "ready": .ready][args[i + 1]]
+        }
         if args.contains("-osoLiveDemo") { pod.liveActivity.runDemo() }
         if let i = args.firstIndex(of: "-osoTab"), i + 1 < args.count, let tab = Router.Tab(rawValue: args[i + 1]) { router.tab = tab }
         if args.contains("-osoResetSample") { for m in store.sessions where m.source == .sample { store.delete(m.id) } }

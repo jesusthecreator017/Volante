@@ -7,6 +7,7 @@ struct PodView: View {
     @Environment(PodLink.self) private var pod
     @Environment(SessionStore.self) private var store
     @Environment(Router.self) private var router
+    @Environment(\.openURL) private var openURL
     @State private var confirm: CheckedContinuation<Bool, Never>?
 
     var body: some View {
@@ -42,34 +43,47 @@ struct PodView: View {
                 .font(.subheadline).foregroundStyle(.white.opacity(0.85))
         }
         Card {
-            switch pod.state {
-            case .off:
-                Label("Bluetooth is off or not allowed. Turn it on in Settings to find your pod.", systemImage: "bolt.horizontal.circle")
-                    .font(.subheadline)
-            case .scanning:
-                HStack(spacing: 10) { ProgressView(); Text("Looking for your pod…").font(.headline) }
-                Text("A sleeping pod advertises for 2 s every 30 s, so this can take up to half a minute.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                ForEach(pod.found, id: \.identifier) { p in
-                    Button { pod.connect(p) } label: { Label(p.name ?? "oso pod", systemImage: "sensor.tag.radiowaves.forward") }
-                        .buttonStyle(.primary)
-                }
-            case .connecting:
-                HStack(spacing: 10) { ProgressView(); Text("Connecting…").font(.headline) }
-            default:
-                Button { pod.scan() } label: { Label("Scan for pods", systemImage: "dot.radiowaves.left.and.right") }
+            switch pod.access {
+            case .notDetermined:
+                Label("Allow Bluetooth", systemImage: "bolt.horizontal.circle").font(.headline).foregroundStyle(Theme.courtInk)
+                Text("oso needs Bluetooth to find your pod. iOS will ask once.").font(.subheadline).foregroundStyle(.secondary)
+                Button { pod.enableBluetooth() } label: { Label("Allow Bluetooth", systemImage: "bolt.horizontal.circle") }
                     .buttonStyle(.primary)
+            case .denied:
+                Label("Bluetooth is blocked", systemImage: "xmark.circle.fill").font(.headline).foregroundStyle(Theme.bad)
+                Text("Turn on Bluetooth for oso in Settings to find your pod.").font(.subheadline).foregroundStyle(.secondary)
+                Button { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } } label: { Label("Open Settings", systemImage: "gearshape") }
+                    .buttonStyle(.primary)
+            case .poweredOff:
+                Label("Turn on Bluetooth", systemImage: "bolt.horizontal.circle").font(.headline).foregroundStyle(Theme.bad)
+                Text("Bluetooth is off. Open Control Center and tap Bluetooth; oso finds your pod as soon as it is on.").font(.subheadline).foregroundStyle(.secondary)
+            case .unsupported:
+                Label("Bluetooth isn't available on this device.", systemImage: "bolt.horizontal.circle").font(.subheadline)
+            case .checking:
+                HStack(spacing: 10) { ProgressView(); Text("Checking Bluetooth…").font(.headline) }
+            case .ready:
+                readyContent
             }
-            Button { openSample() } label: { Label("Try the sample session", systemImage: "play.circle") }
+            Button { router.openSample(store) } label: { Label("Try the sample session", systemImage: "play.circle") }
                 .buttonStyle(.secondary)
         }
     }
 
-    private func openSample() {
-        if !store.sessions.contains(where: { $0.source == .sample }) { try? store.importSample() }
-        if let m = store.sessions.first(where: { $0.source == .sample }) {
-            router.tab = .sessions
-            router.path = [m]
+    @ViewBuilder private var readyContent: some View {
+        switch pod.state {
+        case .scanning:
+            HStack(spacing: 10) { ProgressView(); Text("Looking for your pod…").font(.headline) }
+            Text("A sleeping pod advertises for 2 s every 30 s, so this can take up to half a minute.")
+                .font(.footnote).foregroundStyle(.secondary)
+            ForEach(pod.found, id: \.identifier) { p in
+                Button { pod.connect(p) } label: { Label(p.name ?? "oso pod", systemImage: "sensor.tag.radiowaves.forward") }
+                    .buttonStyle(.primary)
+            }
+        case .connecting:
+            HStack(spacing: 10) { ProgressView(); Text("Connecting…").font(.headline) }
+        default:
+            Button { pod.scan() } label: { Label("Scan for pods", systemImage: "dot.radiowaves.left.and.right") }
+                .buttonStyle(.primary)
         }
     }
 
