@@ -7,7 +7,10 @@ import WidgetKit
 
 @main
 struct OsoLiveBundle: WidgetBundle {
-    var body: some Widget { LiveSessionWidget() }
+    var body: some Widget {
+        LiveSessionWidget()
+        WeeklyGoalWidget()
+    }
 }
 
 struct LiveSessionWidget: Widget {

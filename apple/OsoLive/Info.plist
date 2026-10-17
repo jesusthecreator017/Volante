@@ -25,5 +25,7 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<key>VolanteAppGroup</key>
+	<string>group.$(OSO_BUNDLE_PREFIX)</string>
 </dict>
 </plist>
