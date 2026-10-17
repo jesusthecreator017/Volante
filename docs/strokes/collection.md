@@ -14,6 +14,8 @@ each stroke means.
 1. **Mount calibration** (once per pod mounting, and again whenever the pod is moved): `oso-rec calibrate`. Hold the racquet
    upright, tip up, still, Enter; then lay it flat, strings up, still, Enter. It saves `~/.config/oso/mount.json`, which
    `collect` requires (it offers to run the calibration when the file is missing) and copies into `session.json`.
+   Every new `collect` session asks first: **Enter** keeps the saved mount, **C** calibrates now. The file's calibration time goes
+   into `session.json` (`mount_calibrated_at`). Say C whenever the pod could have moved.
 2. **Charge and wake:** `oso-rec status` shows `imu_ok`. A pod with `pending_upload` holds an un-uploaded session: upload it
    first (`oso-rec upload -o FILE`).
 3. **Consent** and the participant's code (`P07`, the next free number; never a name). Note handedness, level and
@@ -36,8 +38,10 @@ align the two clocks. Do it again at the very end, so drift can be measured.
 
 ## Run
 ```
-oso-rec collect --player P07 --handed R --level club --height-cm-bin 170-175 [--out DIR] [--no-view] [--force]
+oso-rec collect --player P07 --handed R --level club --height-cm-bin 170-175 [--context drill|rally] [--out DIR] [--no-view] [--force]
 ```
+`--context` (default `drill`) says what the session is: `drill` for the protocol's clean sets, `rally` when you play with a partner
+and use the blocks only as rough labels (rally swings are kept out of training; `dataset.md`).
 Defaults: protocol `drills-v1` (`tools/strokes/protocols/`, compiled in; or give a file path), sessions under
 `~/Datasets/oso-strokes/raw/`. A live racquet window opens (`--no-view` for terminal only). The window's title and the terminal
 show the block `k/N`, the stroke and side, the counted reps against the target, and the time. `--force` overwrites an un-uploaded

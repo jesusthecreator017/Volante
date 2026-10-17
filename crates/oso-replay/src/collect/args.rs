@@ -1,15 +1,17 @@
 //! `oso-rec collect` command line
 
-use super::session::{Handed, Level, valid_height_bin, valid_player_id};
+use super::session::{Context, Handed, Level, valid_height_bin, valid_player_id};
 use std::path::PathBuf;
 
-pub const COLLECT_USAGE: &str = "usage: oso-rec collect --player P07 [--protocol drills-v1|FILE] [--out DIR] [--handed R|L] [--level beginner|club|advanced] [--height-cm-bin 170-175] [--no-view] [--force]
+pub const COLLECT_USAGE: &str = "usage: oso-rec collect --player P07 [--protocol drills-v1|FILE] [--context drill|rally] [--out DIR] [--handed R|L] [--level beginner|club|advanced] [--height-cm-bin 170-175] [--no-view] [--force]
        oso-rec collect --resume SESSION_DIR [--no-view] [--force]   (debug: --part-every-blocks N)";
 
 #[derive(Debug, PartialEq)]
 pub struct CollectArgs {
     pub player: String,
     pub protocol: String,
+    /// drill (default) or rally: stored in session.json
+    pub context: Context,
     /// None: `~/Datasets/oso-strokes/raw`
     pub out: Option<PathBuf>,
     pub handed: Option<Handed>,
@@ -29,6 +31,7 @@ impl CollectArgs {
         let mut a = CollectArgs {
             player: String::new(),
             protocol: "drills-v1".into(),
+            context: Context::Drill,
             out: None,
             handed: None,
             level: None,
@@ -44,6 +47,7 @@ impl CollectArgs {
             match f.as_str() {
                 "--player" => a.player = val()?.clone(),
                 "--protocol" => a.protocol = val()?.clone(),
+                "--context" => a.context = val()?.parse()?,
                 "--out" => a.out = Some(val()?.into()),
                 "--handed" => a.handed = Some(val()?.parse()?),
                 "--level" => a.level = Some(val()?.parse()?),
@@ -75,12 +79,13 @@ mod tests {
     fn parses_flags_and_defaults() {
         let a = parse("--player P07").unwrap();
         assert_eq!((a.protocol.as_str(), a.view, a.force, a.out.is_some()), ("drills-v1", true, false, false));
-        let a = parse("--player P123 --protocol smoke --out /tmp/x --handed L --level club --height-cm-bin 170-175 --no-view --force").unwrap();
+        let a = parse("--player P123 --protocol smoke --context rally --out /tmp/x --handed L --level club --height-cm-bin 170-175 --no-view --force").unwrap();
         assert_eq!(
             a,
             CollectArgs {
                 player: "P123".into(),
                 protocol: "smoke".into(),
+                context: Context::Rally,
                 out: Some("/tmp/x".into()),
                 handed: Some(Handed::L),
                 level: Some(Level::Club),
@@ -110,6 +115,7 @@ mod tests {
         assert!(parse("--player P07 --level pro").is_err());
         assert!(parse("--player P07 --height-cm-bin 170-180").is_err());
         assert!(parse("--player P07 --bogus").is_err());
+        assert!(parse("--player P07 --context match").is_err());
         assert!(parse("--player").is_err());
     }
 }

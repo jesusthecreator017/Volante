@@ -1459,6 +1459,14 @@ async fn collect(a: CollectArgs) -> anyhow::Result<()> {
         anyhow::ensure!(ask("Calibrate now (two poses, Enter to go)? [y/N] ").eq_ignore_ascii_case("y"), "collect needs a mount calibration (`oso-rec calibrate`)");
         calibrate().await?;
     }
+    // Every new session starts with a fresh decision: pods get remounted and a stale mount silently ruins the session
+    if resumed.is_none() && mount_path.exists() {
+        let age = std::fs::metadata(&mount_path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |e| format!(" (calibrated {} min ago)", e.as_secs() / 60));
+        if ask(&format!("Saved mount{age}. Enter = keep it, C = calibrate now: ")).eq_ignore_ascii_case("c") {
+            calibrate().await?;
+        }
+    }
+    let mount_calibrated_at = std::fs::metadata(&mount_path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| session::iso_utc(d.as_secs()));
     let mount = Mount::load(&mount_path)?;
     let axes: MountAxes = serde_json::from_str(&mount.to_json())?;
     if let Some((_, m)) = &resumed {
@@ -1499,6 +1507,8 @@ async fn collect(a: CollectArgs) -> anyhow::Result<()> {
                 protocol: ProtocolRef { name: proto.name.clone(), version: proto.version, seed },
                 pod,
                 mount: axes,
+                mount_calibrated_at,
+                context: a.context,
                 started_at: session::iso_utc(started),
                 parts: Vec::new(),
                 open_part: None,
