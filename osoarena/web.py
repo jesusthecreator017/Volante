@@ -7,10 +7,12 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import threading
 import time
+import unicodedata
 import zlib
 from collections import defaultdict
 from pathlib import Path
@@ -596,6 +598,7 @@ def create_app():
                     files.append(m["sha256"])
             con.execute("UPDATE models SET user_id=0, uploaded_by=NULL WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))
+            con.execute("DELETE FROM pods WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM users WHERE id=?", (u["id"],))
             keep = {r["sha256"] for r in con.execute("SELECT sha256 FROM models WHERE user_id!=0 AND sha256 IS NOT NULL")}
         for sha in set(files) - keep:
@@ -606,6 +609,37 @@ def create_app():
         resp = Response(status_code=204)
         resp.delete_cookie(auth.SESSION_COOKIE, path="/")
         return resp
+
+    # ---------------------------------------------------------------- pods (site Settings; pairing from the app is future work)
+
+    def pod_out(p):
+        return {"id": f"pod_{p['id']}", "hw_id": p["hw_id"], "name": p["name"], "last_seen": p["last_seen"]}
+
+    @app.get("/api/me/pods")
+    def my_pods(request: Request):
+        u = require_user(request, csrf=False)
+        rows = conn().execute("SELECT * FROM pods WHERE user_id=? ORDER BY id", (u["id"],)).fetchall()
+        return JSONResponse({"items": [pod_out(p) for p in rows]}, headers={"cache-control": "no-store"})
+
+    @app.patch("/api/me/pods/{pod_id}")
+    async def rename_pod(pod_id: str, request: Request):
+        u = require_user(request)
+        try:
+            name = (await request.json()).get("name")
+        except Exception:  # noqa: BLE001 -- any unreadable body is a bad name
+            name = None
+        name = name.strip() if isinstance(name, str) else ""
+        if not 1 <= len(name) <= 40 or any(unicodedata.category(ch).startswith("C") for ch in name):
+            raise ApiError(400, "invalid_name", "A pod name is 1-40 characters, without control characters.")
+        m = re.fullmatch(r"pod_(\d{1,12})", pod_id)
+        con = conn()
+        with db.tx(con):
+            p = m and con.execute("SELECT * FROM pods WHERE id=? AND user_id=?", (int(m[1]), u["id"])).fetchone()
+            if not p:
+                raise ApiError(404, "not_found", "No such pod.")
+            con.execute("UPDATE pods SET name=? WHERE id=?", (name, p["id"]))
+            p = con.execute("SELECT * FROM pods WHERE id=?", (p["id"],)).fetchone()
+        return JSONResponse(pod_out(p), headers={"cache-control": "no-store"})
 
     @app.post("/auth/logout")
     def logout(request: Request):

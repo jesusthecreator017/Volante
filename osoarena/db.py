@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS seasons (
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,              -- GitHub user id; 0 = the "deleted" placeholder
   login TEXT NOT NULL, avatar_url TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS pods (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+  hw_id TEXT NOT NULL UNIQUE,          -- e.g. OSO-4C99; one account per pod
+  name TEXT NOT NULL, last_seen TEXT, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS pods_user ON pods(user_id);
 CREATE TABLE IF NOT EXISTS bans (github_id INTEGER PRIMARY KEY, t TEXT NOT NULL, note TEXT);
 CREATE TABLE IF NOT EXISTS sessions (
   hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), csrf TEXT NOT NULL,
