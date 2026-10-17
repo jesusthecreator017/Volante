@@ -16,6 +16,9 @@ struct SessionsView: View {
             .navigationTitle("Sessions")
             .navigationDestination(for: SessionMeta.self) { SessionDetailView(meta: $0) }
         }
+        #if DEBUG
+        .modifier(DebugInsightsRender())
+        #endif
     }
 
     private var list: some View {
@@ -100,12 +103,15 @@ struct SessionDetailView: View {
     @Environment(PiServer.self) private var pi
     @State var meta: SessionMeta
     @State private var message: String?
+    #if DEBUG
+    @State private var debugSwingOpen = false
+    #endif
 
     var body: some View {
         let a = store.analysis(meta)
         Screen {
             if let a {
-                header(a)
+                SessionHeaderView(meta: meta, analysis: a, bests: store.bests)
                 speedChart(a)
                 strokeMix(a)
                 if !meta.heartRate.isEmpty, let anchor = meta.anchor { heartRateChart(a, anchor) }
@@ -119,27 +125,32 @@ struct SessionDetailView: View {
         }
         .navigationTitle(meta.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    // MARK: header
-
-    private func header(_ a: SessionAnalysis) -> some View {
-        let s = a.summary
-        return Banner {
-            HStack {
-                Label(meta.source.label, systemImage: meta.source.icon).font(.subheadline.weight(.semibold))
-                Spacer(minLength: 8)
-                if meta.uploadedToPi != nil { StatusChip(text: "On Pi", systemImage: "checkmark", color: .white) }
-            }
-            Text(meta.name).font(.system(.title3, design: .rounded, weight: .bold))
-            StatGrid(minimum: 130) {
-                BigStat(value: clock(s.durationS), label: "Duration", onBanner: true)
-                BigStat(value: "\(s.swingCount)", unit: "/ \(s.hitCount) hits", label: "Swings", onBanner: true)
-                BigStat(value: s.maxSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: a.mount == .wrist ? "Best hand speed" : "Best head speed", onBanner: true)
-                BigStat(value: "\(s.rallyCount)", unit: "longest \(s.longestRally)", label: "Rallies", onBanner: true)
+        .toolbar {
+            if let a, !a.swings.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(
+                        item: SessionCardImage(analysis: a, date: meta.createdAt, personalBest: !store.bests.kinds(for: meta.id).isEmpty),
+                        preview: SharePreview("oso session, \(meta.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    ) { Label("Share session image", systemImage: "square.and.arrow.up") }
+                }
             }
         }
+        .task { await store.loadAllSummaries() }
+        #if DEBUG
+        .navigationDestination(isPresented: $debugSwingOpen) {
+            if let a, !a.swings.isEmpty { SwingDetailView(analysis: a, start: debugSwingStart) }
+        }
+        .onAppear { if a != nil, debugSwingStart > 0 { debugSwingOpen = true } }
+        #endif
     }
+
+    #if DEBUG
+    /// `-osoSwing N` opens swing N's detail screen (for screenshots).
+    private var debugSwingStart: Int {
+        let args = ProcessInfo.processInfo.arguments
+        return args.firstIndex(of: "-osoSwing").flatMap { Int(args[safe: $0 + 1] ?? "") } ?? 0
+    }
+    #endif
 
     // MARK: charts
 
@@ -242,7 +253,9 @@ struct SessionDetailView: View {
             }
             LazyVStack(spacing: 0) {
                 ForEach(a.swings) { s in
-                    swingRow(s)
+                    NavigationLink { SwingDetailView(analysis: a, start: s.index) } label: { swingRow(s) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the swing detail")
                     if s.id != a.swings.last?.id { Divider() }
                 }
             }
@@ -269,8 +282,11 @@ struct SessionDetailView: View {
                 Text(String(format: "%.1f", s.headSpeed)).font(.score(.title3))
                 Text("m/s").font(.caption2).foregroundStyle(.secondary)
             }
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 8)
+                .accessibilityHidden(true)
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 
