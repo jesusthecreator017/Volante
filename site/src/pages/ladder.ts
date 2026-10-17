@@ -33,7 +33,7 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
       l.items.length
         ? h(
             "div",
-            { class: "table-wrap" },
+            { class: "table-wrap sticky" },
             h(
               "table",
               { class: "ladder" },
@@ -49,11 +49,11 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
                 rows.map((it) =>
                   h(
                     "tr",
-                    null,
-                    h("td", { class: "num" }, it.rank),
+                    { class: it.rank <= 3 ? "podium" : null },
+                    h("td", { class: "num rank" }, it.rank),
                     h("td", null, h("div", { class: "cell-model" }, modelLink(it.model), ownerChip(it.model.owner))),
                     h("td", { class: "hide-sm" }, buildBars(it.model.build)),
-                    h("td", { class: it.provisional ? "num provisional" : "num" }, it.rating.toFixed(0), it.provisional ? provisional(0) : null),
+                    h("td", { class: it.provisional ? "num rating provisional" : "num rating" }, it.rating.toFixed(0), it.provisional ? provisional(0) : null),
                     h("td", { class: "num hide-sm" }, it.games),
                     h("td", { class: "num" }, `${it.wins}–${it.losses}`),
                   ),

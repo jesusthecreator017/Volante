@@ -2,7 +2,7 @@
 
 import { api, replayUrl } from "../api";
 import { RALLY_REASON } from "../arena";
-import { buildBars, fmtDate, fmtDelta, load, modelLink, ownerChip, statusPill, styleGuess } from "../components";
+import { buildBars, fmtDate, fmtDelta, load, modelLink, ownerChip, setChips, statusPill, styleGuess } from "../components";
 import { h } from "../dom";
 import type { MatchDetail, Rally, Side } from "../types";
 
@@ -25,7 +25,7 @@ function render(root: HTMLElement, m: MatchDetail) {
     return h(
       "div",
       { class: m.winner === side ? "player won" : "player" },
-      h("div", { class: "player-name" }, modelLink(x), m.winner === side ? h("span", { class: "crown", "aria-label": "winner" }, " ★") : null),
+      h("div", { class: "player-name" }, modelLink(x), m.winner === side ? h("span", { class: "wchip", title: "Winner" }, "W") : null),
       ownerChip(x.owner),
       buildBars(x.build, false),
       h("div", { class: "muted small" }, styleGuess(x.build), m.rating_delta ? ` · ${fmtDelta(m.rating_delta[side])}` : ""),
@@ -38,7 +38,7 @@ function render(root: HTMLElement, m: MatchDetail) {
       "section",
       { class: "scoreboard", "aria-label": "Scoreboard" },
       player("a"),
-      h("div", { class: "sb-center" }, h("div", { class: "games-won" }, `${m.games_won[0]} – ${m.games_won[1]}`), h("div", { class: "games" }, m.games.map((g, i) => h("span", { class: "game" }, `G${i + 1} ${g[0]}–${g[1]}`)))),
+      h("div", { class: "sb-center" }, h("div", { class: "games-won" }, `${m.games_won[0]} – ${m.games_won[1]}`), setChips(m.games)),
       player("b"),
     ),
     viewerBox,
@@ -89,36 +89,35 @@ function render(root: HTMLElement, m: MatchDetail) {
 function rallyList(m: MatchDetail, seek: (r: Rally) => void): HTMLElement {
   if (!m.rallies.length) return h("p", { class: "muted" }, "No rally list for this match.");
   const name = (s: Side) => (s === "a" ? m.a.name : m.b.name);
+  const games = [...new Set(m.rallies.map((r) => r.game))];
   return h(
     "section",
     null,
     h("h2", null, "Rallies"),
     h("p", { class: "muted small" }, "Select a rally to jump the replay to it."),
-    h(
-      "div",
-      { class: "table-wrap" },
-      h(
-        "table",
-        { class: "rallies" },
-        h("thead", null, h("tr", null, h("th", { scope: "col" }, "Game"), h("th", { scope: "col" }, "Score"), h("th", { scope: "col" }, "Point to"), h("th", { scope: "col" }, "How"), h("th", { scope: "col", class: "num" }, "Shots"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Jump")))),
+    games.map((g) => {
+      const final = m.games[g - 1];
+      return h(
+        "div",
+        { class: "rally-game" },
+        h("h3", null, `Game ${g}`, final ? h("span", { class: "rg-score" }, `${final[0]}–${final[1]}`) : null),
         h(
-          "tbody",
-          null,
-          m.rallies.map((r) =>
-            h(
-              "tr",
-              null,
-              h("td", null, r.game),
-              h("td", { class: "num" }, `${r.score[0]}–${r.score[1]}`),
-              h("td", null, name(r.winner)),
-              h("td", null, RALLY_REASON[r.reason] ?? r.reason),
-              h("td", { class: "num" }, r.shots),
-              h("td", null, h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, "▶ " + fmtT(r.t_start))),
+          "ol",
+          { class: "rally-list" },
+          m.rallies
+            .filter((r) => r.game === g)
+            .map((r) =>
+              h(
+                "li",
+                { class: "rally" },
+                h("span", { class: "ry-score" }, `${r.score[0]}–${r.score[1]}`),
+                h("span", { class: "ry-text" }, h("strong", null, name(r.winner)), ` · ${RALLY_REASON[r.reason] ?? r.reason} · ${r.shots} ${r.shots === 1 ? "shot" : "shots"}`),
+                h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, "▶ " + fmtT(r.t_start)),
+              ),
             ),
-          ),
         ),
-      ),
-    ),
+      );
+    }),
   );
 }
 

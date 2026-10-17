@@ -37,6 +37,12 @@ export function ownerChip(o: Owner): HTMLElement {
 
 export const modelLink = (m: Pick<ModelSummary, "id" | "name">) => link(`/models/${m.id}`, m.name);
 
+/** An internal link styled as an action (accent colour, no underline until hover). */
+export const actionLink = (href: string, ...children: (Node | string)[]) => h("a", { href, "data-nav": true, class: "act" }, ...children);
+
+/** Game scores as compact "set" chips. */
+export const setChips = (games: [number, number][]) => h("span", { class: "sets" }, games.map((g) => h("span", { class: "set" }, `${g[0]}–${g[1]}`)));
+
 export function statusPill(st: ModelStatus | MatchSummary["status"]): HTMLElement {
   return h("span", { class: `pill pill-${st}` }, st);
 }
@@ -73,7 +79,7 @@ export function buildRadar(b: Build): SVGSVGElement {
   const ring = (v: number) => STATS.map((_, i) => pt(i, v).join(",")).join(" ");
   return s(
     "svg",
-    { viewBox: "0 0 180 180", class: "radar", role: "img", "aria-label": `Build: ${STATS.map((k) => `${STAT_LABEL[k]} ${b[k]}`).join(", ")}` },
+    { viewBox: "-16 -6 212 192", class: "radar", role: "img", "aria-label": `Build: ${STATS.map((k) => `${STAT_LABEL[k]} ${b[k]}`).join(", ")}` },
     [2.5, 5, 7.5, 10].map((v) => s("polygon", { points: ring(v), class: "radar-grid" })),
     STATS.map((_, i) => s("line", { x1: c, y1: c, x2: pt(i, 10)[0], y2: pt(i, 10)[1], class: "radar-grid" })),
     s("polygon", { points: STATS.map((k, i) => pt(i, b[k]).join(",")).join(" "), class: "radar-shape" }),
@@ -123,25 +129,27 @@ export function matchRow(m: MatchSummary, perspective?: number): HTMLElement {
   const player = (side: Side) => {
     const p = sideName(m, side);
     const won = m.winner === side;
-    return h("span", { class: won ? "mr-player won" : "mr-player" }, modelLink(p), m.rating_delta ? h("span", { class: "delta" }, fmtDelta(m.rating_delta[side])) : null);
+    return h(
+      "span",
+      { class: won ? "mr-player won" : "mr-player" },
+      modelLink(p),
+      won && perspective === undefined ? h("span", { class: "wchip", title: "Winner" }, "W") : null,
+      m.rating_delta ? h("span", { class: "delta" }, fmtDelta(m.rating_delta[side])) : null,
+    );
   };
   let result: HTMLElement | null = null;
   if (perspective !== undefined && m.winner) {
     const mine: Side = m.a.id === perspective ? "a" : "b";
-    result = h("span", { class: m.winner === mine ? "result win" : "result loss" }, m.winner === mine ? "W" : "L");
+    result = h("span", { class: m.winner === mine ? "result win" : "result loss", title: m.winner === mine ? "Win" : "Loss" }, m.winner === mine ? "W" : "L");
   }
   return h(
     "li",
     { class: "match-row" },
     result,
     h("span", { class: "mr-players" }, player("a"), h("span", { class: "vs" }, "vs"), player("b")),
-    h(
-      "span",
-      { class: "mr-score" },
-      m.status === "done" ? m.games.map((g) => `${g[0]}–${g[1]}`).join(" · ") : statusPill(m.status),
-    ),
+    h("span", { class: "mr-score" }, m.status === "done" ? [h("span", { class: "sets-won" }, `${m.games_won[0]}–${m.games_won[1]}`), setChips(m.games)] : statusPill(m.status)),
     h("span", { class: "mr-meta" }, h("span", { class: `kind kind-${m.kind}` }, m.kind), " ", fmtAgo(m.finished_at ?? m.created_at)),
-    link(`/matches/${m.id}`, m.status === "done" ? "Watch" : "Open"),
+    actionLink(`/matches/${m.id}`, m.status === "done" ? "Watch" : "Open"),
   );
 }
 
