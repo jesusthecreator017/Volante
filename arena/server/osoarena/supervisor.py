@@ -48,6 +48,13 @@ def job_input(con, job):
         return {"kind": "match", "a": side["a"], "b": side["b"], "seed": mt["seed"]}
     if job["kind"] == "replay":
         return {"kind": "replay", "log": str(cfg.logs_dir / f"{job['ref_id']}.osml.gz")}
+    if job["kind"] == "fidelity":
+        m = con.execute("SELECT * FROM models WHERE id=?", (job["ref_id"],)).fetchone()
+        if not m or m["status"] != "active" or not m["style_profile"]:
+            return None
+        n = cfg.twins_recheck_matches if m["fidelity_at"] else max(cfg.twins_recheck_matches, cfg.twins_min_matches)
+        logs = [[str(cfg.logs_dir / f"{mid}.osml.gz"), side] for mid, side in ladder.fidelity_matches(con, m["id"], n)]
+        return {"kind": "fidelity", "profile": m["style_profile"], "build": ladder.build_of(m), "logs": logs}
     return None
 
 
@@ -122,6 +129,24 @@ def valid_match_result(r):
         return False
 
 
+def valid_fidelity_result(r):
+    """Keep only FidelityReport's documented fields, with their types (the sandbox's output is not trusted)."""
+    try:
+        rep = r["report"]
+        num = lambda v: v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e6)  # noqa: E731
+        ok = (r.get("ok") is True and isinstance(rep["build_ok"], bool) and isinstance(rep["tempo_ok"], bool)
+              and isinstance(rep["fidelity_ok"], bool) and num(rep["tempo_ratio"]) and num(rep["model_median_gap_s"])
+              and num(rep["profile_median_gap_s"]) and isinstance(rep["gaps"], int) and num(rep.get("mix_js"))
+              and isinstance(rep["reasons"], list) and len(rep["reasons"]) <= 10)
+        if ok:
+            r["report"] = {k: rep.get(k) for k in ("build_ok", "tempo_ratio", "tempo_ok", "model_median_gap_s", "profile_median_gap_s",
+                                                   "gaps", "mix_js", "fidelity_ok")}
+            r["report"]["reasons"] = [str(x)[:200] for x in rep["reasons"]]
+        return ok
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def process(con, job):
     cfg = config.get()
     payload = job_input(con, job)
@@ -145,6 +170,11 @@ def process(con, job):
                 ladder.note_match_error(con, mt)
             if mt["kind"] == "tournament":
                 tournament.advance(con)
+        elif job["kind"] == "fidelity":
+            if res is not None and valid_fidelity_result(res):
+                ladder.apply_fidelity(con, job["ref_id"], res["report"])
+            else:
+                err = (res or {}).get("error", "killed or timed out")  # not checked this time; the next pass retries
         elif job["kind"] == "replay":
             mid = job["ref_id"]
             if res is not None and res.get("ok") is True and (jd / "replay.bin.gz").is_file():

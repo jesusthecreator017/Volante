@@ -106,9 +106,36 @@ class tx:
         return False
 
 
+# Volante Twins (PROMPT.md section 14): additive columns, added to existing databases on start.
+#   models.ladder 'open' | 'twins'; style_profile = the header's JSON text; fidelity = the last FidelityReport.to_dict() (JSON),
+#   fidelity_at its time; twins_* = the separate Twins ladder record (kept, frozen, while the model is back on the open ladder;
+#   the house players have one too). matches / rating_history / tournaments.ladder say which ladder they belong to.
+COLUMNS = {
+    "models": [("ladder", "TEXT NOT NULL DEFAULT 'open'"), ("style_profile", "TEXT"), ("fidelity", "TEXT"), ("fidelity_at", "TEXT"),
+               ("twins_rating", "REAL"), ("twins_games", "INTEGER NOT NULL DEFAULT 0"), ("twins_wins", "INTEGER NOT NULL DEFAULT 0"),
+               ("twins_losses", "INTEGER NOT NULL DEFAULT 0")],
+    "matches": [("ladder", "TEXT NOT NULL DEFAULT 'open'")],
+    "rating_history": [("ladder", "TEXT NOT NULL DEFAULT 'open'")],
+    "tournaments": [("ladder", "TEXT NOT NULL DEFAULT 'open'")],
+}
+
+LADDERS = ("open", "twins")
+
+
+def migrate(con):
+    for table, cols in COLUMNS.items():
+        have = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols:
+            if name not in have:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    con.execute("CREATE INDEX IF NOT EXISTS models_ladder ON models(season_id, status, ladder)")
+
+
 def init(con):
     from oso_arena import CONTRACT, KIT_VERSION
     con.executescript(SCHEMA)
+    with tx(con):
+        migrate(con)
     with tx(con):
         if not con.execute("SELECT 1 FROM seasons").fetchone():
             con.execute("INSERT INTO seasons (contract, kit_version, started_at, active) VALUES (?, ?, ?, 1)",
@@ -155,7 +182,7 @@ def set_meta(con, k, v):
 
 
 def enqueue(con, kind, ref_id):
-    prio = {"check": 0, "match": 1, "replay": 2}[kind]
+    prio = {"check": 0, "match": 1, "fidelity": 1, "replay": 2}[kind]
     cur = con.execute("INSERT INTO jobs (kind, ref_id, priority, status, created_at) VALUES (?, ?, ?, 'queued', ?)",
                       (kind, ref_id, prio, now()))
     return cur.lastrowid

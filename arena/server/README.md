@@ -19,6 +19,6 @@ Secrets, the database, uploads, replays and backups live only on the Pi (`/etc/o
 `/var/backups/oso-arena`) and must never be committed here (`.gitignore` covers `*.env` and `.dev/`).
 
 ## Tests
-- `tests/test_pods.py`: in-process (FastAPI TestClient, throwaway data dir): `pip install -r deploy/requirements.lock pytest httpx` plus
+- `tests/test_twins.py` (Volante Twins, section 14 acceptance), `tests/test_signin.py`, `tests/test_pods.py`: in-process (FastAPI TestClient, throwaway data dir): `pip install -r deploy/requirements.lock pytest httpx` plus
   the kit wheel, then `python -m pytest -q tests/test_pods.py`.
 - `tests/test_contract.py`, `tests/smoke_pipeline.py`, `tests/tournament_test.py`: against a running dev server (see each file's header).
