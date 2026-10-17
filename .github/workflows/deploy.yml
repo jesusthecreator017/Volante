@@ -1,0 +1,169 @@
+# Continuous deployment to the Raspberry Pi (self-hosted runner "pi5server-volante", label volante-pi).
+# Runs ONLY on a push to main and on a manual dispatch: never on pull requests or forks, because the runner executes
+# volante-deploy as root. See deploy/pi/CD.md for the trust model, kit bumps, rollback and pausing.
+name: Deploy to the Pi
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'web/**'
+      - 'crates/**'
+      - 'proto/**'
+      - 'arena/**'
+      - 'app/**'
+      - 'deploy/pi/**'
+      - 'Cargo.lock'
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/bundle.yml'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [all, arena, lan]
+        default: all
+      allow_kit_bump:
+        description: Allow installing a different kit version (starts a new season and retires every model)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pi
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    # decides which part deploys: arena (bundle) and/or lan (Replay LAN server)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      arena: ${{ steps.f.outputs.arena }}
+      lan: ${{ steps.f.outputs.lan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          TARGET: ${{ inputs.target }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          arena=false lan=false
+          if [ "$EVENT" = workflow_dispatch ]; then
+            case $TARGET in all) arena=true lan=true ;; arena) arena=true ;; lan) lan=true ;; esac
+          elif ! files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" 2>/dev/null); then
+            echo "::notice::cannot diff against $BEFORE (forced push?): deploying everything"
+            arena=true lan=true
+          else
+            echo "$files"
+            workflows='^\.github/workflows/(deploy|bundle)\.yml$'
+            echo "$files" | grep -Eq "^(site|web|crates|proto|arena|deploy/pi)/|^Cargo\.lock$|$workflows" && arena=true
+            echo "$files" | grep -Eq "^(app|deploy/pi)/|$workflows" && lan=true
+          fi
+          echo "arena=$arena" >> "$GITHUB_OUTPUT"
+          echo "lan=$lan" >> "$GITHUB_OUTPUT"
+          echo "arena=$arena lan=$lan"
+
+  bundle:
+    needs: changes
+    if: needs.changes.outputs.arena == 'true'
+    uses: ./.github/workflows/bundle.yml
+
+  lan-build:
+    needs: changes
+    if: needs.changes.outputs.lan == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build and pack (dist/, server/, package.json; no data)
+        working-directory: app
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          mkdir -p ../out
+          tar --exclude='server/data' -cf ../out/oso-lan.tar dist server package.json
+          (cd ../out && sha256sum oso-lan.tar > SHA256SUMS)
+          tar -tf ../out/oso-lan.tar | head -20
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oso-lan
+          path: out/*
+
+  deploy:
+    needs: [changes, bundle, lan-build]
+    # skipped parts are fine (their jobs are skipped); a failed build blocks the deploy
+    if: ${{ !cancelled() && !failure() && github.ref == 'refs/heads/main' && (needs.changes.outputs.arena == 'true' || needs.changes.outputs.lan == 'true') }}
+    runs-on: [self-hosted, volante-pi]
+    environment: production
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download the bundle
+        if: needs.changes.outputs.arena == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: oso-arena-pi
+          path: ${{ runner.temp }}/arena
+      - name: Download the LAN server
+        if: needs.changes.outputs.lan == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: oso-lan
+          path: ${{ runner.temp }}/lan
+
+      - name: Deploy Arena
+        id: arena
+        if: needs.changes.outputs.arena == 'true'
+        env:
+          ALLOW_BUMP: ${{ inputs.allow_kit_bump }}
+        run: |
+          set -o pipefail
+          cd "$RUNNER_TEMP/arena"
+          sha256sum -c SHA256SUMS
+          zip=$(realpath "$(ls oso-arena-pi-*.zip)")
+          flag=()
+          [ "$ALLOW_BUMP" = true ] && flag=(--allow-kit-bump)
+          sudo -n /usr/local/sbin/volante-deploy arena "$zip" "${flag[@]}" 2>&1 | tee "$RUNNER_TEMP/arena.log"
+      - name: Deploy the Replay LAN server
+        id: lan
+        if: ${{ !cancelled() && needs.changes.outputs.lan == 'true' }}
+        run: |
+          set -o pipefail
+          cd "$RUNNER_TEMP/lan"
+          sha256sum -c SHA256SUMS
+          sudo -n /usr/local/sbin/volante-deploy lan "$(realpath oso-lan.tar)" 2>&1 | tee "$RUNNER_TEMP/lan.log"
+
+      - name: Summary
+        if: always()
+        env:
+          ARENA: ${{ needs.changes.outputs.arena }}
+          LAN: ${{ needs.changes.outputs.lan }}
+          ARENA_RESULT: ${{ steps.arena.outcome }}
+          LAN_RESULT: ${{ steps.lan.outcome }}
+        run: |
+          {
+            echo "## Deploy to the Pi"
+            echo "Commit: \`$GITHUB_SHA\` ($GITHUB_EVENT_NAME)"
+            for part in arena lan; do
+              on=${part^^}; [ "${!on}" = true ] || { echo "- **$part**: not deployed (no matching changes)"; continue; }
+              res=${part^^}_RESULT; log=$RUNNER_TEMP/$part.log
+              if [ "${!res}" = success ] && grep -q 'skipped: no server/' "$log" 2>/dev/null; then echo "- **$part**: skipped: no server/ in the bundle (arena/server is not in the repo yet)"
+              elif [ "${!res}" = success ]; then echo "- **$part**: deployed, health check passed"
+              else echo "- **$part**: ${!res} (exit 3 means a kit bump was refused; see the log, rollback is automatic)"; fi
+              if [ -f "$log" ]; then echo '```'; tail -n 12 "$log"; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

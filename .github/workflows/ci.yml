@@ -30,6 +30,7 @@ jobs:
       app: ${{ steps.f.outputs.app }}
       webarena: ${{ steps.f.outputs.webarena }}
       apple: ${{ steps.f.outputs.apple }}
+      pi: ${{ steps.f.outputs.pi }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dorny/paths-filter@v4.0.3
@@ -65,6 +66,11 @@ jobs:
             webarena:
               - *shared
               - web/arena/**
+            pi:
+              - *shared
+              - deploy/pi/**
+              - .github/workflows/**
+              -
             apple:
               - *shared
               - apple/**
@@ -207,6 +213,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test web/arena/*.test.mjs
+
+  pi-deploy:
+    name: Pi deploy scripts (shellcheck, volante-deploy dry-run tests)
+    needs: changes
+    if: needs.changes.outputs.pi == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: shellcheck
+        run: shellcheck deploy/pi/ci/volante-deploy deploy/pi/ci/*.sh
+      - name: volante-deploy --dry-run against fake bundles
+        run: deploy/pi/ci/test_volante_deploy.sh
 
   apple:
     name: Apple (OsoKit swift test, OsoPhone build)
