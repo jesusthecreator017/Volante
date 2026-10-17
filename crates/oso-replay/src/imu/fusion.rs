@@ -21,8 +21,7 @@ const LOW_CONF_WINDOW_S: f64 = 0.5;
 const BLEND_TAU_S: f64 = 1.0;
 const FAR_S: f64 = 30.0;
 
-// Stationary detection, in blocks of BLOCK samples (0.1 s at 500 Hz)
-const BLOCK: usize = 50;
+// Stationary detection, in blocks of 0.1 s of samples (50 at the pod's 500 Hz, 20 at the watch's 200 Hz)
 const MIN_BLOCKS: usize = 10;
 // ponytail: the spec's "|gyro| < 3 dps" fails with a 1-3 dps/axis bias on every axis (norm up to 5 dps), so a block is
 // still when its gyro *spread* is small and its mean is within a plausible bias; upgrade to a held-out bias check if real
@@ -38,20 +37,26 @@ pub struct Window {
     pub end: usize,
 }
 
+/// Stillness block length in samples: 0.1 s at `rate_hz` (50 at 500 Hz), never fewer than 2.
+pub fn block_size(rate_hz: f64) -> usize {
+    ((rate_hz / 10.0).round() as usize).max(2)
+}
+
 /// First run of >= 1 s where the sensor is held still. The final block of the run is dropped: it may contain the
-/// first motion.
-pub fn find_stationary(samples: &[Sample]) -> Option<Window> {
+/// first motion. `rate_hz`: the capture's sample rate (header `rate_hz`).
+pub fn find_stationary(samples: &[Sample], rate_hz: f64) -> Option<Window> {
+    let block = block_size(rate_hz);
     let mut run_start = None;
-    let n_blocks = samples.len() / BLOCK;
+    let n_blocks = samples.len() / block;
     for b in 0..=n_blocks {
-        let still = b < n_blocks && block_is_still(&samples[b * BLOCK..(b + 1) * BLOCK]);
+        let still = b < n_blocks && block_is_still(&samples[b * block..(b + 1) * block]);
         match (still, run_start) {
             (true, None) => run_start = Some(b),
             (false, Some(s)) => {
                 if b - s >= MIN_BLOCKS {
                     return Some(Window {
-                        start: s * BLOCK,
-                        end: (b - 1) * BLOCK,
+                        start: s * block,
+                        end: (b - 1) * block,
                     });
                 }
                 run_start = None;
@@ -405,9 +410,9 @@ fn distances(dist: &[(f64, f64)], t: f64) -> (f64, f64) {
 }
 
 /// Convenience used by the CLI and tests: stationary window -> bias -> fusion.
-/// Returns None when no stationary window exists.
+/// The sample rate comes from `params.nominal_dt`. Returns None when no stationary window exists.
 pub fn calibrate_and_run(samples: &[Sample], params: Params) -> Option<(Track, Vec3, Window)> {
-    let w = find_stationary(samples)?;
+    let w = find_stationary(samples, 1.0 / params.nominal_dt)?;
     let bias = gyro_bias(samples, w);
     let acc = mean_acc(&samples[w.start..w.end]);
     Some((run(samples, bias, acc, params), bias, w))
@@ -515,6 +520,53 @@ mod tests {
         );
     }
 
+    /// 200 Hz (Apple Watch): the same 3 s still + motion finds the same window in seconds, and the same bias.
+    #[test]
+    fn stationary_window_scales_with_rate() {
+        let bias = [0.05, -0.04, 0.03];
+        let build = |rate: f64| {
+            let (still, moving) = ((3.0 * rate) as usize, (0.2 * rate) as usize);
+            let mut s: Vec<Sample> = (0..still)
+                .map(|i| sample(i as f64 / rate, [0.0, 0.0, G], bias))
+                .collect();
+            for i in still..still + moving {
+                s.push(sample(i as f64 / rate, [3.0, 0.0, G], [2.0, 0.0, 0.0]));
+            }
+            s
+        };
+        let (s500, s200) = (build(500.0), build(200.0));
+        let (w500, w200) = (
+            find_stationary(&s500, 500.0).unwrap(),
+            find_stationary(&s200, 200.0).unwrap(),
+        );
+        assert_eq!((w200.start, w200.end % 20), (0, 0), "{w200:?}");
+        let (e500, e200) = (w500.end as f64 / 500.0, w200.end as f64 / 200.0);
+        assert!((e500 - e200).abs() <= 0.1 + 1e-9, "{e500} vs {e200}");
+        assert!((2.8..=3.0).contains(&e200), "{e200}");
+        let b = gyro_bias(&s200, w200);
+        assert!(
+            b.iter().zip(bias).all(|(a, e)| (a - e).abs() < 1e-6),
+            "{b:?}"
+        );
+        // 0.9 s at 200 Hz is 9 blocks of 20: too short; 1 s is 10 blocks and enough
+        let short: Vec<_> = (0..180)
+            .map(|i| sample(i as f64 / 200.0, [0.0, 0.0, G], bias))
+            .collect();
+        assert!(find_stationary(&short, 200.0).is_none());
+        // calibrate_and_run reads the rate from nominal_dt
+        let p = Params {
+            nominal_dt: 0.005,
+            ..Params::default()
+        };
+        let (_, b, w) = calibrate_and_run(&s200, p).unwrap();
+        assert_eq!(w, w200);
+        assert!(b.iter().zip(bias).all(|(a, e)| (a - e).abs() < 1e-6));
+        assert_eq!(
+            (block_size(500.0), block_size(200.0), block_size(5.0)),
+            (50, 20, 2)
+        );
+    }
+
     #[test]
     fn finds_stationary_window_and_bias() {
         // 3 s still with a gyro bias of ~3 dps on every axis, then motion
@@ -523,7 +575,7 @@ mod tests {
         for i in 1500..1600 {
             s.push(sample(i as f64 * 0.002, [3.0, 0.0, G], [2.0, 0.0, 0.0]));
         }
-        let w = find_stationary(&s).unwrap();
+        let w = find_stationary(&s, 500.0).unwrap();
         assert_eq!(w.start, 0);
         assert!(w.end >= 1400 && w.end <= 1500, "{w:?}");
         let b = gyro_bias(&s, w);
@@ -532,11 +584,11 @@ mod tests {
             "{b:?}"
         );
         // Too short, or never still
-        assert!(find_stationary(&level(400, [0.0; 3])).is_none());
+        assert!(find_stationary(&level(400, [0.0; 3]), 500.0).is_none());
         let moving: Vec<_> = (0..2000)
             .map(|i| sample(i as f64 * 0.002, [0.0, 0.0, G], [(i % 2) as f64, 0.0, 0.0]))
             .collect();
-        assert!(find_stationary(&moving).is_none());
+        assert!(find_stationary(&moving, 500.0).is_none());
     }
 
     fn forward_only() -> Params {

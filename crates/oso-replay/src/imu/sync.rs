@@ -11,8 +11,10 @@ use oso_render::replay::Replay;
 
 pub const CLAP_G: f64 = 6.0;
 pub const IMPACT_G: f64 = 5.0;
-/// Spike width limit: <= 3 samples = 6 ms at 500 Hz
-const MAX_WIDTH_SAMPLES: usize = 3;
+/// Spike width limit in samples: 3 (6 ms) at 500 Hz, never fewer (Apple Watch sessions are 200 Hz).
+fn max_width(rate_hz: f64) -> usize {
+    ((0.006 * rate_hz).round() as usize).max(3)
+}
 /// Half-width of the median window that defines the "background" a spike stands out from
 const HALF: usize = 4;
 const MATCH_WINDOW_S: f64 = 0.1;
@@ -25,7 +27,9 @@ const MIN_PEAK_SEPARATION_S: f64 = 0.5;
 pub const MAX_DRIFT: f64 = 200e-6;
 
 /// Per-sample deviation of |accel| components from the local median, in g; 0 next to a lost-packet gap.
-pub fn spike_strength(samples: &[Sample]) -> Vec<f64> {
+pub fn spike_strength(samples: &[Sample], rate_hz: f64) -> Vec<f64> {
+    // The 9-sample window (nominal span 16 ms at 500 Hz) still passes with one lost packet inside, not with a bigger hole
+    let max_span = 9.5 / rate_hz;
     let n = samples.len();
     let mut out = vec![0.0; n];
     if n < 2 * HALF + 1 {
@@ -33,8 +37,7 @@ pub fn spike_strength(samples: &[Sample]) -> Vec<f64> {
     }
     for i in HALF..n - HALF {
         let win = &samples[i - HALF..=i + HALF];
-        // Nominal span 16 ms; one lost packet inside still passes
-        if win[2 * HALF].t_dev - win[0].t_dev > 0.019 {
+        if win[2 * HALF].t_dev - win[0].t_dev > max_span {
             continue;
         }
         let mut d2 = 0.0;
@@ -49,13 +52,20 @@ pub fn spike_strength(samples: &[Sample]) -> Vec<f64> {
     out
 }
 
-/// Narrow spikes (<= 6 ms) above `thr_g` at or after sample `from`: centroid device time of each.
-pub fn find_spikes(samples: &[Sample], from: usize, thr_g: f64) -> Vec<f64> {
-    spikes(samples, &spike_strength(samples), from, thr_g)
+/// Narrow spikes (<= 6 ms at 500 Hz, see `max_width`) above `thr_g` at or after sample `from`: centroid device time of
+/// each. `rate_hz`: the capture's sample rate.
+pub fn find_spikes(samples: &[Sample], from: usize, thr_g: f64, rate_hz: f64) -> Vec<f64> {
+    spikes(
+        samples,
+        &spike_strength(samples, rate_hz),
+        from,
+        thr_g,
+        rate_hz,
+    )
 }
 
-fn spikes(samples: &[Sample], strength: &[f64], from: usize, thr_g: f64) -> Vec<f64> {
-    spikes_with_peak(samples, strength, from, thr_g)
+fn spikes(samples: &[Sample], strength: &[f64], from: usize, thr_g: f64, rate_hz: f64) -> Vec<f64> {
+    spikes_with_peak(samples, strength, from, thr_g, rate_hz)
         .into_iter()
         .map(|s| s.0)
         .collect()
@@ -67,7 +77,9 @@ pub fn spikes_with_peak(
     strength: &[f64],
     from: usize,
     thr_g: f64,
+    rate_hz: f64,
 ) -> Vec<(f64, f64)> {
+    let max_width = max_width(rate_hz);
     let mut out = Vec::new();
     let mut i = from;
     while i < samples.len() {
@@ -79,7 +91,7 @@ pub fn spikes_with_peak(
         while i < samples.len() && strength[i] > thr_g {
             i += 1;
         }
-        if i - s <= MAX_WIDTH_SAMPLES {
+        if i - s <= max_width {
             // One extra sample each side: the amplitude of the flanks says where between samples the pulse peaked
             let (lo, hi) = (s.saturating_sub(1), (i + 1).min(samples.len()));
             let (num, den) = (lo..hi).fold((0.0, 0.0), |(n, d), k| {
@@ -93,8 +105,10 @@ pub fn spikes_with_peak(
 }
 
 /// First spike above CLAP_G at or after `from` (the end of the stationary window).
-pub fn find_clap(samples: &[Sample], from: usize) -> Option<f64> {
-    find_spikes(samples, from, CLAP_G).into_iter().next()
+pub fn find_clap(samples: &[Sample], from: usize, rate_hz: f64) -> Option<f64> {
+    find_spikes(samples, from, CLAP_G, rate_hz)
+        .into_iter()
+        .next()
 }
 
 /// Where the video-side contact times came from
@@ -230,8 +244,14 @@ pub fn fit_claps(claps: &[(f64, f64)]) -> (f64, f64, bool) {
 
 /// The second clap: a spike above CLAP_G within 0.5 s of where the video annotation predicts it, with the racquet still
 /// for the 0.3 s before it (mean |gyro| < 30 dps; the bias is up to ~5 dps). Closest to the prediction wins.
-fn find_end_clap(samples: &[Sample], strength: &[f64], from: usize, predicted: f64) -> Option<f64> {
-    spikes(samples, strength, from, CLAP_G)
+fn find_end_clap(
+    samples: &[Sample],
+    strength: &[f64],
+    from: usize,
+    predicted: f64,
+    rate_hz: f64,
+) -> Option<f64> {
+    spikes(samples, strength, from, CLAP_G, rate_hz)
         .into_iter()
         .filter(|&t| (t - predicted).abs() < 0.5)
         .filter(|&t| {
@@ -249,20 +269,21 @@ fn find_end_clap(samples: &[Sample], strength: &[f64], from: usize, predicted: f
 }
 
 /// Full sync. `claps_video`: video times of the start clap and (optionally) the end clap. `window_end`: end of the
-/// stationary window (sample index). None if the start clap is not found.
+/// stationary window (sample index). `rate_hz`: the capture's sample rate. None if the start clap is not found.
 pub fn sync(
     samples: &[Sample],
     window_end: usize,
     claps_video: &[f64],
     replay: &Replay,
     player: usize,
+    rate_hz: f64,
 ) -> Option<SyncResult> {
-    let strength = spike_strength(samples);
-    let t0 = *spikes(samples, &strength, window_end, CLAP_G).first()?;
+    let strength = spike_strength(samples, rate_hz);
+    let t0 = *spikes(samples, &strength, window_end, CLAP_G, rate_hz).first()?;
     let mut claps = vec![(t0, claps_video[0])];
     if claps_video.len() >= 2 {
         let predicted = t0 + (claps_video[claps_video.len() - 1] - claps_video[0]);
-        if let Some(t1) = find_end_clap(samples, &strength, window_end, predicted) {
+        if let Some(t1) = find_end_clap(samples, &strength, window_end, predicted, rate_hz) {
             claps.push((t1, claps_video[claps_video.len() - 1]));
         }
     }
@@ -271,7 +292,7 @@ pub fn sync(
     let (contacts, contact_source) = video_contacts_with_source(replay, player);
     let mut used = vec![false; contacts.len()];
     let mut impacts = Vec::new();
-    for t_dev in spikes(samples, &strength, window_end, IMPACT_G) {
+    for t_dev in spikes(samples, &strength, window_end, IMPACT_G, rate_hz) {
         // The claps are spikes too
         if claps.iter().any(|c| (t_dev - c.0).abs() < 0.05) {
             continue;
@@ -346,10 +367,13 @@ mod tests {
             .filter_map(|p| det.push(oso_proto::Packet::decode(p)))
             .map(|t| t.wrapping_sub(t0) as f64 * 1e-6 + c.samples[0].t_dev)
             .collect();
-        let host = find_spikes(&c.samples, 0, CLAP_G);
+        let host = find_spikes(&c.samples, 0, CLAP_G, c.rate_hz as f64);
         assert_eq!(taps.len(), 2, "{taps:?} vs host {host:?}");
         for t in &taps {
-            assert!(host.iter().any(|h| (h - t).abs() < 0.002), "{t} vs {host:?}");
+            assert!(
+                host.iter().any(|h| (h - t).abs() < 0.002),
+                "{t} vs {host:?}"
+            );
         }
         assert!(taps[1] - taps[0] > 5.0, "{taps:?}");
     }
@@ -378,19 +402,19 @@ mod tests {
         };
         spike(&mut s, 500);
         spike(&mut s, 3000);
-        let strength = spike_strength(&s);
+        let strength = spike_strength(&s, 500.0);
         // Predicted 6.0 s = sample 3000
-        assert!((find_end_clap(&s, &strength, 0, 6.001).unwrap() - 6.001).abs() < 1e-9);
+        assert!((find_end_clap(&s, &strength, 0, 6.001, 500.0).unwrap() - 6.001).abs() < 1e-9);
         assert!(
-            find_end_clap(&s, &strength, 0, 7.0).is_none(),
+            find_end_clap(&s, &strength, 0, 7.0, 500.0).is_none(),
             "outside 0.5 s of the prediction"
         );
         // Racquet swinging before it: an impact, not a clap
         for x in &mut s[2700..2990] {
             x.gyro[0] = 20.0;
         }
-        let strength = spike_strength(&s);
-        assert!(find_end_clap(&s, &strength, 0, 6.001).is_none());
+        let strength = spike_strength(&s, 500.0);
+        assert!(find_end_clap(&s, &strength, 0, 6.001, 500.0).is_none());
     }
 
     #[test]
@@ -409,16 +433,16 @@ mod tests {
         for (k, x) in s.iter_mut().enumerate().skip(1500).take(100) {
             x.acc[1] += (k - 1500) as f32 * 0.5;
         }
-        let found = find_spikes(&s, 0, IMPACT_G);
+        let found = find_spikes(&s, 0, IMPACT_G, 500.0);
         assert_eq!(found.len(), 2, "{found:?}");
         assert!(
             (found[0] - 0.0010 - 0.002 * 500.0).abs() < 1e-9,
             "{found:?}"
         );
         assert!((found[1] - 2.0).abs() < 1e-9);
-        assert_eq!(find_clap(&s, 0), Some(found[0]));
+        assert_eq!(find_clap(&s, 0, 500.0), Some(found[0]));
         assert_eq!(
-            find_clap(&s, 600),
+            find_clap(&s, 600, 500.0),
             None,
             "the 5.5 g tap is below the clap threshold"
         );
@@ -428,7 +452,88 @@ mod tests {
             x.acc[0] += 20.0;
             x.t_dev += 0.1;
         }
-        assert!(find_spikes(&g, 0, IMPACT_G).is_empty());
+        assert!(find_spikes(&g, 0, IMPACT_G, 500.0).is_empty());
+    }
+
+    fn flat_at(n: usize, rate: f64) -> Vec<Sample> {
+        (0..n)
+            .map(|i| Sample {
+                t_dev: i as f64 / rate,
+                acc: [0.0, 0.0, G as f32],
+                gyro: [0.0; 3],
+                saturated: false,
+            })
+            .collect()
+    }
+
+    /// A 12 g tap at t = 1 s (one sample at 200 Hz, two at 500 Hz) is found at the same time, within a sample period,
+    /// at both rates; a 20 ms plateau is wider than the limit at either rate.
+    #[test]
+    fn spike_timing_agrees_across_rates() {
+        let found = |rate: f64, width_s: f64| {
+            let mut s = flat_at((3.0 * rate) as usize, rate);
+            let k0 = rate as usize;
+            for x in &mut s[k0..k0 + (width_s * rate).round() as usize] {
+                x.acc[2] += (12.0 * G) as f32;
+            }
+            (find_spikes(&s, 0, CLAP_G, rate), find_clap(&s, 0, rate))
+        };
+        let (f500, c500) = found(500.0, 0.004);
+        let (f200, c200) = found(200.0, 0.005);
+        assert_eq!((f500.len(), f200.len()), (1, 1), "{f500:?} {f200:?}");
+        assert_eq!((c500, c200), (Some(f500[0]), Some(f200[0])));
+        assert!((f500[0] - f200[0]).abs() < 0.005, "{f500:?} {f200:?}");
+        assert!((f200[0] - 1.0).abs() < 0.005);
+        for rate in [500.0, 200.0] {
+            assert!(
+                found(rate, 0.02).0.is_empty(),
+                "{rate} Hz plateau is a swing, not a spike"
+            );
+        }
+    }
+
+    /// The width limit is 6 ms at any rate: above 500 Hz it grows past 3 samples (5 at 800 Hz), and below it is floored at 3.
+    #[test]
+    fn max_width_scales_above_500_hz() {
+        assert_eq!(
+            (
+                max_width(200.0),
+                max_width(500.0),
+                max_width(800.0),
+                max_width(833.0)
+            ),
+            (3, 3, 5, 5)
+        );
+        let plateau = |rate: f64, n: usize| {
+            let mut s = flat_at((2.0 * rate) as usize, rate);
+            let k0 = rate as usize;
+            for x in &mut s[k0..k0 + n] {
+                x.acc[2] += (12.0 * G) as f32;
+            }
+            find_spikes(&s, 0, CLAP_G, rate).len()
+        };
+        assert_eq!(plateau(800.0, 4), 1, "5 ms at 800 Hz is narrow");
+        assert_eq!(plateau(800.0, 8), 0, "10 ms at 800 Hz is a swing");
+        assert_eq!(plateau(500.0, 4), 0, "4 samples at 500 Hz is 8 ms");
+    }
+
+    /// The gap guard scales too: with a 9-sample window, one lost packet inside still passes at 200 Hz (45 ms span
+    /// against a 47.5 ms limit), two do not; same at 500 Hz (18 ms vs 19 ms, 20 ms).
+    #[test]
+    fn gap_guard_scales_with_rate() {
+        for rate in [200.0, 500.0] {
+            let dt = 1.0 / rate;
+            let with_lost = |lost: usize| {
+                let mut s = flat_at(200, rate);
+                s[100].acc[0] += (20.0 * G) as f32;
+                for x in s.iter_mut().skip(101) {
+                    x.t_dev += lost as f64 * dt;
+                }
+                spike_strength(&s, rate)[100]
+            };
+            assert!(with_lost(0) > 19.0 && with_lost(1) > 19.0, "{rate} Hz");
+            assert_eq!(with_lost(2), 0.0, "{rate} Hz");
+        }
     }
 
     #[test]

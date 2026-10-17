@@ -35,7 +35,7 @@ iPhone --LAN http--> Raspberry Pi (/api/sessions) <-- video pipeline (replay.bin
 Watch sessions are written in the **same `imu.bin` format** (`docs/data-format.md`), quantized to the pod's scales, with
 `mount_id = 1` (wrist). So every tool that reads a pod session (`oso-imu`, the web app, OsoKit) reads a watch session.
 The analysis in OsoKit is rate-aware (block sizes and spike widths scale with `rate_hz`). The web app's analysis
-is rate-aware the same way (so it opens watch sessions too); `oso-imu` still assumes 500 Hz.
+is rate-aware the same way (so it opens watch sessions too), and so is `oso-imu` (spike widths, median window, stationary blocks); it still needs a still second and a clap to sync, so it is for pod sessions.
 
 **Clocks.** Pod time is the pod's `micros()`. To put pod sessions on wall-clock time (needed for heart rate), the phone
 sends a sync marker (0x06) right after connecting and records (marker `t_us`, phone time) as the session's clock
