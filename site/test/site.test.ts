@@ -4,7 +4,9 @@ import { PLAY_STYLES, checkUploadFile, suggestStyle } from "../src/arena";
 import { buildBars, ratingChart } from "../src/components";
 import { h } from "../src/dom";
 import { getStarted } from "../src/pages/content";
-import { match, route } from "../src/router";
+import { FEATURES, SESSION, exampleSwings, landing } from "../src/pages/landing";
+import "../src/routes";
+import { match, redirectFor, route } from "../src/router";
 
 describe("arena rules", () => {
   test("every preset sums to 24 and suggests itself", () => {
@@ -65,6 +67,69 @@ describe("router", () => {
     expect(match("/zz/42")?.params).toEqual({ id: "42" });
     expect(match("/zz/42/")?.params).toEqual({ id: "42" });
     expect(match("/zz/abc")).toBeNull();
+  });
+});
+
+describe("routes", () => {
+  test("every page route resolves, Arena pages live under /arena", () => {
+    const titles: Record<string, string> = {
+      "/": "Racquet pod",
+      "/settings": "Settings",
+      "/terms": "Terms",
+      "/privacy": "Privacy",
+      "/arena": "Arena",
+      "/arena/ladder": "Ladder · Arena",
+      "/arena/models/7": "Model · Arena",
+      "/arena/matches/905": "Match · Arena",
+      "/arena/tournaments": "Tournaments · Arena",
+      "/arena/tournaments/3": "Tournament · Arena",
+      "/arena/my-models": "My models · Arena",
+      "/arena/get-started": "Get started · Arena",
+      "/arena/": "Arena",
+    };
+    for (const [path, title] of Object.entries(titles)) expect(match(path)?.route.title, path).toBe(title);
+    expect(match("/arena/models/7")?.params).toEqual({ id: "7" });
+  });
+  test("old Arena paths are no longer routes and redirect to /arena/*", () => {
+    const old: Record<string, string> = {
+      "/ladder": "/arena/ladder",
+      "/models/12": "/arena/models/12",
+      "/matches/905": "/arena/matches/905",
+      "/tournaments": "/arena/tournaments",
+      "/tournaments/3": "/arena/tournaments/3",
+      "/my-models": "/arena/my-models",
+      "/get-started": "/arena/get-started",
+      "/ladder/": "/arena/ladder",
+    };
+    for (const [from, to] of Object.entries(old)) {
+      expect(match(from), from).toBeNull();
+      expect(redirectFor(from), from).toBe(to);
+      expect(match(to), to).not.toBeNull();
+    }
+    for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/terms", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
+  });
+  test("unknown paths are 404", () => {
+    for (const p of ["/nope", "/arena/nope", "/arena/models/abc", "/settings/x"]) expect(match(p), p).toBeNull();
+  });
+});
+
+describe("landing", () => {
+  test("statuses are honest and the page has no inline styles", () => {
+    const status = Object.fromEntries(FEATURES.map((f) => [f.id, f.status]));
+    expect(status).toEqual({ hits: "Available", speed: "Available", strokes: "In development", insights: "In development", replay: "Available", live: "Available" });
+    const root = document.createElement("div");
+    landing(root);
+    expect(root.querySelectorAll("[style], script").length).toBe(0);
+    expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
+    expect(root.querySelector('a[href="/#features"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/arena"]')).not.toBeNull();
+    expect(root.textContent).toContain("Example");
+  });
+  test("example series matches the real session's mean and max", () => {
+    const v = exampleSwings();
+    expect(v.length).toBe(SESSION.smashes);
+    expect(Math.max(...v)).toBeCloseTo(SESSION.maxKmh, 6);
+    expect(v.reduce((a, b) => a + b, 0) / v.length).toBeCloseTo(SESSION.meanKmh, 6);
   });
 });
 

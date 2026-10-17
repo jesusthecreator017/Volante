@@ -10,7 +10,7 @@ export function model(root: HTMLElement, p: Record<string, string>) {
 }
 
 function render(root: HTMLElement, m: ModelDetail) {
-  document.title = `${m.name} · oso Arena`;
+  document.title = `${m.name} · Arena · oso`;
   const matches = h("div");
   append(root, [
     h(

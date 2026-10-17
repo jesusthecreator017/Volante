@@ -12,6 +12,15 @@ export interface Me {
   uploads_left_today?: number;
 }
 
+/** A racquet pod linked to the signed-in account. `name` is a display name kept on the server, not the Bluetooth name. */
+export interface Pod {
+  id: string;
+  /** short hardware id printed in the app, e.g. OSO-4C99 */
+  hw_id: string;
+  name: string;
+  last_seen: string | null;
+}
+
 export interface Season {
   id: number;
   contract: string;

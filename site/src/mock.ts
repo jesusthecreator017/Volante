@@ -1,7 +1,8 @@
 // Dev-only fake of the Pi agent's API (`npm run dev:mock`), so every page can be built and checked before the server
 // exists. Deterministic fixtures; same shapes as src/types.ts. Never included in the production build (__MOCK__).
 
-import type { LadderItem, MatchDetail, Me, ModelDetail, ModelSummary, Rally, Season, Side, Tie, Tournament } from "./types";
+import { checkPodName } from "./pods";
+import type { LadderItem, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, Side, Tie, Tournament } from "./types";
 
 let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -129,6 +130,11 @@ const seasons: Season[] = [
   { id: 2, contract: "v2", kit_version: "1.0.0", started_at: iso(60 * 24 * 20), ended_at: null, active: true },
 ];
 
+const pods: Pod[] = [
+  { id: "pod_1", hw_id: "OSO-4C99", name: "Jesus's racquet", last_seen: iso(25) },
+  { id: "pod_2", hw_id: "OSO-71AE", name: "Spare pod", last_seen: null },
+];
+
 let signedIn = true;
 let uploadsLeft = 5;
 const myPending = new Map<number, { polls: number; bad: boolean }>();
@@ -148,6 +154,20 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
   if (method !== "GET" && new Headers(init.headers).get("x-csrf-token") !== "mock-csrf") return json({ error: "csrf", detail: "missing CSRF token" }, 403);
   if (p === "/api/me" && method === "DELETE") return (signedIn = false), json(null, 204);
   if (p === "/auth/logout") return (signedIn = false), json(null, 204);
+  if (p === "/api/me/pods") {
+    if (!signedIn) return json({ error: "auth", detail: "Please sign in." }, 401);
+    return json({ items: pods });
+  }
+  const pm = /^\/api\/me\/pods\/([\w-]+)$/.exec(p);
+  if (pm && method === "PATCH") {
+    if (!signedIn) return json({ error: "auth", detail: "Please sign in." }, 401);
+    const pod = pods.find((x) => x.id === pm[1]);
+    if (!pod) return json({ error: "not_found", detail: "No such pod." }, 404);
+    const r = checkPodName(String((JSON.parse(String(init.body ?? "{}")) as { name?: unknown }).name ?? ""));
+    if (r.error !== null) return json({ error: "invalid_name", detail: r.error }, 400);
+    pod.name = r.name;
+    return json(pod);
+  }
   if (p === "/api/seasons") return json(seasons);
   if (p === "/api/ladder") {
     const items = ladderItems();
@@ -233,7 +253,7 @@ export async function installMock() {
     if (!a) return;
     e.preventDefault();
     signedIn = true;
-    location.href = "/my-models";
+    location.href = "/arena/my-models";
   });
   console.info("[oso] mock API installed (npm run dev:mock)");
 }

@@ -30,7 +30,7 @@ export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) 
     const done = list.filter((t) => t.status === "done").sort((a, b) => b.starts_at.localeCompare(a.starts_at));
     past.append(
       done.length
-        ? h("ul", { class: "plain" }, done.map((t) => h("li", null, link(`/tournaments/${t.id}`, `${fmtDate(t.starts_at, false)}`), h("span", { class: "muted small" }, ` · season ${t.season_id}`))))
+        ? h("ul", { class: "plain" }, done.map((t) => h("li", null, link(`/arena/tournaments/${t.id}`, `${fmtDate(t.starts_at, false)}`), h("span", { class: "muted small" }, ` · season ${t.season_id}`))))
         : h("p", { class: "muted" }, "None yet."),
     );
   });
@@ -38,7 +38,7 @@ export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) 
 
 export function tournament(root: HTMLElement, p: Record<string, string>) {
   void load(root, () => api.tournament(Number(p.id)), (t) => {
-    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), link("/tournaments", "All tournaments →"));
+    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), link("/arena/tournaments", "All tournaments →"));
   });
 }
 
@@ -55,7 +55,7 @@ export function bracket(t: Tournament): HTMLElement {
       t.rounds.map((round, i) =>
         h("li", { class: "round" }, h("h3", null, ROUND[i + (3 - t.rounds.length)] ?? `Round ${i + 1}`), h("ul", null, round.map(tie))),
       ),
-      h("li", { class: "round champ" }, h("h3", null, "Champion"), champ ? h("div", { class: "tie" }, h("div", { class: "slot won" }, link(`/models/${champ.id}`, champ.name), ownerChip(champ.owner))) : h("p", { class: "muted" }, "TBD")),
+      h("li", { class: "round champ" }, h("h3", null, "Champion"), champ ? h("div", { class: "tie" }, h("div", { class: "slot won" }, link(`/arena/models/${champ.id}`, champ.name), ownerChip(champ.owner))) : h("p", { class: "muted" }, "TBD")),
     ),
   );
 }
@@ -64,7 +64,7 @@ function tie(x: Tie): HTMLElement {
   const slot = (side: "a" | "b") => {
     const m = side === "a" ? x.a : x.b;
     const seed = side === "a" ? x.seed_a : x.seed_b;
-    return h("div", { class: x.winner === side ? "slot won" : x.winner ? "slot lost" : "slot" }, h("span", { class: "seed" }, seed), m ? link(`/models/${m.id}`, m.name) : h("span", { class: "muted" }, "TBD"));
+    return h("div", { class: x.winner === side ? "slot won" : x.winner ? "slot lost" : "slot" }, h("span", { class: "seed" }, seed), m ? link(`/arena/models/${m.id}`, m.name) : h("span", { class: "muted" }, "TBD"));
   };
-  return h("li", { class: "tie" }, slot("a"), slot("b"), x.match_id ? actionLink(`/matches/${x.match_id}`, x.winner ? "Watch" : "Match") : null);
+  return h("li", { class: "tie" }, slot("a"), slot("b"), x.match_id ? actionLink(`/arena/matches/${x.match_id}`, x.winner ? "Watch" : "Match") : null);
 }

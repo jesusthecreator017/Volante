@@ -353,13 +353,15 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `DELETE /api/models/<id>` | **204**. Retires the caller's own model (status `retired`, `retired_at` set, history kept); **403** when it is someone else's, **404** unknown. Only `active` models can be retired. |
 | `GET /api/models?owner=me` | **200** `{"items": [ModelSummary]}`: the caller's own models in **all statuses** (pending, active, rejected, retired), **newest first**; **401** signed out. **Requested additive endpoint** (not in the original design; the My models page needs it). Without `owner=me`, return **400**, not a public model list. |
 | `DELETE /api/me` | **204**. Deletes the account: retires the user's models and removes their uploaded files and personal data (see D8; past matches keep the placeholder owner below), ends the session. |
+| `GET /api/me/pods` | **200** `{"items": [Pod]}` of the signed-in user's pods (**401** signed out). `Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_seen": "2026-10-17T15:20:00Z" or null}`. `Cache-Control: no-store`. Pairing (`POST /api/me/pods`, from the app) is future work. |
+| `PATCH /api/me/pods/<id>` | CSRF header. Body `{"name": "..."}`: the account display name for the pod (not the Bluetooth name). Trim it; 1-40 characters, no control or format characters (Unicode category C), else **400** `{"error": "invalid_name"}`. **200** the updated `Pod`; **404** unknown or not the caller's pod. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 
 Auth routes (browser redirects, not JSON):
 
 | Request | Behaviour |
 |---|---|
-| `GET /auth/github/login?next=<path>` | Starts the GitHub OAuth web flow with **no scopes** (empty `scope`: public profile only; never request email or repo access). **Honor `next`**: same-origin paths only (must start with a single `/`, no `//`, no scheme, no backslash); anything else is ignored. Store it server-side (or in a signed state), default `/my-models` after the callback. Use a random `state` parameter and verify it. |
+| `GET /auth/github/login?next=<path>` | Starts the GitHub OAuth web flow with **no scopes** (empty `scope`: public profile only; never request email or repo access). **Honor `next`**: same-origin paths only (must start with a single `/`, no `//`, no scheme, no backslash); anything else is ignored. Store it server-side (or in a signed state), default `/arena/my-models` after the callback (the old `/my-models` still works through the client redirect). Use a random `state` parameter and verify it. |
 | `GET /auth/github/callback` | Verifies `state`, exchanges the code, reads the GitHub id, login and avatar URL (nothing else is stored). **Validate `avatar_url`**: it must be `https` with host `avatars.githubusercontent.com`, otherwise store the fixed placeholder avatar URL (the CSP only allows that host and the site renders the URL in an `img`), creates the session (new session id on login), redirects to `next` or `/my-models`. On failure redirect to `/` or a page path with no secrets in the URL. |
 
 Operations:
@@ -370,7 +372,7 @@ Operations:
 
 Cross-check: the site's client calls exactly `GET /api/me`, `/api/seasons`, `/api/ladder`, `/api/models/<id>`, `/api/matches`,
 `/api/matches/<id>`, `/api/tournaments/current`, `/api/tournaments`, `/api/tournaments/<id>`, `GET /api/models?owner=me`,
-`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
+`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `GET /api/me/pods`, `PATCH /api/me/pods/<id>`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
 and the sign-in link `/auth/github/login?next=<path>`. Nothing else. Write contract tests that call each of these against your
 server and compare the JSON shape with `docs/site-types.ts` (and the mock fixtures).
 
@@ -380,8 +382,9 @@ Do not rebuild pages. Serve the two prebuilt folders. The details are in `docs/s
 `docs/viewer-README.md`; follow them. In short:
 
 - `site/` at `/`. `site/assets/*` are content-hashed: `Cache-Control: public, max-age=31536000, immutable`. `index.html`: `no-cache`.
-- **History routing**: answer these paths with `site/index.html` and status 200: `/`, `/ladder`, `/models/<id>`, `/matches/<id>`,
-  `/tournaments`, `/tournaments/<id>`, `/my-models`, `/get-started`, `/terms`, `/privacy`. Any other unknown path (not `/api/`,
+- **History routing**: answer these paths with `site/index.html` and status 200: `/`, `/settings`, `/terms`, `/privacy`, `/arena`,
+  `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`,
+  `/arena/get-started`. The pre-/arena paths (`/ladder`, `/models/<id>`, ...) are also served: the site redirects them client-side. Any other unknown path (not `/api/`,
   `/auth/`, `/viewer/`, `/healthz`) can fall back too; the site renders "Not found".
 - `viewer/` at `/viewer/` (same origin: the match page reads `iframe.contentWindow.oso_seek`). The match page embeds
   `/viewer/index.html?match=/api/matches/<id>/replay.bin`. Serve `.wasm` as `application/wasm` and `.js` as a JavaScript type.

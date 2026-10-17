@@ -35,7 +35,7 @@ export function ownerChip(o: Owner): HTMLElement {
   );
 }
 
-export const modelLink = (m: Pick<ModelSummary, "id" | "name">) => link(`/models/${m.id}`, m.name);
+export const modelLink = (m: Pick<ModelSummary, "id" | "name">) => link(`/arena/models/${m.id}`, m.name);
 
 /** An internal link styled as an action (accent colour, no underline until hover). */
 export const actionLink = (href: string, ...children: (Node | string)[]) => h("a", { href, "data-nav": true, class: "act" }, ...children);
@@ -149,7 +149,7 @@ export function matchRow(m: MatchSummary, perspective?: number): HTMLElement {
     h("span", { class: "mr-players" }, player("a"), h("span", { class: "vs" }, "vs"), player("b")),
     h("span", { class: "mr-score" }, m.status === "done" ? [h("span", { class: "sets-won" }, `${m.games_won[0]}–${m.games_won[1]}`), setChips(m.games)] : statusPill(m.status)),
     h("span", { class: "mr-meta" }, h("span", { class: `kind kind-${m.kind}` }, m.kind), " ", fmtAgo(m.finished_at ?? m.created_at)),
-    actionLink(`/matches/${m.id}`, m.status === "done" ? "Watch" : "Open"),
+    actionLink(`/arena/matches/${m.id}`, m.status === "done" ? "Watch" : "Open"),
   );
 }
 

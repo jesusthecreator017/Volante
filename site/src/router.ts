@@ -28,6 +28,18 @@ export function match(path: string): { route: Route; params: Params } | null {
   return null;
 }
 
+/** Pre-/arena paths (the Arena used to own the site root): client-side 301s so old links keep working. */
+const LEGACY = /^\/(ladder|models\/\d+|matches\/\d+|tournaments(\/\d+)?|my-models|get-started)\/?$/;
+export function redirectFor(path: string): string | null {
+  return LEGACY.test(path) ? "/arena" + path.replace(/\/$/, "") : null;
+}
+
+function scrollToHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  const el = id ? document.getElementById(id) : null;
+  if (el) el.scrollIntoView();
+}
+
 let cleanup: (() => void) | void = undefined;
 let notFound: Page = () => {};
 let onNavigate: (path: string) => void = () => {};
@@ -43,15 +55,29 @@ export async function render(root: HTMLElement) {
   if (typeof cleanup === "function") cleanup();
   cleanup = undefined;
   root.replaceChildren();
-  const url = new URL(location.href);
+  let url = new URL(location.href);
+  const to = redirectFor(url.pathname);
+  if (to) {
+    history.replaceState(null, "", to + url.search + url.hash);
+    url = new URL(location.href);
+  }
   const m = match(url.pathname);
-  document.title = m ? `${m.route.title} · oso Arena` : "Not found · oso Arena";
+  document.title = m ? `${m.route.title} · oso` : "Not found · oso";
   onNavigate(url.pathname);
   cleanup = await (m ? m.route.page(root, m.params, url.searchParams) : notFound(root, {}, url.searchParams));
   root.focus({ preventScroll: true });
+  scrollToHash();
 }
 
 export function navigate(href: string, replace = false) {
+  const u = new URL(href, location.href);
+  if (u.hash && u.pathname === location.pathname && u.search === location.search && !replace) {
+    // same page, new anchor: no re-render
+    history.pushState(null, "", href);
+    onNavigate(u.pathname);
+    scrollToHash();
+    return;
+  }
   if (replace) history.replaceState(null, "", href);
   else history.pushState(null, "", href);
   window.scrollTo(0, 0);
