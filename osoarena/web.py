@@ -158,8 +158,8 @@ def model_summary(con, m):
 
 def model_detail(con, m):
     d = model_summary(con, m)
-    hist = con.execute("SELECT t, rating, match_id FROM (SELECT * FROM rating_history WHERE model_id=? ORDER BY rowid DESC LIMIT 200) "
-                       "ORDER BY rowid ASC", (m["id"],)).fetchall()
+    hist = con.execute("SELECT t, rating, match_id FROM (SELECT rowid AS rid, * FROM rating_history WHERE model_id=? "
+                       "ORDER BY rowid DESC LIMIT 200) ORDER BY rid ASC", (m["id"],)).fetchall()
     d.update(description=m["description"], created_at=m["created_at"], retired_at=m["retired_at"], season_id=m["season_id"],
              rating_history=[{"t": h["t"], "rating": round(h["rating"], 1), "match_id": h["match_id"]} for h in hist])
     if m["status"] == "rejected":

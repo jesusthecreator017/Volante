@@ -1,0 +1,3 @@
+#!/bin/bash
+# Admin CLI as the service user with the env file loaded: oso-arena-admin status | hide <id> | ban <github id> | tournament-now | ...
+exec sudo -u oso-arena /bin/bash -c 'set -a; . /etc/oso-arena/arena.env; set +a; exec /opt/oso-arena/venv/bin/python -m osoarena.admin "$@"' oso-arena-admin "$@"

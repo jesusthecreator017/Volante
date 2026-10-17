@@ -1,0 +1,33 @@
+[Unit]
+Description=oso Arena nightly backup (DB via VACUUM INTO + model files)
+
+[Service]
+Type=oneshot
+User=oso-arena
+Group=oso-arena
+EnvironmentFile=/etc/oso-arena/arena.env
+ExecStart=/opt/oso-arena/venv/bin/python -m osoarena.admin backup
+UMask=0077
+Nice=10
+ReadWritePaths=/var/lib/oso-arena /var/backups/oso-arena
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
