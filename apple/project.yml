@@ -44,6 +44,10 @@ targets:
         NSLocalNetworkUsageDescription: Volante talks to your Volante server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true # plain http to the Pi on the LAN (deploy/pi/README.md)
+          NSExceptionDomains: # plain http to the Pi over Tailscale (WireGuard already encrypts the tailnet)
+            tail05420e.ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         NSSupportsLiveActivities: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
