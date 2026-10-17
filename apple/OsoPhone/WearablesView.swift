@@ -14,7 +14,7 @@ struct WearablesView: View {
             Form {
                 Section {
                     Button { router.tab = .pod } label: {
-                        DeviceRow(icon: "sensor.tag.radiowaves.forward.fill", tint: .orange, title: "Racquet pod",
+                        DeviceRow(icon: "sensor.tag.radiowaves.forward.fill", tint: Theme.courtTop, title: "Racquet pod",
                                   status: podStatus, statusColor: pod.state == .connected ? Theme.good : .secondary, chevron: true)
                     }
                     .buttonStyle(.plain)
@@ -60,6 +60,7 @@ struct WearablesView: View {
                     .buttonStyle(.plain)
                 }
             }
+            .themedList()
             .navigationTitle("Devices")
             .task { await pi.checkHealth(); await fitbit.refreshStatus() }
             .refreshable { await pi.checkHealth(); await fitbit.refreshStatus() }

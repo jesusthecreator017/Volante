@@ -4,27 +4,32 @@ import OsoKit
 import SwiftUI
 
 enum Theme {
-    /// Page background and content surfaces: the system's grouped colors, like Settings and Fitness.
-    static let canvas = Color(uiColor: .systemGroupedBackground)
-    static let card = Color(uiColor: .secondarySystemGroupedBackground)
+    // The site's palette (site/src/style.css): paper, sage, fern, moss, pine; deep green with white accents in dark mode.
+    /// Page background (site --surface-2 / --bg) and content cards (--surface).
+    static let canvas = Color(light: 0xECEAE4, dark: 0x142019)
+    static let card = Color(light: 0xFFFFFF, dark: 0x1D2D24)
     static let radius: CGFloat = 26
-    /// Header banners (white text on top, in both appearances).
-    static let courtTop = Color(light: 0x1E7A54, dark: 0x1A6445)
-    static let courtBottom = Color(light: 0x0F4A33, dark: 0x0B3526)
-    /// Text and icons in court green on a card.
-    static let courtInk = Color(light: 0x0F4A33, dark: 0x6FD3A1)
-    /// Fill behind white button text: 4.94:1 (light) / 5.5:1 (dark). The accent itself is only for tints and icons.
-    static let action = Color(light: 0xC2490A, dark: 0xB84208)
-    static let good = Color(light: 0x1B8A4B, dark: 0x4CD38A)
-    static let bad = Color(light: 0xC62828, dark: 0xFF6B6B)
+    /// Header banners (white text on top, in both appearances): pine blocks (--court).
+    static let courtTop = Color(light: 0x3A5A40, dark: 0x26392E)
+    static let courtBottom = Color(light: 0x344E41, dark: 0x1D2D24)
+    /// Text and icons in brand ink on a card (--text / --accent).
+    static let courtInk = Color(light: 0x344E41, dark: 0xFFFFFF)
+    /// Fill of the main buttons (--btn) and the text on it (--accent-text).
+    static let action = Color(light: 0x3A5A40, dark: 0xFFFFFF)
+    static let onAction = Color(light: 0xFFFFFF, dark: 0x142019)
+    /// Status: fern / sage keep "good" readable as green (the site uses white in dark mode).
+    static let good = Color(light: 0x588157, dark: 0xA3B18A)
+    static let bad = Color(light: 0xB02A2A, dark: 0xFF7676)
     /// Destructive button fill under white text (>= 4.5:1 in both appearances).
-    static let badFill = Color(light: 0xC62828, dark: 0xB3261E)
+    static let badFill = Color(light: 0xB02A2A, dark: 0xB3261E)
+    /// Shuttle orange (--hot): graphics only.
+    static let hot = Color(light: 0xFF5A1F, dark: 0xFF6A33)
 
     static let banner = LinearGradient(colors: [courtTop, courtBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func stroke(_ s: StrokeType) -> Color {
         switch s {
-        case .smash: Color(light: 0xE5461C, dark: 0xFF6A3D)
+        case .smash: Theme.hot
         case .clear: Color(light: 0x2F6FDE, dark: 0x6AA2FF)
         case .drop: Color(light: 0x14A39A, dark: 0x3FD6CB)
         case .drive: Color(light: 0xD79A00, dark: 0xFFC83D)
@@ -154,7 +159,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, minHeight: 30)
             .padding(.vertical, 12).padding(.horizontal, 16)
-            .foregroundStyle(.white.opacity(enabled ? 1 : 0.6))
+            .foregroundStyle((destructive ? Color.white : Theme.onAction).opacity(enabled ? 1 : 0.6))
             .glassEffect(.regular.tint((destructive ? Theme.badFill : Theme.action).opacity(enabled ? 1 : 0.35)).interactive(), in: .capsule)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.18), value: configuration.isPressed)
@@ -228,4 +233,9 @@ func clock(_ seconds: Double) -> String {
 extension View {
     /// Keeps navigation titles legible over scrolled content with the system's soft top edge effect.
     func canvasNavigationBar() -> some View { scrollEdgeEffectStyle(.soft, for: .top) }
+}
+
+extension View {
+    /// Lists and forms on the brand canvas instead of the system grey.
+    func themedList() -> some View { scrollContentBackground(.hidden).background(Theme.canvas.ignoresSafeArea()) }
 }
