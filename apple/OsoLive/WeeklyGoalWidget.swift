@@ -77,9 +77,9 @@ struct GoalWidgetView: View {
 
     private func ring(_ g: GoalSnapshot) -> some View {
         ZStack {
-            Circle().stroke(Color.accentColor.opacity(0.2), lineWidth: 12)
+            Circle().stroke(brand.opacity(0.2), lineWidth: 12)
             Circle().trim(from: 0, to: min(1, max(0.001, g.fraction)))
-                .stroke(Color.accentColor.gradient, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                .stroke(brand.gradient, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
                 Text(n(g.value)).font(.system(.title3, design: .rounded, weight: .heavy)).monospacedDigit()
@@ -93,7 +93,7 @@ struct GoalWidgetView: View {
         return HStack(spacing: 5) {
             ForEach(0..<7, id: \.self) { i in
                 VStack(spacing: 2) {
-                    Circle().fill(g.days.indices.contains(i) && g.days[i] ? Color.accentColor : Color.secondary.opacity(0.25)).frame(width: 9, height: 9)
+                    Circle().fill(g.days.indices.contains(i) && g.days[i] ? brand : Color.secondary.opacity(0.25)).frame(width: 9, height: 9)
                     Text(symbols[(first + i) % 7]).font(.system(size: 8)).foregroundStyle(.secondary)
                 }
             }
@@ -103,8 +103,13 @@ struct GoalWidgetView: View {
     private func streak(_ g: GoalSnapshot) -> some View {
         Label(g.streakWeeks > 0 ? "\(g.streakWeeks) wk" : "Start", systemImage: "flame.fill")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(g.streakWeeks > 0 ? Color.orange : .secondary)
+            .foregroundStyle(g.streakWeeks > 0 ? hot : .secondary)
     }
 
     private func n(_ v: Double) -> String { v >= 1000 ? String(format: "%.1fk", v / 1000) : String(Int(v.rounded())) }
 }
+
+/// The site palette's moss (sage in dark mode) and shuttle orange; the extension has no asset catalog.
+private let brand = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+    ? UIColor(red: 0.639, green: 0.694, blue: 0.541, alpha: 1) : UIColor(red: 0.227, green: 0.353, blue: 0.251, alpha: 1) })
+private let hot = Color(red: 1, green: 0.353, blue: 0.122)

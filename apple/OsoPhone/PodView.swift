@@ -371,6 +371,7 @@ private struct PodInfoSheet: View {
                     Text("Asleep, the pod lasts about 70 hours and wakes when you connect.")
                 }
             }
+            .themedList()
             .navigationTitle("Pod info")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }

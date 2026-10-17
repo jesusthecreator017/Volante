@@ -31,7 +31,7 @@ struct GoalCard: View {
                     WeekDots(days: p.days)
                     Label(p.streak > 0 ? "\(p.streak)-week streak" : "Start a streak", systemImage: "flame.fill")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(p.streak > 0 ? Color.orange : .secondary)
+                        .foregroundStyle(p.streak > 0 ? Theme.hot : .secondary)
                         .symbolEffect(.bounce, value: p.streak)
                 }
                 Spacer(minLength: 0)
@@ -64,7 +64,7 @@ struct GoalRing: View {
             if fraction > 1 { // a second lap past the goal, like the Activity rings
                 Circle()
                     .trim(from: 0, to: min(1, fraction - 1))
-                    .stroke(Color.orange.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .stroke(Theme.hot.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
         }
@@ -112,6 +112,7 @@ private struct GoalEditor: View {
                     Text("Meet your goal week after week to build a streak. Your best so far: \(best) \(best == 1 ? "week" : "weeks"). Changing the goal recounts past weeks.")
                 }
             }
+            .themedList()
             .navigationTitle("Weekly goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }

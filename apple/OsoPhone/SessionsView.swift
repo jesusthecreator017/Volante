@@ -31,6 +31,7 @@ struct SessionsView: View {
             .onDelete { idx in for i in idx { store.delete(store.sessions[i].id) } }
         }
         .listStyle(.insetGrouped)
+        .themedList()
         .canvasNavigationBar()
     }
 
