@@ -1,0 +1,146 @@
+{
+  "name": "drills-v1",
+  "version": 1,
+  "warmup": [
+    {
+      "label": "warmup",
+      "secs": 120,
+      "instruction": "Warm-up: rally or hit easy shots as you like. Not labelled."
+    }
+  ],
+  "blocks": [
+    {
+      "label": "serve_short",
+      "side": "FH",
+      "target": 15,
+      "instruction": "Forehand Short serve: low, just over the net, landing close to the front service line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "serve_short",
+      "side": "BH",
+      "target": 15,
+      "instruction": "Backhand Short serve: low, just over the net, landing close to the front service line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "serve_long",
+      "side": "FH",
+      "target": 15,
+      "instruction": "Forehand Long serve: high and deep, landing on the back line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "serve_long",
+      "side": "BH",
+      "target": 15,
+      "instruction": "Backhand Long serve: high and deep, landing on the back line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "clear",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Clear: full overhead, high and deep to the back line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "clear",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Clear: full overhead, high and deep to the back line. Hold still ~2 s between reps."
+    },
+    {
+      "label": "smash",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Smash: full-power overhead, hit steeply downward. Hold still ~2 s between reps."
+    },
+    {
+      "label": "smash",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Smash: full-power overhead, hit steeply downward. Hold still ~2 s between reps.",
+      "optional": true
+    },
+    {
+      "label": "drop",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Overhead drop: the same preparation as a clear, a soft shot that lands near the net. Hold still ~2 s between reps."
+    },
+    {
+      "label": "drop",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Overhead drop: the same preparation as a clear, a soft shot that lands near the net. Hold still ~2 s between reps."
+    },
+    {
+      "label": "drive",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Drive: flat and fast at about shoulder height, no lift or dip. Hold still ~2 s between reps."
+    },
+    {
+      "label": "drive",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Drive: flat and fast at about shoulder height, no lift or dip. Hold still ~2 s between reps."
+    },
+    {
+      "label": "lift",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Lift: underarm, from low near the net, high and deep to the back. Hold still ~2 s between reps."
+    },
+    {
+      "label": "lift",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Lift: underarm, from low near the net, high and deep to the back. Hold still ~2 s between reps."
+    },
+    {
+      "label": "net_shot",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Net shot: a soft touch from the net, the shuttle just clears the tape and drops. Hold still ~2 s between reps."
+    },
+    {
+      "label": "net_shot",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Net shot: a soft touch from the net, the shuttle just clears the tape and drops. Hold still ~2 s between reps."
+    },
+    {
+      "label": "block_push",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Block / push: a short, compact stroke at the net or mid-court, no big swing. Hold still ~2 s between reps."
+    },
+    {
+      "label": "block_push",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Block / push: a short, compact stroke at the net or mid-court, no big swing. Hold still ~2 s between reps."
+    },
+    {
+      "label": "net_kill",
+      "side": "FH",
+      "target": 25,
+      "instruction": "Forehand Net kill: a quick downward put-away from above tape height at the net. Hold still ~2 s between reps."
+    },
+    {
+      "label": "net_kill",
+      "side": "BH",
+      "target": 25,
+      "instruction": "Backhand Net kill: a quick downward put-away from above tape height at the net. Hold still ~2 s between reps."
+    },
+    {
+      "label": "not_a_hit",
+      "secs": 60,
+      "instruction": "Not a hit: for 60 s do waggles, walk about, pick up shuttles and shadow-move. No real strokes."
+    }
+  ],
+  "finale": [
+    {
+      "label": "free",
+      "secs": 240,
+      "instruction": "Free play: rally or play points, anything goes. Not labelled (the video labels it later)."
+    }
+  ]
+}

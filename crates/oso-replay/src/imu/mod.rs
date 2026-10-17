@@ -12,6 +12,7 @@ pub mod mount;
 pub mod packet;
 pub mod pose;
 pub mod strokes;
+pub mod swingdet;
 pub mod swings;
 pub mod sync;
 

@@ -155,6 +155,7 @@ jobs:
         run: |
           for t in calib imu pose3d shuttle swings; do echo "== test_$t"; python tools/test_$t.py; done
           python -I tools/test_strokes.py
+          python tools/strokes/test_collect_tools.py # also fails if session data or video is tracked
 
   site:
     name: site (vitest, build)
