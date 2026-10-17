@@ -1,12 +1,13 @@
 # Arena viewer page
 
-`index.html` + `arena.js` + `arena.css` are the oso replay viewer as embedded by the Arena site in a same-origin
-iframe. `web/build.sh` assembles them into the self-contained bundle `web/dist/viewer/`.
+`index.html` + `arena.js` + `arena.css` + `timeline.js` are the Arena viewer (`crates/oso-arena`: the shared renderer
+plus the scoreboard) as embedded by the Arena site in a same-origin iframe. `web/arena/build.sh` builds the wasm into
+`web/arena/pkg/` and assembles the self-contained bundle `web/dist/viewer/`.
 
 ## Bundle layout (`web/dist/viewer/`)
 
 ```
-index.html arena.js arena.css viewer.css timeline.js stats.js
+index.html arena.js arena.css timeline.js
 pkg/oso.js pkg/oso_bg.wasm (pkg/snippets/ if emitted)
 assets/calib/ assets/models/        # no assets/replay/: the replay comes from ?match= or a drop
 ```
@@ -14,7 +15,7 @@ assets/calib/ assets/models/        # no assets/replay/: the replay comes from ?
 All references are relative, so it works at any path. Build and serve:
 
 ```
-web/build.sh
+web/arena/build.sh
 python3 -m http.server -d web/dist 8080
 # http://localhost:8080/viewer/index.html?match=/api/matches/<id>/replay.bin
 ```
@@ -51,10 +52,6 @@ Defined synchronously when the module script runs, before wasm is ready.
 | --- | --- | --- |
 | `oso_seek(t)`, `oso_set_playing(bool)`, `oso_toggle_play()`, `oso_step(n)`, `oso_set_speed(s)`, `oso_preset(n)`, `oso_toggle_skeleton()`, `oso_toggle_big_shuttle()`, `oso_next_stroke()`, `oso_prev_stroke()` | nothing | queued in order, applied once wasm and the replay are up |
 | `oso_score(t)` | `Uint32Array` `[p0, p1]`, empty without point events | empty |
-| `oso_stats()` | JSON string | `""` |
-| `oso_strokes()` | `Float32Array`, N x 16 | empty |
-| `oso_stroke_types()` | `string[]` | `[]` |
-| `oso_head_speed(player)` | `Float32Array` | empty |
 | `oso_replay_error()` | string, `""` when none | the page's own error string |
 | `oso_status()` | plain object (see below) | defaults, `loaded: false` |
 | `oso_ready` | Promise: resolves at `phase` `"ready"`, rejects with the error message string | pending |

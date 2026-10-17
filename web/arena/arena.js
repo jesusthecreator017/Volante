@@ -2,7 +2,6 @@
 // Runs under a strict CSP: no inline script or style, text goes in via textContent only.
 import init, * as oso from "./pkg/oso.js";
 import { setupTimeline } from "./timeline.js";
-import { setupStats } from "./stats.js";
 
 const STATUS_FIELDS = ["loaded", "time", "duration", "playing", "speed", "fps", "frame", "frame_count",
   "skeleton", "big_shuttle", "has_shuttle", "cameras", "stroke_count"];
@@ -23,10 +22,6 @@ for (const name of COMMANDS) {
   };
 }
 window.oso_score = (t) => (wasmReady ? oso.oso_score(t) : new Uint32Array(0));
-window.oso_stats = () => (wasmReady ? oso.oso_stats() : "");
-window.oso_strokes = () => (wasmReady ? oso.oso_strokes() : new Float32Array(0));
-window.oso_stroke_types = () => (wasmReady ? oso.oso_stroke_types() : []);
-window.oso_head_speed = (p) => (wasmReady ? oso.oso_head_speed(p) : new Float32Array(0));
 window.oso_replay_error = () => (wasmReady ? oso.oso_replay_error() : state.error);
 window.oso_status = () => {
   const out = { ...STATUS_DEFAULTS };
@@ -305,7 +300,6 @@ init().then(() => {
   wasmReady = true;
   for (const [name, args] of queue.splice(0)) oso[name](...args);
   setupTimeline(oso);
-  setupStats(oso);
   requestAnimationFrame(poll);
 }).catch((e) => {
   console.error(e);

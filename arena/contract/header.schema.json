@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oso.invalid/arena/oso-arena-1/header.schema.json",
+  "title": "oso-arena/1 submission header (safetensors __metadata__)",
+  "type": "object",
+  "required": ["contract", "name", "build"],
+  "properties": {
+    "contract": {"const": "oso-arena/1"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 40, "description": "printable characters only"},
+    "description": {"type": "string", "maxLength": 280},
+    "build": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "JSON text of the build object ($defs/build); safetensors metadata values are strings",
+      "contentMediaType": "application/json",
+      "contentSchema": {"$ref": "#/$defs/build"}
+    }
+  },
+  "additionalProperties": {"type": "string"},
+  "$defs": {
+    "build": {
+      "type": "object",
+      "required": ["power", "speed", "reach", "accuracy"],
+      "additionalProperties": false,
+      "description": "the four values are integers and sum to exactly 24",
+      "properties": {
+        "power": {"type": "integer", "minimum": 1, "maximum": 10},
+        "speed": {"type": "integer", "minimum": 1, "maximum": 10},
+        "reach": {"type": "integer", "minimum": 1, "maximum": 10},
+        "accuracy": {"type": "integer", "minimum": 1, "maximum": 10}
+      }
+    }
+  }
+}

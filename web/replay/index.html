@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>oso</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
+    /* winit follows the canvas CSS size, so this is what makes resize work */
+    #canvas { width: 100vw; height: 100vh; display: block; outline: none; }
+    #status { position: fixed; top: 8px; left: 8px; color: #ddd; font: 12px monospace; pointer-events: none; }
+
+    #timeline {
+      position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+      padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+      background: rgba(10, 10, 10, 0.72); color: #eee; font: 14px system-ui, sans-serif;
+    }
+    #timeline[hidden] { display: none; }
+    #hint { font-size: 12px; opacity: 0.7; }
+    #credit { font-size: 11px; opacity: 0.6; }
+    #credit a { color: inherit; }
+    /* Stroke markers: one button per stroke, stacked in lanes when they would overlap. left/translate use the same
+       percentage so a marker at either end stays inside the row and the page never scrolls sideways */
+    #markers { position: relative; height: 0; margin: 4px 0; }
+    #markers button.stroke {
+      position: absolute; min-width: 30px; min-height: 26px !important; padding: 0 4px !important; font-size: 12px;
+      font-weight: 600; color: #111 !important; border-width: 2px !important;
+    }
+    #markers button.stroke[data-player="0"] { background: #ff9a3c !important; border-color: #ffd0a0 !important; }
+    #markers button.stroke[data-player="1"] { background: #35d0e8 !important; border-color: #a0eaf5 !important; }
+    #spark-wrap { position: relative; height: 40px; margin-top: 4px; }
+    #spark-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #spark-wrap[hidden], #markers[hidden] { display: none; }
+    #scrub { width: 100%; margin: 4px 0; box-sizing: border-box; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    #timeline button, #timeline select {
+      min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
+      background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
+    }
+    #timeline button[aria-pressed="true"] { background: #2d5fa8; border-color: #8ab4f8; }
+    #timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+    #readout, #head-readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #stats {
+      position: fixed; top: 8px; right: 8px; box-sizing: border-box; width: min(460px, calc(100vw - 16px));
+      max-height: calc(100vh - 16px); overflow-y: auto; overflow-x: hidden; padding: 12px 16px;
+      background: rgba(10, 10, 10, 0.92); color: #eee; font: 13px system-ui, sans-serif; border: 1px solid #555; border-radius: 8px;
+    }
+    #stats[hidden] { display: none; }
+    #stats h2 { margin: 0 0 8px; font-size: 15px; }
+    #stats .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    #stats .col { min-width: 0; }
+    #stats h3 { margin: 0 0 4px; font-size: 13px; }
+    #stats .bar { display: grid; grid-template-columns: 2.4em 1fr 2em; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+    #stats .bar i { display: block; height: 8px; border-radius: 2px; }
+    #stats .num { text-align: right; }
+    #stats button.link { all: unset; cursor: pointer; color: #8ab4f8; text-decoration: underline; }
+    #stats :focus-visible, #stats-btn:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+    #stats svg { display: block; width: 100%; height: auto; margin-top: 8px; background: #1b3a2a; border-radius: 4px; }
+    #stats svg .line { stroke: #ddd; stroke-width: 0.05; fill: none; }
+    #stats svg [data-t] { cursor: pointer; stroke: #111; stroke-width: 0.04; }
+    #stats p { margin: 6px 0; }
+    @media (max-width: 600px) {
+      #stats { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 75vh; border-radius: 12px 12px 0 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+      #timeline { padding-left: 12px; padding-right: 12px; }
+      #readout { order: -1; flex-basis: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" aria-label="3D court view"></canvas>
+  <div id="status">loading...</div>
+  <section id="timeline" aria-label="Playback timeline" hidden>
+    <div id="hint" title="Camera and playback controls">WASD/arrows move &middot; Q/E down/up &middot; Shift fast &middot; drag orbit &middot; right-drag look &middot; , . step &middot; Space play &middot; N/P next/prev stroke</div>
+    <div id="credit"><a href="https://sketchfab.com/3d-models/basic-humanoid-block-rig-0b7834d927d545b497e9bfbb80765c08" target="_blank" rel="noopener">"Basic Humanoid Block Rig"</a> by <a href="https://sketchfab.com/trogan305" target="_blank" rel="noopener">Trogan305</a>, <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC-BY-4.0</a></div>
+    <div id="spark-wrap" hidden>
+      <canvas id="spark" role="img" aria-label="Player 1 racquet head speed over the clip"></canvas>
+      <canvas id="spark-head" aria-hidden="true"></canvas>
+    </div>
+    <div id="markers" role="group" aria-label="Strokes" hidden></div>
+    <input id="scrub" type="range" min="0" max="1" step="any" value="0" aria-label="Seek">
+    <div class="row">
+      <div class="group">
+        <button id="step-back" type="button" aria-label="Step back one frame">&#9664;&#9664;</button>
+        <button id="play" type="button" aria-label="Pause">&#10074;&#10074;</button>
+        <button id="step-fwd" type="button" aria-label="Step forward one frame">&#9654;&#9654;</button>
+      </div>
+      <span id="readout" role="timer" aria-live="off"></span>
+      <div class="group" id="stroke-nav" role="group" aria-label="Strokes" hidden>
+        <button id="prev-stroke" type="button" aria-label="Previous stroke">&#9198;</button>
+        <button id="next-stroke" type="button" aria-label="Next stroke">&#9197;</button>
+        <span id="head-readout" aria-live="off"></span>
+      </div>
+      <label class="group">Speed
+        <select id="speed" aria-label="Playback speed">
+          <option value="0.1">0.1x</option><option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option><option value="2">2x</option>
+        </select>
+      </label>
+      <div class="group" role="group" aria-label="Camera presets">
+        <button type="button" data-preset="1">Baseline</button>
+        <button type="button" data-preset="2">Side</button>
+        <button type="button" data-preset="3">Top</button>
+        <button type="button" data-preset="4" disabled>Cam A</button>
+        <button type="button" data-preset="5" disabled>Cam B</button>
+      </div>
+      <button id="skeleton" type="button" aria-pressed="false">Skeleton</button>
+      <button id="stats-btn" type="button" aria-expanded="false" aria-controls="stats" hidden>Stats</button>
+      <button id="big-shuttle" type="button" aria-pressed="false" hidden>Big shuttle</button>
+    </div>
+  </section>
+  <section id="stats" aria-label="Match stats" hidden></section>
+  <script>
+    // Right-drag looks around; don't pop the browser menu
+    document.getElementById("canvas").addEventListener("contextmenu", (e) => e.preventDefault());
+  </script>
+  <script type="module">
+    import init, * as oso from "./pkg/oso.js";
+    import { setupTimeline } from "./timeline.js";
+    import { setupStats } from "./stats.js";
+    // oso_status() needs the wasm module, so the timeline starts only once init has finished
+    init().then(() => { setupTimeline(oso); setupStats(oso); }).catch((e) => {
+      console.error(e);
+      document.getElementById("status").textContent = "error: " + e;
+    });
+  </script>
+</body>
+</html>

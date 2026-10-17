@@ -1775,31 +1775,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "oso"
+name = "oso-arena"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "btleplug",
- "bytemuck",
  "cgmath",
  "console_error_panic_hook",
- "console_log",
- "criterion",
- "env_logger",
- "futures",
  "getrandom 0.3.4",
+ "hecs",
+ "log",
+ "oso-render",
+ "wasm-bindgen",
+ "wgpu",
+]
+
+[[package]]
+name = "oso-proto"
+version = "0.1.0"
+
+[[package]]
+name = "oso-render"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "cgmath",
+ "console_log",
+ "env_logger",
  "hecs",
  "image",
  "js-sys",
  "log",
  "naga",
- "oso-proto",
  "pollster",
  "serde",
  "serde_json",
  "tobj",
- "tokio",
- "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1809,8 +1820,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "oso-proto"
+name = "oso-replay"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "btleplug",
+ "cgmath",
+ "console_error_panic_hook",
+ "console_log",
+ "criterion",
+ "env_logger",
+ "futures",
+ "getrandom 0.3.4",
+ "log",
+ "oso-proto",
+ "oso-render",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "wasm-bindgen",
+ "winit",
+]
 
 [[package]]
 name = "owned_ttf_parser"

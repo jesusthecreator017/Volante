@@ -1,4 +1,21 @@
-/* Arena-only rules; the viewer styles live in viewer.css */
+/* No inline styles: the page runs under style-src 'self' */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
+/* winit follows the canvas CSS size, so this is what makes resize work */
+#canvas { width: 100vw; height: 100vh; display: block; outline: none; }
+#timeline {
+  position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: rgba(10, 10, 10, 0.72); color: #eee; font: 14px system-ui, sans-serif;
+}
+#scrub { width: 100%; margin: 4px 0; box-sizing: border-box; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#timeline button, #timeline select {
+  min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
+  background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
+}
+#timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+#readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 /* The overlay shows the same information as the corner text Rust writes */
 #status { display: none; }
 [hidden] { display: none !important; }
