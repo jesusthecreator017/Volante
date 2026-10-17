@@ -57,6 +57,8 @@ static_cell      = "2.1.1"
 [features]
 # Synthetic IMU for bench tests of BLE / flash without a sensor
 sim = []
+# Test-only: drops one FIFO byte once, 10 s after boot, to exercise the framing guard. Never ship enabled.
+fault_inject = []
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

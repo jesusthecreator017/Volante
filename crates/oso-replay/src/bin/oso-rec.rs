@@ -124,10 +124,19 @@ fn describe(s: &Status) -> String {
         bits.into_iter().chain((s.state_ext & state_ext::SLEEPING != 0).then_some("sleeping")).collect();
     let batt = if s.battery_pct == 255 { "unknown".to_string() } else { format!("{} %", s.battery_pct) };
     format!(
-        "fw {}.{}  {} Hz  +-{} g  +-{} dps  battery {}  stored {} packets  fifo overflows {}  [{}]",
+        "fw {}.{}  {} Hz  +-{} g  +-{} dps  battery {}  stored {} packets  fifo overflows {}  framing resets {}  [{}]",
         s.fw_major, s.fw_minor, s.rate_hz, s.accel_g, s.gyro_dps, batt, s.buffered_packets, s.fifo_overflows,
-        bits.join(" ")
+        s.framing_resets, bits.join(" ")
     )
+}
+
+/// Prints the misalignment warning when a written imu.bin shows still-but-wrong gravity
+fn warn_if_misaligned(path: &Path) {
+    if let Ok(c) = std::fs::read(path).map_err(anyhow::Error::from).and_then(|b| packet::parse(&b))
+        && packet::implausible_rest(&c.samples)
+    {
+        eprintln!("WARNING: {}", packet::MISALIGNED_WARNING);
+    }
 }
 
 /// imu.bin: header + packets in arrival order
@@ -214,6 +223,7 @@ async fn stream(out: PathBuf, secs: Option<u64>) -> anyhow::Result<()> {
     }
     d.cmd(op::STOP_STREAM).await.ok();
     write_imu(&out, &raw)?;
+    warn_if_misaligned(&out);
     eprintln!("wrote {} ({} packets, {:.1} Hz average)", out.display(), raw.len(), raw.len() as f64 / t0.elapsed().as_secs_f64());
     write_markers(&out, &markers)?;
     d.p.disconnect().await.ok();
@@ -255,6 +265,7 @@ async fn upload(out: PathBuf) -> anyhow::Result<()> {
     anyhow::ensure!(raw.len() as u32 == done, "received {} packets, the device says {done}: not marking uploaded", raw.len());
     write_imu(&out, &raw)?;
     write_markers(&out, &markers)?;
+    warn_if_misaligned(&out);
     let st = packet::parse(&std::fs::read(&out)?)?.stats;
     eprintln!("file parses: {} unique, {} lost (gaps from FIFO overflows), {} dup", st.unique, st.lost, st.duplicate);
     d.cmd(op::MARK_UPLOADED).await?;
@@ -490,6 +501,9 @@ struct PodView {
     title: String,
     title_at: Instant,
     dirty: bool,
+    /// Last second of samples for the misalignment check, and whether it was already reported
+    recent: Vec<packet::Sample>,
+    warned: bool,
 }
 
 impl PodView {
@@ -518,6 +532,8 @@ impl PodView {
             title: String::new(),
             title_at: Instant::now(),
             dirty: true,
+            recent: Vec::new(),
+            warned: false,
         }
     }
 
@@ -562,12 +578,27 @@ impl LiveSource for PodView {
         while let Ok(ps) = self.data.try_recv() {
             self.window.1 += ps.len() as u64;
             ps.iter().for_each(|p| self.fusion.push_packet(p));
+            if !self.warned {
+                for p in ps.iter().map(oso_proto::Packet::decode) {
+                    self.recent.push(packet::to_sample(p.t_us as i64, p.v));
+                }
+            }
         }
         let el = self.window.0.elapsed().as_secs_f64();
         let rolled = el >= 1.0;
         if rolled {
             self.hz = self.window.1 as f64 / el;
             self.window = (Instant::now(), 0);
+            if !self.warned {
+                // ponytail: ignores the u32 t_us wrap (71 min); a wrap only delays the warning by one window
+                let end = self.recent.last().map_or(0.0, |s| s.t_dev);
+                self.recent.retain(|s| end - s.t_dev <= 1.0);
+                if packet::implausible_rest(&self.recent) {
+                    self.warned = true;
+                    self.notice = Some((packet::MISALIGNED_WARNING.to_string(), Instant::now()));
+                    eprintln!("WARNING: {}", packet::MISALIGNED_WARNING);
+                }
+            }
         }
         if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed() > NOTICE_FOR) {
             self.notice = None;

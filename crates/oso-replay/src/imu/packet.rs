@@ -140,6 +140,28 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Capture> {
     })
 }
 
+/// Shown by `oso-rec` when `implausible_rest` fires
+pub const MISALIGNED_WARNING: &str =
+    "IMU data looks misaligned: reset the pod (oso-rec sleep, then wake)";
+
+/// Still but wrong gravity for >= 0.5 s (|w| < 20 deg/s while |a| is outside 0.7-1.3 g): physically impossible, so the
+/// FIFO bytes were misaligned. Samples must be in time order.
+pub fn implausible_rest(samples: &[Sample]) -> bool {
+    let mut since: Option<f64> = None;
+    for s in samples {
+        let norm = |v: [f32; 3]| v.iter().map(|c| (*c as f64).powi(2)).sum::<f64>().sqrt();
+        let (a, w) = (norm(s.acc) / G, norm(s.gyro).to_degrees());
+        if w < 20.0 && !(0.7..=1.3).contains(&a) {
+            if s.t_dev - *since.get_or_insert(s.t_dev) >= 0.5 {
+                return true;
+            }
+        } else {
+            since = None;
+        }
+    }
+    false
+}
+
 /// Encodes a capture in file layout (tests, benches, and the Python generator's twin).
 pub fn encode(rate_hz: u16, packets: &[(u16, u32, [i16; 6])]) -> Vec<u8> {
     let mut out = b"OSOI".to_vec();
@@ -158,6 +180,47 @@ mod tests {
 
     fn pk(seq: u16, t_us: u32) -> (u16, u32, [i16; 6]) {
         (seq, t_us, [seq as i16, 0, 2048, 0, 0, 0])
+    }
+
+    /// A still pod's 500 Hz FIFO bytes (12 B frames, constant gyro bias, noise on gy), 1 s
+    fn rest_bytes() -> Vec<u8> {
+        let mut b = Vec::new();
+        for i in 0..500i16 {
+            let n = i % 2;
+            for v in [0, 0, 2048, -3, 2 + n, -1] {
+                b.extend(v.to_be_bytes());
+            }
+        }
+        b
+    }
+
+    fn capture_of(fifo: &[u8]) -> Vec<Sample> {
+        let packets: Vec<_> = fifo
+            .as_chunks::<12>()
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (i as u16, i as u32 * 2000, std::array::from_fn(|k| i16::from_be_bytes([f[2 * k], f[2 * k + 1]]))))
+            .collect();
+        parse(&encode(500, &packets)).unwrap().samples
+    }
+
+    #[test]
+    fn implausible_rest_flags_a_stream_shifted_by_seven_bytes() {
+        let fifo = rest_bytes();
+        assert!(!implausible_rest(&capture_of(&fifo)));
+        assert!(implausible_rest(&capture_of(&fifo[7..])));
+    }
+
+    #[test]
+    fn implausible_rest_ignores_swings_and_short_glitches() {
+        let s = |t: f64, acc: f32, gyro: f32| Sample { t_dev: t, acc: [0.0, 0.0, acc], gyro: [gyro, 0.0, 0.0], saturated: false };
+        // 3 g but spinning fast: a swing, not rest
+        let swing: Vec<_> = (0..500).map(|i| s(i as f64 * 0.002, 3.0 * G as f32, 10.0)).collect();
+        assert!(!implausible_rest(&swing));
+        // 0.2 s of odd gravity at rest
+        let blip: Vec<_> = (0..500).map(|i| s(i as f64 * 0.002, if i < 100 { 0.0 } else { G as f32 }, 0.0)).collect();
+        assert!(!implausible_rest(&blip));
     }
 
     #[test]
