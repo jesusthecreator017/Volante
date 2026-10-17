@@ -1,0 +1,223 @@
+# Runs the repo's test suites on PRs and pushes to main. Each job runs only when its area (or this file) changed;
+# workflow_dispatch runs everything. The macOS job (10x minutes on a private repo) runs only for apple/** (or this file) changes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read # paths-filter lists the PR's files
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.f.outputs.rust }}
+      python: ${{ steps.f.outputs.python }}
+      site: ${{ steps.f.outputs.site }}
+      app: ${{ steps.f.outputs.app }}
+      webarena: ${{ steps.f.outputs.webarena }}
+      apple: ${{ steps.f.outputs.apple }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dorny/paths-filter@v4.0.3
+        id: f
+        with:
+          filters: |
+            shared: &shared
+              - .github/workflows/ci.yml
+            rust:
+              - *shared
+              - Cargo.toml
+              - Cargo.lock
+              - crates/**
+              - proto/**
+              - assets/**
+              - web/arena/**
+            python:
+              # the kit imports tools/ modules, and both suites run the Rust CLIs (--check-replay, oso-imu)
+              - *shared
+              - arena/**
+              - tools/**
+              - Cargo.toml
+              - Cargo.lock
+              - crates/**
+              - proto/**
+            site:
+              - *shared
+              - site/**
+            app:
+              - *shared
+              - app/**
+            webarena:
+              - *shared
+              - web/arena/**
+            apple:
+              - *shared
+              - apple/**
+              - app/public/sample/imu.bin # bundled into OsoPhone
+
+  rust:
+    name: Rust (build, test, clippy)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: System deps (btleplug needs dbus)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@v2.9.2
+      - run: cargo build --workspace --all-targets
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  wasm:
+    name: Rust wasm (clippy, viewer bundle)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: taiki-e/install-action@v2.87.29
+        with:
+          tool: wasm-pack@0.15.0
+      - run: cargo clippy -p oso-arena -p oso-render --lib --target wasm32-unknown-unknown -- -D warnings
+      - run: bash web/arena/build.sh
+      - name: Bundle is complete
+        run: test -s web/dist/viewer/pkg/oso_bg.wasm && test -s web/dist/viewer/index.html
+
+  python:
+    name: Python (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [arena-kit, tools]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: System deps (btleplug needs dbus)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: python-release
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            arena/kit/pyproject.toml
+            tools/requirements.txt
+      - name: Install Python deps (CPU torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy safetensors scipy "opencv-python-headless>=4,<5" build "setuptools>=77" scikit-learn joblib
+      # The tests `cargo run --release` the CLIs; build them up front so test timings stay readable
+      - run: cargo build --release -p oso-replay -p oso-arena --bins
+      - name: Arena kit tests
+        if: matrix.suite == 'arena-kit'
+        run: |
+          python arena/kit/tests/run_all.py
+          python arena/kit/oso_arena/test_badsim.py
+      - name: tools tests (not test_video, which needs rendered videos and RTMPose models)
+        if: matrix.suite == 'tools'
+        run: |
+          for t in calib imu pose3d shuttle swings; do echo "== test_$t"; python tools/test_$t.py; done
+          python -I tools/test_strokes.py
+
+  site:
+    name: site (vitest, build)
+    needs: changes
+    if: needs.changes.outputs.site == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  app:
+    name: app (vitest, build)
+    needs: changes
+    if: needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  webarena:
+    name: web/arena (node --test)
+    needs: changes
+    if: needs.changes.outputs.webarena == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - run: node --test web/arena/*.test.mjs
+
+  apple:
+    name: Apple (OsoKit swift test, OsoPhone build)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: xcodebuild -version && swift --version
+      - name: OsoKit tests
+        working-directory: apple/OsoKit
+        run: swift test
+      - name: Generate the Xcode project
+        working-directory: apple
+        run: brew install xcodegen && xcodegen
+      - name: Build OsoPhone (with the embedded Watch app) for the simulator, unsigned
+        working-directory: apple
+        run: >-
+          xcodebuild -project Oso.xcodeproj -scheme OsoPhone -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build -quiet
