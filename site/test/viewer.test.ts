@@ -15,7 +15,10 @@ describe("mountViewer", () => {
     const box = document.createElement("div");
     mountViewer(box, m, false);
     expect(box.querySelector("iframe")?.getAttribute("src")).toBe(viewerSrc(7));
-    expect(viewerSrc(7)).toBe("/viewer/index.html?match=%2Fapi%2Fmatches%2F7%2Freplay.bin");
+    expect(viewerSrc(7)).toBe("/viewer/index.html?match=%2Fapi%2Fmatches%2F7%2Freplay.bin&theme=system");
+    document.documentElement.setAttribute("data-theme", "dark");
+    expect(viewerSrc(7)).toBe("/viewer/index.html?match=%2Fapi%2Fmatches%2F7%2Freplay.bin&theme=dark");
+    document.documentElement.removeAttribute("data-theme");
     expect(box.querySelector("button")).toBeNull();
   });
   test("load-on-tap waits for the button; seek mounts it", () => {

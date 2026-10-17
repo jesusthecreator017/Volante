@@ -4,10 +4,28 @@
 import { replayUrl } from "./api";
 import { h } from "./dom";
 
-export const viewerSrc = (matchId: number) => `/viewer/index.html?match=${encodeURIComponent(replayUrl(matchId))}`;
+/** The site's light/dark choice ("system" when unset), so the viewer matches the toggle rather than only the OS. */
+const siteTheme = () => document.documentElement.getAttribute("data-theme") ?? "system";
+
+export const viewerSrc = (matchId: number) =>
+  `/viewer/index.html?match=${encodeURIComponent(replayUrl(matchId))}&theme=${encodeURIComponent(siteTheme())}`;
 
 interface ViewerWindow extends Window {
   oso_seek?: (t: number) => void;
+  oso_theme?: (t: string) => void;
+}
+
+/** Keeps a mounted viewer on the site's theme when the toggle changes (same origin); stops once the frame leaves the page. */
+function followTheme(frame: HTMLIFrameElement) {
+  const obs = new MutationObserver(() => {
+    if (!frame.isConnected) return obs.disconnect();
+    try {
+      (frame.contentWindow as ViewerWindow | null)?.oso_theme?.(siteTheme());
+    } catch {
+      // cross-origin viewer: it keeps the theme it loaded with
+    }
+  });
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
 
 /** True when the replay shouldn't start downloading on its own. */
@@ -30,6 +48,7 @@ export function mountViewer(box: HTMLElement, m: { id: number; a: { name: string
     if (!frame) {
       frame = h("iframe", { src: viewerSrc(m.id), title: `3D replay: ${m.a.name} vs ${m.b.name}`, allow: "fullscreen", class: "viewer-frame" });
       box.replaceChildren(frame);
+      followTheme(frame);
     }
     return frame;
   };
