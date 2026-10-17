@@ -1,36 +1,97 @@
-/* No inline styles: the page runs under style-src 'self' */
-html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
+/* No inline styles: the page runs under style-src 'self'.
+   Look = the website's (site/src/style.css): SF system font stack, glass panels, capsule buttons, light/dark by prefers-color-scheme, or the site's choice (data-theme).
+   The tokens below are COPIED from site/ (the viewer stays self-contained and imports nothing from there): when the site palette
+   changes, update them here too (see web/arena/README.md). */
+:root {
+  --text: #344e41;            /* site --pine */
+  --muted: #3a5a40;           /* site --moss */
+  --glass: rgb(255 255 255 / 0.72);
+  --glass-line: rgb(0 0 0 / 0.1);
+  --glass-hi: inset 0 1px 0 rgb(255 255 255 / 0.5);
+  --btn: #3a5a40;             /* site --btn (moss) */
+  --btn-text: #ffffff;
+  --field: rgb(255 255 255 / 0.55);
+  --focus: #344e41;
+  --bad: #b02a2a;
+  --pa: #b93500;              /* model A / B name colours: darker than the scene tints so small text reads on glass */
+  --pb: #0a6a8a;
+  --viewer-bg: #0f1712;
+  --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+/* Dark: the OS setting unless the site chose (data-theme, set from ?theme= or by the parent's toggle via window.oso_theme) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --text: #ffffff;
+    --muted: #b9bcba;
+    --glass: rgb(29 45 36 / 0.72);
+    --glass-line: rgb(255 255 255 / 0.14);
+    --glass-hi: inset 0 1px 0 rgb(255 255 255 / 0.08);
+    --btn: #ffffff;
+    --btn-text: #142019;
+    --field: rgb(255 255 255 / 0.1);
+    --focus: #ffffff;
+    --bad: #ff7676;
+    --pa: #ff8a5c;
+    --pb: #5fd8ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --text: #ffffff;
+  --muted: #b9bcba;
+  --glass: rgb(29 45 36 / 0.72);
+  --glass-line: rgb(255 255 255 / 0.14);
+  --glass-hi: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  --btn: #ffffff;
+  --btn-text: #142019;
+  --field: rgb(255 255 255 / 0.1);
+  --focus: #ffffff;
+  --bad: #ff7676;
+  --pa: #ff8a5c;
+  --pb: #5fd8ff;
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--viewer-bg); }
 /* winit follows the canvas CSS size, so this is what makes resize work */
 #canvas { width: 100vw; height: 100vh; display: block; outline: none; }
+
 #timeline {
-  position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
-  background: rgba(10, 10, 10, 0.72); color: #eee; font: 14px system-ui, sans-serif;
+  position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); box-sizing: border-box;
+  padding: 8px 14px; border-radius: 22px; border: 1px solid var(--glass-line);
+  background: var(--glass); color: var(--text); box-shadow: var(--glass-hi); font-size: 14px; line-height: 1.3;
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
 }
-#scrub { width: 100%; margin: 4px 0; box-sizing: border-box; }
+#scrub { width: 100%; margin: 4px 0; box-sizing: border-box; accent-color: var(--btn); }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 #timeline button, #timeline select {
-  min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
-  background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
+  min-height: 36px; min-width: 36px; padding: 4px 14px; font: inherit; font-weight: 600; color: var(--text);
+  background: var(--field); border: 1px solid var(--glass-line); border-radius: 999px; cursor: pointer;
+  transition: transform 0.18s var(--ease), background 0.18s var(--ease);
 }
-#timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+#timeline button:active { transform: scale(0.97); }
+#timeline button#play { background: var(--btn); border-color: var(--btn); color: var(--btn-text); }
+#timeline :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 #readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* Match header: A's name in A's colour vs B's. The colours are brightened sRGB versions of oso_render PLAYER_COLORS
-   (linear #ff730d / #00ccff) so small text stays readable on the dark court. A compact top-left card, so it never
-   covers the in-scene scoreboard at the top centre. */
+/* Match header: A's name in A's colour vs B's (readable tints of oso_render PLAYER_COLORS: orange A, cyan B). A compact top-left
+   card, so it never covers the in-scene scoreboard at the top centre. */
 #players {
   position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; z-index: 5; box-sizing: border-box;
   pointer-events: none; display: flex; flex-direction: column; gap: 2px;
-  max-width: calc(50vw - 90px); padding: 6px 10px; border-radius: 6px;
-  background: rgba(10, 10, 10, 0.6); color: #eee; font: 14px/1.3 system-ui, sans-serif;
+  max-width: calc(50vw - 90px); padding: 8px 14px; border-radius: 18px; border: 1px solid var(--glass-line);
+  background: var(--glass); color: var(--text); box-shadow: var(--glass-hi); font-size: 14px; line-height: 1.3;
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
 }
 #players .pl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #players .name { font-weight: 700; }
-#players .build { font-size: 0.85em; font-variant-numeric: tabular-nums; opacity: 0.85; }
-#players .vs { opacity: 0.6; font-size: 0.85em; }
-#pl-a { color: #ff9a2e; }
-#pl-b { color: #25d5ff; }
+#players .build { font-size: 0.85em; font-variant-numeric: tabular-nums; color: var(--muted); }
+#players .vs { color: var(--muted); font-size: 0.85em; }
+#pl-a .name { color: var(--pa); }
+#pl-b .name { color: var(--pb); }
 
 /* The overlay shows the same information as the corner text Rust writes */
 #status { display: none; }
@@ -38,31 +99,42 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
 
 #overlay {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;
-  box-sizing: border-box; width: min(420px, calc(100vw - 32px)); padding: 16px 20px;
-  background: rgba(10, 10, 10, 0.88); color: #eee; border: 1px solid #555; border-radius: 8px;
-  font: 15px/1.4 system-ui, sans-serif; text-align: center; overflow-wrap: anywhere;
+  box-sizing: border-box; width: min(420px, calc(100vw - 32px)); padding: 18px 22px;
+  background: var(--glass); color: var(--text); border: 1px solid var(--glass-line); border-radius: 26px; box-shadow: var(--glass-hi);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
+  font-size: 15px; line-height: 1.4; text-align: center; overflow-wrap: anywhere;
   pointer-events: none;
 }
 #overlay[hidden] { display: none; }
 #ov-status:empty, #ov-error:empty { display: none; }
-#ov-progress { display: block; width: 100%; height: 10px; margin-top: 10px; }
-#ov-error { color: #ff9a8a; font-weight: 600; }
+#ov-progress { display: block; width: 100%; height: 10px; margin-top: 10px; accent-color: var(--btn); }
+#ov-error { color: var(--bad); font-weight: 600; }
 #ov-status + #ov-error, #ov-progress + #ov-error { margin-top: 10px; }
-#ov-drop { font-size: 18px; padding: 12px 0; }
+#ov-drop { font-size: 18px; font-weight: 600; padding: 12px 0; }
 
 /* Drop highlight while a file is dragged over the page */
 body.dragging::after {
   content: ""; position: fixed; inset: 8px; z-index: 20; pointer-events: none;
-  border: 3px dashed #8ab4f8; border-radius: 12px; background: rgba(138, 180, 248, 0.12);
+  border: 3px dashed var(--focus); border-radius: 26px; background: var(--glass);
 }
 
-/* Embedded in a small iframe (the Arena match page): one compact row so the court stays visible */
+/* Embedded in a small iframe (the Arena match page) or a phone: two compact rows (transport + time, then speed + camera),
+   never a sideways scroll; the player names become one line above the controls so they aren't squeezed beside the scoreboard. */
 @media (max-height: 480px), (max-width: 600px) {
-  #timeline { padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); font-size: 12px; }
-  #players { top: calc(4px + env(safe-area-inset-top)); left: 4px; padding: 3px 6px; font-size: 12px; }
+  #timeline { left: 4px; right: 4px; bottom: calc(4px + env(safe-area-inset-bottom)); padding: 4px 10px 6px; border-radius: 18px; font-size: 12px; }
   #scrub { margin: 0 0 2px; }
-  .row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-  #timeline button, #timeline select { min-height: 28px; min-width: 28px; padding: 2px 6px; flex: none; }
-  #timeline label { flex: none; }
-  #readout { flex: none; }
+  .row { gap: 4px 6px; justify-content: space-between; }
+  #timeline button, #timeline select { min-height: 30px; min-width: 30px; padding: 2px 10px; flex: none; }
+  #timeline label, #readout { flex: none; }
+  #readout { margin-right: auto; }
+  #timeline .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #players {
+    top: auto; left: 4px; right: 4px; bottom: calc(var(--timeline-h, 96px) + 10px + env(safe-area-inset-bottom));
+    max-width: none; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 8px;
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; text-align: center;
+  }
+}
+@media (max-height: 480px) and (min-width: 601px) {
+  /* short but wide (a landscape phone, a short iframe): one row is enough */
+  .row { flex-wrap: nowrap; }
 }

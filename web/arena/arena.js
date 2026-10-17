@@ -11,6 +11,22 @@ const STATUS_DEFAULTS = { loaded: false, time: 0, duration: 0, playing: false, s
 const COMMANDS = ["oso_seek", "oso_set_playing", "oso_toggle_play", "oso_step", "oso_set_speed", "oso_preset",
   "oso_toggle_skeleton", "oso_toggle_big_shuttle", "oso_next_stroke", "oso_prev_stroke"];
 
+// Theme: the site passes its light/dark choice (?theme=) and its toggle calls window.oso_theme; "system" follows the OS.
+const setTheme = (t) => {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+};
+setTheme(new URLSearchParams(location.search).get("theme"));
+window.oso_theme = setTheme;
+
+// The phone layout puts the player names just above the timeline panel, whose height depends on how its rows wrap.
+const timelineEl = document.getElementById("timeline");
+if (timelineEl && "ResizeObserver" in window) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--timeline-h", `${Math.ceil(timelineEl.getBoundingClientRect().height)}px`);
+  }).observe(timelineEl);
+}
+
 const state = { phase: "waiting", error: "", received: 0, total: null };
 let wasmReady = false;
 const queue = [];

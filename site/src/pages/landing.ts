@@ -1,10 +1,12 @@
 // "/" : the racquet pod landing page. Rendered stills of our own renderer plus inline SVG; no live 3D, no data collected.
 // Feature statuses are honest (Available / In development): flip them in FEATURES when something ships.
 
+import { api } from "../api";
 import { h, link, s } from "../dom";
+import { mountViewer } from "../viewer";
 
 type Status = "Available" | "In development";
-type Viz = "hits" | "gauge" | "tags" | "bars" | "replay" | "live";
+type Viz = "hits" | "gauge" | "tags" | "bars";
 
 interface Feature {
   id: string;
@@ -20,8 +22,6 @@ export const FEATURES: Feature[] = [
   { id: "speed", icon: "speed", title: "Swing speed", text: "Estimated racquet head speed for each swing, worked out from the gyro.", status: "Available", viz: "gauge" },
   { id: "strokes", icon: "strokes", title: "Stroke recognition", text: "Smash, clear, drop, drive, forehand or backhand, named automatically.", status: "In development", viz: "tags" },
   { id: "insights", icon: "insights", title: "AI-tailored insights", text: "Post-match reports that compare sessions and suggest what to work on.", status: "In development", viz: "bars" },
-  { id: "replay", icon: "replay", title: "3D replay", text: "Watch a recorded match rebuilt in 3D. Needs the camera setup.", status: "Available", viz: "replay" },
-  { id: "live", icon: "live", title: "Live racquet view", text: "See your racquet move on screen in real time while you swing.", status: "Available", viz: "live" },
 ];
 
 // Numbers from the 2026-10-17 smash session analysis (estimates from the sensor).
@@ -40,19 +40,43 @@ export function exampleSwings(): number[] {
 
 const STILLS = {
   ready: [new URL("../assets/ready.webp", import.meta.url).href, new URL("../assets/ready.png", import.meta.url).href],
-  swing: [new URL("../assets/swing.webp", import.meta.url).href, new URL("../assets/swing.png", import.meta.url).href],
-  follow: [new URL("../assets/follow.webp", import.meta.url).href, new URL("../assets/follow.png", import.meta.url).href],
 } as const;
 
-/** Our own render (640x512 source). Width/height reserve the space (CLS); below-the-fold stills load lazily. */
-function still(name: keyof typeof STILLS, alt: string, lazy: boolean): HTMLElement {
-  const [webp, png] = STILLS[name];
-  return h(
-    "picture",
-    null,
-    h("source", { type: "image/webp", srcset: webp }),
-    h("img", { src: png, alt, width: 640, height: 512, loading: lazy ? "lazy" : "eager", decoding: "async", ...(lazy ? {} : { fetchpriority: "high" }) }),
+/** Our own render. Width/height reserve the space (CLS); below-the-fold images load lazily. */
+function picture(webp: string, png: string, alt: string, w: number, hgt: number): HTMLElement {
+  return h("picture", null, h("source", { type: "image/webp", srcset: webp }), h("img", { src: png, alt, width: w, height: hgt, loading: "lazy", decoding: "async" }));
+}
+
+const POSTER = [new URL("../assets/arena-poster.webp", import.meta.url).href, new URL("../assets/arena-poster.png", import.meta.url).href];
+
+/** "Watch AI matches in 3D": a poster of the Arena viewer; once the latest finished ladder match is known, a button loads the
+ *  viewer in place (never autoplays the 10-30 MB replay). With no finished match the poster just links to /arena. */
+export function arenaWatch(): HTMLElement {
+  const box = h("div", { class: "viewer watch" });
+  const poster = picture(POSTER[0], POSTER[1], "A 3D badminton rally in the Arena viewer: two AI players on a green court.", 1280, 720);
+  box.append(poster);
+  void api.matches({ kind: "ladder", limit: 5 }).then(
+    (page) => {
+      const m = page.items.find((x) => x.status === "done");
+      if (!m) return box.replaceChildren(link("/arena", poster));
+      const play = h(
+        "button",
+        {
+          type: "button",
+          class: "btn primary watch-play",
+          onclick: () => {
+            box.classList.remove("watch");
+            mountViewer(box, m, false);
+          },
+        },
+        "▶ Watch ",
+        `${m.a.name} vs ${m.b.name}`,
+      );
+      box.append(play);
+    },
+    () => box.replaceChildren(link("/arena", poster)),
   );
+  return h("div", { class: "arena-watch" }, box, h("p", { class: "muted small" }, "The latest finished ladder match, played in 3D in your browser (10–30 MB)."));
 }
 
 // ---------------------------------------------------------------- icons: 24px grid, one stroke width (CSS .ico)
@@ -62,8 +86,6 @@ const ICONS: Record<string, string[]> = {
   speed: ["M4 17a8 8 0 1 1 16 0", "M12 17l4-5", "M7 17h.01M17 17h.01"],
   strokes: ["M9 6h11M9 12h11M9 18h11", "M4 6h.01M4 12h.01M4 18h.01"],
   insights: ["M4 4v16h16", "M8 15l4-4 3 3 5-6"],
-  replay: ["M12 3l8 4.5v9L12 21l-8-4.5v-9z", "M12 12l8-4.5M12 12v9M12 12L4 7.5"],
-  live: ["M12 11a1 1 0 1 0 0 2a1 1 0 0 0 0-2z", "M8 8a5.7 5.7 0 0 0 0 8M16 8a5.7 5.7 0 0 1 0 8", "M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"],
 };
 
 function icon(name: string): SVGSVGElement {
@@ -135,8 +157,6 @@ function collage(): HTMLElement {
 // ---------------------------------------------------------------- feature visuals (decorative)
 
 function viz(kind: Viz): HTMLElement {
-  if (kind === "replay") return h("div", { class: "viz viz-still" }, still("swing", "Rendered racquet mid-swing, tilted across the frame on a dark 3D grid.", true));
-  if (kind === "live") return h("div", { class: "viz viz-still" }, still("follow", "Rendered racquet in follow-through, angled up and to the left on a dark 3D grid.", true));
   if (kind === "tags") return h("div", { class: "viz tags", "aria-hidden": "true" }, ["Smash", "Clear", "Drop", "Drive"].map((t) => h("span", { class: "tag" }, t)));
   const svg = (children: SVGElement[]) => s("svg", { viewBox: "0 0 160 56", class: "viz-svg", "aria-hidden": "true", focusable: "false" }, children);
   if (kind === "hits") {
@@ -225,7 +245,7 @@ export function landing(root: HTMLElement) {
         "div",
         { class: "l-hero-copy" },
         h("h1", { class: "display" }, h("span", { class: "lt" }, "Every swing,"), h("br"), h("span", { class: "hv" }, "measured.")),
-        h("p", { class: "lead" }, "A small pod clips onto your racquet, records every swing at 500 samples a second and turns it into swing counts, speed and replays."),
+        h("p", { class: "lead" }, "A small pod clips onto your racquet, records every swing at 500 samples a second and turns it into swing counts and speed."),
         h("div", { class: "row cta" }, link("/#how", h("span", { class: "btn primary" }, "See how it works")), link("/arena", h("span", { class: "btn" }, "Try the Arena"))),
         h("ul", { class: "proofs", "aria-label": "Key facts" }, chip("500 samples/s"), chip("6-axis motion"), chip("Bluetooth LE")),
       ),
@@ -240,11 +260,12 @@ export function landing(root: HTMLElement) {
         "ol",
         { class: "steps" },
         step(1, podArt("step-art"), "Attach the pod", "Clip it onto the racquet. It has a six-axis motion sensor and talks over Bluetooth LE."),
-        step(2, swingArt(), "Play", "The pod can record about 12 minutes on its own, or stream live to your computer while you swing."),
+        step(2, swingArt(), "Play", "The pod records about 12 minutes of swings on its own."),
         step(3, reportArt(), "Get your report", "Swings are counted and timed and head speed is estimated, then shown as a report."),
       ),
     ),
     h("section", { class: "l-sec", id: "report", "aria-labelledby": "report-h" }, head("report-h", "Read a session", "in ten seconds."), report(), h("p", { class: "muted small foot" }, "Example. Headline figures come from a real 41-smash session; the swing-by-swing chart is illustrative. All values are estimates from the sensor.")),
+    h("section", { class: "l-sec", id: "watch", "aria-labelledby": "watch-h" }, head("watch-h", "Watch AI matches", "in 3D."), arenaWatch(), h("p", null, link("/arena", h("span", { class: "btn" }, "Explore the Arena")))),
     h(
       "section",
       { class: "l-sec teasers" },

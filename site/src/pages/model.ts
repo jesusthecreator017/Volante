@@ -1,8 +1,9 @@
 import { api } from "../api";
 import { STATS, STAT_EFFECT, STAT_LABEL } from "../arena";
 import { buildRadar, fmtDate, fmtRating, load, matchRow, ownerChip, provisional, ratingChart, statusPill, styleGuess } from "../components";
-import { append, h } from "../dom";
+import { append, h, link } from "../dom";
 import type { MatchSummary, ModelDetail } from "../types";
+import { mountViewer } from "../viewer";
 
 export function model(root: HTMLElement, p: Record<string, string>) {
   const id = Number(p.id);
@@ -12,6 +13,7 @@ export function model(root: HTMLElement, p: Record<string, string>) {
 function render(root: HTMLElement, m: ModelDetail) {
   document.title = `${m.name} · Arena · Volante`;
   const matches = h("div");
+  const latest = h("section");
   append(root, [
     h(
       "header",
@@ -47,9 +49,24 @@ function render(root: HTMLElement, m: ModelDetail) {
         h("p", { class: "muted small" }, `Uploaded ${fmtDate(m.created_at)}`, m.retired_at ? ` · retired ${fmtDate(m.retired_at)}` : ""),
       ),
     ),
+    latest,
     h("section", null, h("h2", null, "Recent matches"), matches),
   ]);
+  void showLatest(latest, m.id);
   loadMatches(matches, m.id);
+}
+
+/** The model's most recent finished match, inline (nothing when it has none or the lookup fails). */
+export async function showLatest(slot: HTMLElement, modelId: number) {
+  const m = await api.matches({ model: modelId, limit: 10 }).then((p) => p.items.find((x) => x.status === "done"), () => undefined);
+  if (!m) return;
+  const box = h("div", { class: "viewer" });
+  slot.append(
+    h("h2", null, "Latest match"),
+    h("p", { class: "muted small" }, `${m.a.name} ${m.games_won[0]}–${m.games_won[1]} ${m.b.name} · `, link(`/arena/matches/${m.id}`, "Open match")),
+    box,
+  );
+  mountViewer(box, m);
 }
 
 function loadMatches(el: HTMLElement, id: number, before?: number, list?: HTMLUListElement) {
