@@ -78,7 +78,7 @@ fail() { log "FAILED: $*"; exit "${2:-1}"; }
 
 # ---- the input: a regular file under INPUT_ROOT, no symlinks anywhere in the path ----
 [[ $INPUT == /* ]] || die "input must be an absolute path"
-[ ! -L "$INPUT" ] && [ -f "$INPUT" ] || die "input is not a regular file (or is a symlink): $INPUT"
+if ! { [ ! -L "$INPUT" ] && [ -f "$INPUT" ]; }; then die "input is not a regular file (or is a symlink): $INPUT"; fi
 REAL=$(realpath -e -- "$INPUT")
 [ "$REAL" = "$INPUT" ] || die "input path has symlinks or '..' in it: $INPUT"
 ROOT_REAL=$(realpath -e -- "$INPUT_ROOT") || die "input root missing: $INPUT_ROOT"
@@ -125,7 +125,7 @@ arena_deploy() {
   mkdir "$REL/x"; unzip -q "$REL/input" -d "$REL/x" || die "not a valid zip"
   no_symlinks "$REL/x" "the bundle"
   top=$(find "$REL/x" -mindepth 1 -maxdepth 1)
-  [ "$(printf '%s\n' "$top" | wc -l)" = 1 ] && [ -d "$top" ] || die "the zip must hold exactly one top-level directory"
+  if ! { [ "$(printf '%s\n' "$top" | wc -l)" = 1 ] && [ -d "$top" ]; }; then die "the zip must hold exactly one top-level directory"; fi
   bundle=$top
   [ -f "$bundle/SHA256SUMS" ] || die "no SHA256SUMS in the bundle"
   (cd "$bundle" && sha256sum -c --quiet SHA256SUMS) || die "checksum mismatch: the bundle was altered or is corrupt"
@@ -142,7 +142,7 @@ arena_deploy() {
   [ -f "$bundle/server/deploy/install.sh" ] || die "server/deploy/install.sh missing from the bundle"
 
   wheel=$(find "$bundle/kit" -maxdepth 1 -name 'oso_arena-*.whl')
-  [ "$(printf '%s\n' "$wheel" | wc -l)" = 1 ] && [ -n "$wheel" ] || die "expected exactly one kit wheel in kit/"
+  if ! { [ "$(printf '%s\n' "$wheel" | wc -l)" = 1 ] && [ -n "$wheel" ]; }; then die "expected exactly one kit wheel in kit/"; fi
   new_kit=$(basename "$wheel" | cut -d- -f2)
   if [ "$HAVE_KIT" = 0 ]; then
     INSTALLED_KIT=$("$ARENA_VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("oso_arena"))' 2>/dev/null || true)
@@ -192,7 +192,7 @@ lan_deploy() {
   ! grep -q '^[^-d]' "$REL/list" || die "the tar holds links or special files"
   tar -xf "$REL/input" -C "$REL/x" --no-same-owner --no-same-permissions || die "not a valid tar"
   no_symlinks "$REL/x" "the tar"
-  [ -f "$REL/x/dist/index.html" ] && [ -f "$REL/x/server/server.mjs" ] && [ -f "$REL/x/package.json" ] || die "tar must hold dist/index.html, server/server.mjs and package.json"
+  if ! { [ -f "$REL/x/dist/index.html" ] && [ -f "$REL/x/server/server.mjs" ] && [ -f "$REL/x/package.json" ]; }; then die "tar must hold dist/index.html, server/server.mjs and package.json"; fi
   rm -rf "$REL/x/server/data" "$REL/x/data"   # never ship data
   command -v rsync >/dev/null || die "rsync is not installed" 1
   log "plan: snapshot $LAN_APP_DIR, rsync --delete the new app into it (data/ untouched), chown $LAN_USER, restart $LAN_UNIT (user unit), check $LAN_HEALTH_URL"
