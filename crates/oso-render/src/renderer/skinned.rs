@@ -132,6 +132,13 @@ impl SkinnedPass {
         }
     }
 
+    // Color of each player's body, written to the GPU with the next `upload`
+    pub fn set_colors(&mut self, colors: &[[f32; 3]]) {
+        for (slot, c) in self.players.iter_mut().zip(colors) {
+            slot.uniform.color = [c[0], c[1], c[2], 1.0];
+        }
+    }
+
     // Writes each player's palette (None hides the player)
     pub fn upload(&mut self, queue: &wgpu::Queue, palettes: &[Option<Palette>]) {
         for (slot, palette) in self.players.iter_mut().zip(palettes) {

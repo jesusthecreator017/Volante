@@ -71,6 +71,16 @@ pub trait Extras {
     }
     /// Every frame after the bodies moved, at playback time `t`
     fn update(&mut self, _world: &mut hecs::World, _r: &Replay, _t: f64) {}
+    /// Which `PLAYER_COLORS` entry each replay slot is drawn in (body, skeleton and racquet) at `t`. Default: the slot's own. Arena
+    /// maps slots to models, so a model keeps its colour across a change of ends.
+    fn slot_colors(&self, _r: &Replay, _t: f64) -> [usize; 2] {
+        [0, 1]
+    }
+    /// A procedural racquet in the racquet local frame (see `scene::racquet`), flat-colored parts tinted for the player color `color`.
+    /// Some: the app never loads the racquet OBJ and the racquet follows `slot_colors`. Default None: the OBJ.
+    fn racquet_parts(&self, _color: [f32; 3]) -> Option<Vec<(court::CpuMesh, [f32; 4])>> {
+        None
+    }
 }
 
 pub struct State {
@@ -108,6 +118,10 @@ pub struct State {
     palettes: Vec<Option<Palette>>,
     // Per player, refreshed every update: the racquet pose, None when hidden or without a racquet track
     racquets: Vec<Option<Transform>>,
+    // First model of the per-color procedural racquets (one per PLAYER_COLORS entry), None with the OBJ or the blocky fallback
+    racquet_tints: Option<usize>,
+    // Color index of each slot as last pushed to the renderer (Extras::slot_colors)
+    slot_colors: [usize; 2],
     // App-specific scene parts and per-frame updates (Replay: stats export; Arena: scoreboard)
     extras: Box<dyn Extras>,
     // Set by seeks and steps: bodies re-derive orientation from scratch instead of from history
@@ -258,12 +272,22 @@ impl State {
             }
         };
 
+        let mut racquet_tints = None;
         if let Some(r) = &replay {
             extras.replay_loaded(r);
         }
         if let Some(r) = &replay {
             spawn_shadows(&mut world, &mut models, r.players, device, queue, layout)?;
-            spawn_racquets(&mut world, &mut models, r.players, device, queue, layout).await?;
+            racquet_tints = spawn_racquets(
+                &mut world,
+                &mut models,
+                r.players,
+                device,
+                queue,
+                layout,
+                extras.as_ref(),
+            )
+            .await?;
             extras.spawn(&mut world, &mut models, device, queue, layout, r)?;
             if r.has_shuttle() {
                 let (vertices, indices) = shuttle::mesh();
@@ -338,6 +362,8 @@ impl State {
             rigs,
             palettes: vec![None; players],
             racquets: vec![None; players],
+            racquet_tints,
+            slot_colors: [0, 1],
             extras,
             reorient: false,
             last_tick: Instant::now(),
@@ -530,7 +556,7 @@ impl State {
         self.line_vertices.clear();
         self.line_vertices.extend_from_slice(&self.net_lines);
         if self.show_skeleton {
-            skeleton_lines(&self.samples, &mut self.line_vertices);
+            skeleton_lines(&self.samples, self.slot_colors, &mut self.line_vertices);
         }
         if let Some(r) = self
             .replay
@@ -641,6 +667,13 @@ impl State {
     // Samples the replay at the playback time and moves every body part and shadow to match
     fn update_bodies(&mut self) {
         let Some(r) = &self.replay else { return };
+        let colors = self.extras.slot_colors(r, self.playback.time);
+        if colors != self.slot_colors {
+            self.slot_colors = colors;
+            let rgb = |p: usize| PLAYER_COLORS[colors[p % 2] % PLAYER_COLORS.len()];
+            self.renderer
+                .set_player_colors(&(0..self.samples.len()).map(rgb).collect::<Vec<_>>());
+        }
         let reorient = std::mem::take(&mut self.reorient);
         for (player, (joints, shadow)) in self.samples.iter_mut().zip(&mut self.shadows).enumerate()
         {
@@ -715,8 +748,14 @@ impl State {
                 },
             );
         }
-        for (t, rq) in self.world.query_mut::<(&mut Transform, &Racquet)>() {
+        for (t, rq, model) in self
+            .world
+            .query_mut::<(&mut Transform, &Racquet, &mut ModelHandle)>()
+        {
             *t = self.racquets[rq.player].unwrap_or(Transform { scale: 0.0, ..*t });
+            if let Some(first) = self.racquet_tints {
+                model.0 = first + self.slot_colors[rq.player % 2];
+            }
         }
         self.extras.update(&mut self.world, r, self.playback.time);
     }
@@ -892,8 +931,9 @@ async fn load_rig() -> anyhow::Result<Rig> {
     Rig::parse(&gltf, &bin)
 }
 
-// Spawns one racquet per player, hidden until the first update: the OBJ model (one draw per material), or the blocky
-// two-mesh fallback if it fails to load. Players without an IMU get the arm estimate (racquet::estimate_from_arm).
+// Spawns one racquet per player, hidden until the first update: the app's procedural racquet (Extras::racquet_parts, one model per
+// player color; returns the first model's index), else the OBJ model (one draw per material), or the blocky two-mesh fallback if it
+// fails to load. Players without an IMU get the arm estimate (racquet::estimate_from_arm).
 async fn spawn_racquets(
     world: &mut hecs::World,
     models: &mut Vec<Model>,
@@ -901,13 +941,36 @@ async fn spawn_racquets(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
-) -> anyhow::Result<()> {
+    extras: &dyn Extras,
+) -> anyhow::Result<Option<usize>> {
     let hidden = Transform {
         position: cgmath::Vector3::new(0.0, 0.0, 0.0),
         rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
         scale: 0.0,
     };
     let first = models.len();
+    let tinted: Option<Vec<_>> = PLAYER_COLORS
+        .iter()
+        .map(|&c| extras.racquet_parts(c))
+        .collect();
+    if let Some(variants) = tinted {
+        for parts in &variants {
+            let refs: Vec<_> = parts
+                .iter()
+                .map(|((v, i), color)| (v.as_slice(), i.as_slice(), *color))
+                .collect();
+            models.push(Model::from_parts(device, queue, layout, "Racquet", &refs)?);
+        }
+        // Which of the variants a player holds is set every update (update_bodies); player p starts with color p
+        for player in 0..players {
+            world.spawn((
+                hidden,
+                ModelHandle(first + player % PLAYER_COLORS.len()),
+                Racquet { player },
+            ));
+        }
+        return Ok(Some(first));
+    }
     match load_racquet(device, queue, layout).await {
         Ok(model) => models.push(model),
         Err(e) => {
@@ -928,7 +991,7 @@ async fn spawn_racquets(
             world.spawn((hidden, ModelHandle(model), Racquet { player }));
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 async fn load_racquet(
@@ -944,11 +1007,15 @@ async fn load_racquet(
     Model::from_parts(device, queue, layout, "Racquet", &refs)
 }
 
-// Both players' bones plus a small cross at each joint, appended to `out` as LineList pairs.
+// Both players' bones plus a small cross at each joint (colored by `slot_colors`, see Extras::slot_colors), appended to `out` as LineList pairs.
 // Joints with conf 0 are skipped (bones need both ends), conf 0.5 (gap-filled) is drawn darker.
-fn skeleton_lines(players: &[[[f32; 4]; JOINTS]], out: &mut Vec<LineVertex>) {
+fn skeleton_lines(
+    players: &[[[f32; 4]; JOINTS]],
+    slot_colors: [usize; 2],
+    out: &mut Vec<LineVertex>,
+) {
     for (player, joints) in players.iter().enumerate() {
-        let base = PLAYER_COLORS[player % PLAYER_COLORS.len()];
+        let base = PLAYER_COLORS[slot_colors[player % 2] % PLAYER_COLORS.len()];
         let color = |conf: f32| base.map(|c| c * if conf >= 1.0 { 1.0 } else { 0.4 });
         let mut line = |a: [f32; 3], b: [f32; 3], conf: f32| {
             let color = color(conf);
@@ -1004,10 +1071,31 @@ mod tests {
     fn skeleton_lines_counts_and_colors() {
         let r = Replay::parse(SAMPLE).unwrap();
         let mut v = Vec::new();
-        skeleton_lines(&sample_all(&r, 0.0), &mut v);
+        skeleton_lines(&sample_all(&r, 0.0), [0, 1], &mut v);
         // At most (16 bones + 17 crosses * 3) lines per player, 2 vertices each; every line is a pair
         assert!(v.len() % 2 == 0 && v.len() <= 2 * 2 * (16 + 51) && v.len() > 2 * 2 * 40);
         assert_eq!(v[0].color, PLAYER_COLORS[0]);
+    }
+
+    #[test]
+    fn skeleton_colors_follow_the_slot_to_color_mapping() {
+        let r = Replay::parse(SAMPLE).unwrap();
+        let (mut keep, mut swap) = (Vec::new(), Vec::new());
+        skeleton_lines(&sample_all(&r, 0.0), [0, 1], &mut keep);
+        skeleton_lines(&sample_all(&r, 0.0), [1, 0], &mut swap);
+        assert_eq!(keep.len(), swap.len());
+        // Same geometry; each slot's lines take the other player color
+        let first_p1 = keep
+            .iter()
+            .position(|v| v.color == PLAYER_COLORS[1])
+            .unwrap();
+        assert!(
+            keep.iter()
+                .zip(&swap)
+                .all(|(a, b)| a.position == b.position)
+        );
+        assert_eq!(swap[0].color, PLAYER_COLORS[1]);
+        assert_eq!(swap[first_p1].color, PLAYER_COLORS[0]);
     }
 
     #[test]
@@ -1040,7 +1128,7 @@ mod tests {
         let start = Instant::now();
         for i in 0..1000 {
             v.clear();
-            skeleton_lines(&sample_all(&r, i as f64 / 60.0), &mut v);
+            skeleton_lines(&sample_all(&r, i as f64 / 60.0), [0, 1], &mut v);
         }
         println!("skeleton_lines: {:?} per frame", start.elapsed() / 1000);
     }

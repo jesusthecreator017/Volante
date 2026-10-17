@@ -1,7 +1,8 @@
 //! Match scoreboard: a single-sided board hung behind the far baseline (x = HALF_LENGTH + 3.0, z = 0), facing -x toward the
 //! default camera (preset 1), on cables to the ceiling. 7-segment digits made of box instances (no text, no texture). Seen
-//! from -x looking +x, screen-right is +z: P0 (orange, plays on -x) has the left pair of digits (z < 0), then a colon, then
-//! P1 (cyan). Tens before units. A leading zero is hidden ("7", not "07").
+//! from -x looking +x, screen-right is +z: model A (P0, orange) has the left pair of digits (z < 0), then a colon, then
+//! model B (P1, cyan). The score is by model, not by court side, so after a change of ends A keeps the left pair (a replay without a
+//! `match` header object has no models: slot 0 is then "A"). Tens before units. A leading zero is hidden ("7", not "07").
 
 use oso_render::scene::court::{CpuMesh, HALF_LENGTH, finish};
 use oso_render::scene::hall::CEILING_Y;
@@ -24,7 +25,7 @@ const H: f32 = 0.8;
 pub const DOT_SIZE: f32 = 0.12;
 pub const DOT_Y: [f32; 2] = [0.17, -0.17];
 
-/// Screen-right position (u, = world z) of each digit cell `[P0 tens, P0 units, P1 tens, P1 units]`
+/// Screen-right position (u, = world z) of each digit cell `[A tens, A units, B tens, B units]`
 pub const CELL_U: [f32; 4] = [-1.1, -0.5, 0.5, 1.1];
 
 /// Bit i set = segment i lit; segments a (top), b (top right), c (bottom right), d (bottom), e (bottom left), f (top left), g (middle)

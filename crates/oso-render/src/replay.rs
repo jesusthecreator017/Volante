@@ -29,6 +29,88 @@ pub fn score_in(events: &[[f32; EVENT_FIELDS]], t: f64) -> Option<[u32; 2]> {
     }
     Some(s)
 }
+/// Who the replay's player slots are in an Arena match: the optional `match` header object (docs/data-format.md). The slots follow the
+/// world sides, so after a change of ends slot 0 is the other model; A is model 0, B model 1.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MatchInfo {
+    pub a: ModelInfo,
+    pub b: ModelInfo,
+    /// `(t seconds, s)` ascending, the first at 0: from `t` on slot 0 is model A (`s` 0) or model B (`s` 1)
+    pub ends: Vec<(f64, u8)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ModelInfo {
+    pub name: String,
+    pub build: Build,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct Build {
+    pub power: u32,
+    pub speed: u32,
+    pub reach: u32,
+    pub accuracy: u32,
+}
+
+impl MatchInfo {
+    /// Rejects a `match` object whose `ends` the mapping cannot use: empty, a side other than 0 / 1, or a time that is not finite or goes back.
+    fn validated(self) -> Option<Self> {
+        let ok = !self.ends.is_empty()
+            && self.ends.iter().all(|&(t, s)| t.is_finite() && s <= 1)
+            && self.ends.windows(2).all(|w| w[0].0 <= w[1].0);
+        ok.then_some(self)
+    }
+
+    /// 0 when slot 0 is model A at `t`, else 1 (before the first change point: the first entry's side).
+    pub fn ends_at(&self, t: f64) -> usize {
+        let i = self.ends.partition_point(|&(et, _)| et <= t);
+        self.ends[i.saturating_sub(1)].1 as usize
+    }
+
+    /// The page's player card as JSON: `{"a":{"name","build":{"power","speed","reach","accuracy"}},"b":{...}}` (no `ends`).
+    pub fn players_json(&self) -> String {
+        let one = |m: &ModelInfo| {
+            serde_json::json!({"name": m.name, "build": {
+                "power": m.build.power, "speed": m.build.speed,
+                "reach": m.build.reach, "accuracy": m.build.accuracy}})
+        };
+        serde_json::json!({"a": one(&self.a), "b": one(&self.b)}).to_string()
+    }
+
+    /// The model (0 = A, 1 = B) that replay slot `slot` (0 / 1) holds at `t`.
+    pub fn model_of(&self, slot: usize, t: f64) -> usize {
+        (slot & 1) ^ self.ends_at(t)
+    }
+
+    /// `[model of slot 0, model of slot 1]` at `t`: the colour index of each slot.
+    pub fn slot_models(&self, t: f64) -> [usize; 2] {
+        let s = self.ends_at(t);
+        [s, 1 - s]
+    }
+}
+
+/// Scores `[model A, model B]` after the last point event at or before `t` (`[0, 0]` before the first), mapping each event's slots with
+/// `info.model_of` at the event's own time; None when `events` holds no point event at all. Without `info` the slots are the models, which is
+/// [`score_in`].
+pub fn score_by_model(
+    events: &[[f32; EVENT_FIELDS]],
+    t: f64,
+    info: Option<&MatchInfo>,
+) -> Option<[u32; 2]> {
+    let Some(info) = info else {
+        return score_in(events, t);
+    };
+    let mut points = events.iter().filter(|e| e[1] == EVENT_POINT).peekable();
+    points.peek()?;
+    let mut s = [0, 0];
+    for e in points.take_while(|e| e[0] as f64 <= t) {
+        let w = info.model_of((e[2] as usize).min(1), e[0] as f64);
+        (s[w], s[1 - w]) = (e[3] as u32, e[4] as u32);
+    }
+    Some(s)
+}
+
 /// `swings` track columns per stroke: t_start, t_peak, t_end, t_contact, player, stroke_type, peak_omega_dps,
 /// head_speed_peak, head_speed_rot, impact_g, timing_ms, contact_h, launch_speed, launch_angle_deg, saturated, confidence
 pub const STROKE_FIELDS: usize = 16;
@@ -78,6 +160,9 @@ struct Header {
     version: u32,
     fps: f32,
     frame_count: usize,
+    // Optional and tolerant: a malformed object is ignored (see Replay::parse), never an error
+    #[serde(default, rename = "match")]
+    match_info: Option<Value>,
     tracks: Vec<TrackHeader>,
 }
 
@@ -103,6 +188,8 @@ pub struct Replay {
     events: Vec<[f32; EVENT_FIELDS]>,
     // Not per frame; sorted by time
     strokes: Vec<[f32; STROKE_FIELDS]>,
+    // The header's optional `match` object (Arena matches)
+    match_info: Option<MatchInfo>,
 }
 
 /// One point of the shuttle trail: position, conf (1 detected, 0.5 physics-filled) and age in seconds.
@@ -210,6 +297,13 @@ impl Replay {
             }
             _ => Vec::new(),
         };
+        let match_info =
+            header
+                .match_info
+                .and_then(|v| match serde_json::from_value::<MatchInfo>(v) {
+                    Ok(m) => m.validated(),
+                    Err(_) => None,
+                });
         Ok(Replay {
             fps: header.fps,
             frame_count: header.frame_count,
@@ -219,6 +313,7 @@ impl Replay {
             shuttle,
             events,
             strokes,
+            match_info,
         })
     }
 
@@ -245,7 +340,31 @@ impl Replay {
             shuttle: None,
             events: Vec::new(),
             strokes: Vec::new(),
+            match_info: None,
         }
+    }
+
+    /// Adds a `match` header object to an in-memory replay (tests, benches).
+    pub fn with_match(mut self, info: MatchInfo) -> Replay {
+        self.match_info = info.validated();
+        self
+    }
+
+    /// Names, builds and change of ends of an Arena match; None for a replay without a (valid) `match` header object.
+    pub fn match_info(&self) -> Option<&MatchInfo> {
+        self.match_info.as_ref()
+    }
+
+    /// Model (0 = A, 1 = B) of each slot at `t`; the slots themselves (`[0, 1]`) without a `match` object.
+    pub fn slot_models(&self, t: f64) -> [usize; 2] {
+        self.match_info
+            .as_ref()
+            .map_or([0, 1], |m| m.slot_models(t))
+    }
+
+    /// Match score `[model A, model B]` at `t` (`score_at` is by slot); the same as `score_at` without a `match` object.
+    pub fn model_score_at(&self, t: f64) -> Option<[u32; 2]> {
+        score_by_model(&self.events, t, self.match_info.as_ref())
     }
 
     /// Adds a `swings` track to an in-memory replay (tests, benches).
@@ -826,6 +945,28 @@ mod tests {
         assert_eq!(back.write(), bytes);
     }
 
+    // QA 14.4: a tool that adds a track (oso-imu) must not drop the Arena `match` header object
+    #[test]
+    fn container_round_trip_keeps_the_match_header_object() {
+        let h = header(&JOINTS_TRACK.replace("OFF", "0"), 1)
+            .replace(r#""frame_count":2"#, &format!(r#""frame_count":2{MATCH}"#));
+        let bytes = build(&h, &blob());
+        let mut c = Container::read(&bytes).unwrap();
+        assert!(c.header.contains_key("match"));
+        let mut meta = Map::new();
+        meta.insert("name".into(), "racquet".into());
+        meta.insert("shape".into(), serde_json::json!([2, 1, RACQUET_FIELDS]));
+        c.set_track(meta, &[0.5; 2 * RACQUET_FIELDS]);
+        let out = c.write();
+        let back = Container::read(&out).unwrap();
+        assert_eq!(back.header["match"], c.header["match"]);
+        let m = Replay::parse(&out).unwrap();
+        assert_eq!(
+            m.match_info().unwrap().ends,
+            vec![(0.0, 0), (100.0, 1), (250.5, 0)]
+        );
+    }
+
     #[test]
     fn write_tracks_pads_like_the_python_writer() {
         let mut header = Map::new();
@@ -961,6 +1102,128 @@ mod tests {
         assert_eq!(score_in(&ev, 6.0), Some([1, 1]));
         assert_eq!(score_in(&ev, 9.0), Some([2, 1]));
         assert_eq!(score_in(&ev[..1], 9.0), None);
+    }
+
+    const MATCH: &str = r#","match":{"a":{"name":"Ada","build":{"power":9,"speed":6,"reach":5,"accuracy":4}},"b":{"name":"Bo","build":{"power":3,"speed":8,"reach":8,"accuracy":5}},"ends":[[0.0,0],[100.0,1],[250.5,0]]}"#;
+
+    fn with_header_extra(extra: &str) -> Replay {
+        let h = header(&JOINTS_TRACK.replace("OFF", "0"), 1)
+            .replace(r#""frame_count":2"#, &format!(r#""frame_count":2{extra}"#));
+        Replay::parse(&build(&h, &blob())).unwrap()
+    }
+
+    #[test]
+    fn match_header_is_optional_and_parsed() {
+        assert!(with_header_extra("").match_info().is_none());
+        assert!(Replay::parse(SAMPLE).unwrap().match_info().is_none());
+        let r = with_header_extra(MATCH);
+        let m = r.match_info().unwrap();
+        assert_eq!((m.a.name.as_str(), m.b.name.as_str()), ("Ada", "Bo"));
+        assert_eq!(
+            m.a.build,
+            Build {
+                power: 9,
+                speed: 6,
+                reach: 5,
+                accuracy: 4
+            }
+        );
+        assert_eq!(m.b.build.reach, 8);
+        assert_eq!(m.ends, vec![(0.0, 0), (100.0, 1), (250.5, 0)]);
+        // The rest of the replay is unaffected
+        assert_eq!((r.frame_count, r.players), (2, 1));
+    }
+
+    #[test]
+    fn players_json_has_names_and_builds_but_not_ends() {
+        let r = with_header_extra(MATCH);
+        let v: Value = serde_json::from_str(&r.match_info().unwrap().players_json()).unwrap();
+        assert_eq!(v["a"]["name"], "Ada");
+        assert_eq!(v["b"]["build"]["speed"], 8);
+        assert_eq!(v["a"]["build"]["accuracy"], 4);
+        assert!(v.get("ends").is_none());
+        // A name with quotes and a script tag stays one JSON string (the page sets it with textContent)
+        let mut m = r.match_info().unwrap().clone();
+        m.a.name = "x\"</script><b>".into();
+        let v: Value = serde_json::from_str(&m.players_json()).unwrap();
+        assert_eq!(v["a"]["name"], "x\"</script><b>");
+    }
+
+    #[test]
+    fn a_malformed_match_object_is_ignored_not_an_error() {
+        for bad in [
+            r#","match":"x""#,
+            r#","match":{"a":{"name":"A"},"b":{"name":"B"},"ends":[[0,0]]}"#,
+            r#","match":{"a":{"name":"A","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"b":{"name":"B","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"ends":[]}"#,
+            r#","match":{"a":{"name":"A","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"b":{"name":"B","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"ends":[[0,2]]}"#,
+            r#","match":{"a":{"name":"A","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"b":{"name":"B","build":{"power":1,"speed":1,"reach":1,"accuracy":1}},"ends":[[5,0],[1,1]]}"#,
+        ] {
+            let r = with_header_extra(bad);
+            assert!(r.match_info().is_none(), "{bad}");
+            assert_eq!(r.slot_models(3.0), [0, 1]);
+        }
+    }
+
+    #[test]
+    fn slot_models_follow_the_change_of_ends() {
+        let r = with_header_extra(MATCH);
+        // Slot 0 is A until 100 s, B from 100 s (the change point itself belongs to the new side), A again from 250.5 s
+        assert_eq!(r.slot_models(0.0), [0, 1]);
+        assert_eq!(r.slot_models(99.999), [0, 1]);
+        assert_eq!(r.slot_models(100.0), [1, 0]);
+        assert_eq!(r.slot_models(250.4), [1, 0]);
+        assert_eq!(r.slot_models(250.5), [0, 1]);
+        assert_eq!(r.slot_models(-1.0), [0, 1]);
+        let m = r.match_info().unwrap();
+        assert_eq!((m.model_of(0, 150.0), m.model_of(1, 150.0)), (1, 0));
+        // Without a match object the slots are the models
+        assert_eq!(with_header_extra("").slot_models(150.0), [0, 1]);
+    }
+
+    #[test]
+    fn model_score_is_a_b_across_a_change_of_ends() {
+        let pt = |t: f32, w: f32, a: f32, b: f32| [t, EVENT_POINT, w, a, b, 0.0];
+        // Slot 0 is model A until 10 s, then model B. A wins the points at 2 s, 14 s and 18 s (its slot is 0, then 1), B wins the one at 6 s
+        let ev = [
+            pt(2.0, 0.0, 1.0, 0.0),
+            pt(6.0, 1.0, 1.0, 1.0),
+            pt(14.0, 1.0, 2.0, 1.0),
+            pt(18.0, 1.0, 3.0, 1.0),
+        ];
+        let info = MatchInfo {
+            a: ModelInfo {
+                name: "A".into(),
+                build: Build {
+                    power: 1,
+                    speed: 1,
+                    reach: 1,
+                    accuracy: 1,
+                },
+            },
+            b: ModelInfo {
+                name: "B".into(),
+                build: Build {
+                    power: 1,
+                    speed: 1,
+                    reach: 1,
+                    accuracy: 1,
+                },
+            },
+            ends: vec![(0.0, 0), (10.0, 1)],
+        };
+        // By slot the readout swaps owners at the change: after A's third point slot 0 reads 1 and slot 1 reads 3
+        assert_eq!(score_in(&ev, 9.0), Some([1, 1]));
+        assert_eq!(score_in(&ev, 15.0), Some([1, 2]));
+        assert_eq!(score_in(&ev, 19.0), Some([1, 3]));
+        // By model A keeps its points
+        assert_eq!(score_by_model(&ev, 1.0, Some(&info)), Some([0, 0]));
+        assert_eq!(score_by_model(&ev, 2.0, Some(&info)), Some([1, 0]));
+        assert_eq!(score_by_model(&ev, 9.0, Some(&info)), Some([1, 1]));
+        assert_eq!(score_by_model(&ev, 15.0, Some(&info)), Some([2, 1]));
+        assert_eq!(score_by_model(&ev, 19.0, Some(&info)), Some([3, 1]));
+        // Without info it is score_in; no point events = None
+        assert_eq!(score_by_model(&ev, 15.0, None), score_in(&ev, 15.0));
+        assert_eq!(score_by_model(&ev[..0], 15.0, Some(&info)), None);
     }
 
     #[test]

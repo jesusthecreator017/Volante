@@ -9,6 +9,11 @@
 <body>
   <canvas id="canvas" tabindex="0" aria-label="3D court view"></canvas>
   <div id="status">loading...</div>
+  <header id="players" aria-label="Players" hidden>
+    <span class="pl" id="pl-a"><span class="name" id="pl-a-name"></span> <span class="build" id="pl-a-build" title="power / speed / reach / accuracy"></span></span>
+    <span class="vs">vs</span>
+    <span class="pl" id="pl-b"><span class="name" id="pl-b-name"></span> <span class="build" id="pl-b-build" title="power / speed / reach / accuracy"></span></span>
+  </header>
   <section id="timeline" aria-label="Playback timeline" hidden>
     <input id="scrub" type="range" min="0" max="1" step="any" value="0" aria-label="Seek">
     <div class="row">

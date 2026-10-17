@@ -1,16 +1,19 @@
 # Arena viewer page
 
-`index.html` + `arena.js` + `arena.css` + `timeline.js` are the Arena viewer (`crates/oso-arena`: the shared renderer
+`index.html` + `arena.js` + `fetch-replay.js` + `players.js` + `timeline.js` + `arena.css` are the Arena viewer (`crates/oso-arena`: the shared renderer
 plus the scoreboard) as embedded by the Arena site in a same-origin iframe. `web/arena/build.sh` builds the wasm into
 `web/arena/pkg/` and assembles the self-contained bundle `web/dist/viewer/`.
 
 ## Bundle layout (`web/dist/viewer/`)
 
 ```
-index.html arena.js arena.css timeline.js
+index.html arena.js arena.css timeline.js fetch-replay.js players.js
 pkg/oso.js pkg/oso_bg.wasm (pkg/snippets/ if emitted)
-assets/calib/ assets/models/        # no assets/replay/: the replay comes from ?match= or a drop
+assets/calib/ assets/models/humanoid/   # no assets/replay/ (the replay comes from ?match= or a drop) and no assets/models/racquet/
 ```
+
+The racquet OBJ's licence is unknown, so it never ships: Arena draws a procedural racquet (`crates/oso-arena/src/racquet.rs`: 665 mm
+long, head 230 x 200 mm, frame tinted in the model's colour, strings, shaft, handle) and never fetches the OBJ. The Replay app keeps the OBJ.
 
 All references are relative, so it works at any path. Build and serve:
 
@@ -37,6 +40,20 @@ stashed drop) the page shows "Drop a match.bin here" and fetches no replay.
   is present and `Content-Encoding` is absent or `identity` (with gzip, `Content-Length` is the compressed size).
 - A replay that downloads but does not parse shows "Not a valid replay: <reason>".
 
+The download logic is in `fetch-replay.js` (no DOM: `fetchReplay(url, {signal, fetchFn, sleepFn, onPreparing, onDownloading,
+onProgress})`); `arena.js` only maps its callbacks to the overlay. Tests: `node --test web/arena/*.test.mjs` (a fake `fetch` and an
+injectable sleep; on older Node `node --test web/arena/` also works).
+
+## Names, builds and colours
+
+A replay written by `animate.py` carries a `match` header object (`docs/data-format.md`): the names and builds of models A and B and
+the times at which the replay slots swap sides (change of ends). The page header shows A's name in A's colour (orange) `vs` B's (cyan),
+each with the build as `P/S/R/A` (power/speed/reach/accuracy); text is set with `textContent` only. The viewer colours bodies, racquets
+and skeleton lines by model, so A keeps its colour across a change of ends, and `oso_score(t)` and the 3D scoreboard are `[A, B]`
+(the timeline reads "A 3 – 5 B"). Without a `match` object (old files, the Replay app's files) the header is hidden, colours and score
+stay by court slot and the readout says "P1 ... P2". The in-scene scoreboard is by model rather than by court side: it never swaps
+owners at a change of ends, and it matches the colours of the page header.
+
 ## Drag and drop
 
 Dropping a file anywhere loads it; nothing is uploaded. Before the replay is handed to wasm, the drop wins and aborts
@@ -51,7 +68,8 @@ Defined synchronously when the module script runs, before wasm is ready.
 | Export | Returns | Before ready |
 | --- | --- | --- |
 | `oso_seek(t)`, `oso_set_playing(bool)`, `oso_toggle_play()`, `oso_step(n)`, `oso_set_speed(s)`, `oso_preset(n)`, `oso_toggle_skeleton()`, `oso_toggle_big_shuttle()`, `oso_next_stroke()`, `oso_prev_stroke()` | nothing | queued in order, applied once wasm and the replay are up |
-| `oso_score(t)` | `Uint32Array` `[p0, p1]`, empty without point events | empty |
+| `oso_score(t)` | `Uint32Array` `[A, B]` (`[slot 0, slot 1]` without a `match` header), empty without point events | empty |
+| `oso_players()` | `{a: {name, build: {power, speed, reach, accuracy}}, b: {...}}`, or `null` without a `match` header | `null` |
 | `oso_replay_error()` | string, `""` when none | the page's own error string |
 | `oso_status()` | plain object (see below) | defaults, `loaded: false` |
 | `oso_ready` | Promise: resolves at `phase` `"ready"`, rejects with the error message string | pending |

@@ -8,7 +8,9 @@ Bodies: body.player_pose along the players' root paths, swings timed so the forw
 contact height), facing the shuttle around a contact and the net otherwise, lunge = hip drop, jump = hip rise. Racquet contact
 (phase 14.2b): the body is moved (root path + a lift / crouch) so the contact is within arm's reach and the right arm is solved by IK so
 that the racquet's sweet spot (as the viewer draws it: along the forearm from the wrist) is exactly on the shuttle at every contact.
-Tracks: joints3d [F,2,17,4], shuttle [F,8] (flight_id per shot, conf 1 in flight), events (1 contact, 2 landing, 3 point)."""
+Tracks: joints3d [F,2,17,4], shuttle [F,8] (flight_id per shot, conf 1 in flight), events (1 contact, 2 landing, 3 point).
+Header "match" (phase 14.4): the names and builds of A and B and `ends`, the times from which replay slot 0 is A (0) or B (1); the slots follow
+the world sides, so they swap after a change of ends and the viewer needs this to keep a model's colour and score on that model."""
 import json
 import struct
 from pathlib import Path
@@ -17,6 +19,7 @@ import numpy as np
 
 from oso_arena import body as sm
 from oso_arena import sim
+from oso_arena.builds import STATS
 
 FPS = 60.0
 LEAD_S, TAIL_S = 1.0, 1.5
@@ -38,8 +41,9 @@ def _pad(n):
     return -n % 16
 
 
-def write_replay(path, fps, tracks):
-    """tracks: list of (meta dict, array); arrays are written little-endian f32. Same bytes as tools/replay.py write()."""
+def write_replay(path, fps, tracks, header_extra=None):
+    """tracks: list of (meta dict, array); arrays are written little-endian f32. Same bytes as tools/replay.py write() (header_extra: more
+    top-level header keys, e.g. "match"; none = the same bytes)."""
     blob, headers = b"", []
     for meta, arr in tracks:
         arr = np.ascontiguousarray(arr, "<f4")
@@ -48,7 +52,7 @@ def write_replay(path, fps, tracks):
         blob += b"\0" * _pad(len(blob))
     frame_count = next(h for h in headers if h.get("per_frame", True))["shape"][0]
     head = json.dumps({"version": 1, "fps": fps, "frame_count": frame_count, "start_time": 0.0,
-                       "coordinate_system": "court_m_yup_xlength", "tracks": headers}).encode()
+                       "coordinate_system": "court_m_yup_xlength", **(header_extra or {}), "tracks": headers}).encode()
     head += b"\0" * _pad(8 + len(head))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(MAGIC + struct.pack("<I", len(head)) + head + blob)
@@ -132,6 +136,7 @@ def build(log):
     pos, shuttle, events, ev_hits = [], [], [], [[], []]
     flight = 0
     sheet = []
+    ends = [[0.0, int(bool(spans[0]["start"].get("ends", 0)))]]  # [t, 0 | 1]: from t slot 0 is A (0) or B (1); see match_header
 
     def flipped(r):  # A stands on +X in this rally: rotate the court 180 degrees and let the replay slots follow the world sides
         return bool(r["start"].get("ends", 0))
@@ -213,6 +218,8 @@ def build(log):
         # gap to the next rally (or the tail); an interval before the next rally adds a pause
         if ri + 1 < len(spans):
             nx = spans[ri + 1]
+            if flipped(nx) != fl:  # the slots swap models from the first gap frame on (one frame later, so this rally's own events keep the old mapping)
+                ends.append([(len(pos) + 1) / FPS, int(flipped(nx))])
             nxt = pos_at(nx, nx["start"]["k"])
             gap = gap_frames(np.array(pos[-1]), np.array(pos[-1]) - np.array(pos[-2]), nxt)
             gap += [nxt] * int(min(nx["start"].get("interval_before_s", 0.0), PAUSE_CAP_S) * FPS)
@@ -221,7 +228,14 @@ def build(log):
         pos += gap
         shuttle += [np.zeros(8)] * len(gap)
     return dict(pos=np.array(pos), shuttle=np.array(shuttle), events=np.array(sorted(events, key=lambda e: (e[0], e[1]))),
-                hits=ev_hits, sheet=sheet)
+                hits=ev_hits, sheet=sheet, ends=ends)
+
+
+def match_header(log, ends):
+    """The replay header's "match" object (docs/data-format.md): {"a": {"name", "build": {power, speed, reach, accuracy}}, "b": {..},
+    "ends": [[t_s, 0 | 1], ..]}. ends[0] is at t = 0; from time t slot 0 is A (0) or B (1)."""
+    who = lambda name, b: {"name": str(name), "build": {k: int(v) for k, v in zip(STATS, b)}}  # noqa: E731
+    return {"a": who(log.a_name, log.builds[0]), "b": who(log.b_name, log.builds[1]), "ends": [[float(t), int(e)] for t, e in ends]}
 
 
 def gap_frames(p_end, dp, p_next):
@@ -551,5 +565,5 @@ def to_replay(log, out_path):
         ({"name": "joints3d", "layout": "x,y,z,conf", "keypoint_format": "coco17", "players": ["p0", "p1"]}, joints),
         ({"name": "shuttle", "layout": "x,y,z,vx,vy,vz,conf,flight_id"}, tl["shuttle"]),
         ({"name": "events", "layout": "t,type,player,x,y,z", "per_frame": False}, tl["events"]),
-    ])
+    ], {"match": match_header(log, tl["ends"])})
     return tl
