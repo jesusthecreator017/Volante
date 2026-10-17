@@ -104,7 +104,7 @@ pub mod err {
 
 pub const STATUS_LEN: usize = 24;
 
-/// `status` characteristic: 21 packed little-endian bytes + 3 reserved zero bytes.
+/// `status` characteristic: 23 packed little-endian bytes + 1 reserved zero byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Status {
     pub fw_major: u8,
@@ -121,6 +121,8 @@ pub struct Status {
     pub event_value: u32,
     /// `state_ext::*` bits
     pub state_ext: u8,
+    /// Live-stream packets dropped on notify errors since the last connection
+    pub stream_drops: u16,
 }
 
 impl Status {
@@ -138,6 +140,7 @@ impl Status {
         o[15] = self.event;
         o[16..20].copy_from_slice(&self.event_value.to_le_bytes());
         o[20] = self.state_ext;
+        o[21..23].copy_from_slice(&self.stream_drops.to_le_bytes());
         o
     }
 
@@ -158,6 +161,7 @@ impl Status {
             event: b[15],
             event_value: u32::from_le_bytes([b[16], b[17], b[18], b[19]]),
             state_ext: b[20],
+            stream_drops: u16::from_le_bytes([b[21], b[22]]),
         })
     }
 }
@@ -211,11 +215,11 @@ mod tests {
         let s = Status {
             fw_major: 1, fw_minor: 2, rate_hz: 500, battery_pct: 255, state_bits: state::STREAMING | state::IMU_OK,
             accel_g: 16, gyro_dps: 2000, buffered_packets: 123_456, fifo_overflows: 7,
-            event: event::UPLOAD_DONE, event_value: 0xdead_beef, state_ext: state_ext::SLEEPING,
+            event: event::UPLOAD_DONE, event_value: 0xdead_beef, state_ext: state_ext::SLEEPING, stream_drops: 0x0102,
         };
         let b = s.encode();
         assert_eq!(b.len(), 24);
-        assert_eq!((b[20], &b[21..]), (1, &[0u8, 0, 0][..]));
+        assert_eq!((b[20], &b[21..]), (1, &[2u8, 1, 0][..]));
         assert_eq!((op::SLEEP, op::WAKE, err::SLEEPING), (8, 9, 5));
         assert_eq!(Status::decode(&b), Some(s));
         assert_eq!(Status::decode(&b[..23]), None);
