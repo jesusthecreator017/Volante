@@ -1,4 +1,4 @@
-//! `session.json` of a collected session (schema `oso-strokes-session/1`): who, what protocol, which pod and mount,
+//! `session.json` of a collected session (schema `oso-strokes-session/2`; /1, one `imu.bin`, is still read): who, what protocol, which pod and mount,
 //! and where each block lies on the device clock. Times are device `t_us`, the clock of the packets in `imu.bin`, so a
 //! block maps onto the recording exactly with no sync step. Only the pseudonymous ID identifies a player.
 
@@ -6,7 +6,12 @@ use super::blocks::Record;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-pub const SCHEMA: &str = "oso-strokes-session/1";
+pub const SCHEMA: &str = "oso-strokes-session/2";
+const SCHEMA_V1: &str = "oso-strokes-session/1";
+
+fn one() -> u32 {
+    1
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Handed {
@@ -87,9 +92,27 @@ pub struct MountAxes {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MarkerRec {
+    /// The part (recording) whose clock `t_us` is on
+    #[serde(default = "one")]
+    pub part: u32,
     pub t_us: i64,
     /// "tap" or "command"
     pub source: String,
+}
+
+/// One uploaded recording. A session is recorded in parts (the pod's flash holds ~12.5 min); every part has its own
+/// file and its own unwrapped device clock: `t_us` of a block/marker is on the clock of the part it names. 16.2 stitches
+/// parts by treating each as a separate recording (blocks never span parts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PartRec {
+    /// 1-based
+    pub index: u32,
+    /// `imu.part1.bin`, in the session folder
+    pub file: String,
+    pub packets: u64,
+    /// Device `t_us` of the first and last packet in the file (unwrapped from the first packet's raw value)
+    pub t_first_us: i64,
+    pub t_last_us: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,6 +124,11 @@ pub struct Session {
     pub mount: MountAxes,
     /// UTC, `2026-10-17T14:03:22Z`
     pub started_at: String,
+    #[serde(default)]
+    pub parts: Vec<PartRec>,
+    /// A recording is running or waiting on the pod, not uploaded yet (the resume signal after a crash)
+    #[serde(default)]
+    pub open_part: Option<u32>,
     pub blocks: Vec<Record>,
     pub markers: Vec<MarkerRec>,
     pub operator_notes: String,
@@ -113,7 +141,7 @@ impl Session {
 
     pub fn from_json(text: &str) -> anyhow::Result<Session> {
         let s: Session = serde_json::from_str(text)?;
-        anyhow::ensure!(s.schema == SCHEMA, "unknown session schema {}", s.schema);
+        anyhow::ensure!(s.schema == SCHEMA || s.schema == SCHEMA_V1, "unknown session schema {}", s.schema);
         anyhow::ensure!(valid_player_id(&s.player.id), "player id {:?} is not an anonymous ID", s.player.id);
         Ok(s)
     }
@@ -160,10 +188,12 @@ mod tests {
             mount: MountAxes { shaft: [0.0, 0.0, -1.0], normal: [0.0, -1.0, 0.0] },
             started_at: iso_utc(1_792_245_802),
             blocks: vec![
-                Record { index: 0, label: "clear".into(), side: Some("FH".into()), target: 25, counted: 24, t_start_us: Some(1_000_000), t_end_us: Some(61_000_000), status: Status::Done, note: None },
-                Record { index: 1, label: "drop".into(), side: Some("BH".into()), target: 25, counted: 0, t_start_us: None, t_end_us: None, status: Status::Skipped, note: Some("sore wrist".into()) },
+                Record { part: 1, index: 0, label: "clear".into(), side: Some("FH".into()), target: 25, counted: 24, t_start_us: Some(1_000_000), t_end_us: Some(61_000_000), status: Status::Done, note: None },
+                Record { part: 1, index: 1, label: "drop".into(), side: Some("BH".into()), target: 25, counted: 0, t_start_us: None, t_end_us: None, status: Status::Skipped, note: Some("sore wrist".into()) },
             ],
-            markers: vec![MarkerRec { t_us: 5_000_000, source: "tap".into() }],
+            parts: vec![PartRec { index: 1, file: "imu.part1.bin".into(), packets: 100, t_first_us: 900_000, t_last_us: 61_900_000 }],
+            open_part: Some(2),
+            markers: vec![MarkerRec { part: 1, t_us: 5_000_000, source: "tap".into() }],
             operator_notes: String::new(),
         }
     }
@@ -174,7 +204,9 @@ mod tests {
         let text = s.to_json();
         assert_eq!(Session::from_json(&text).unwrap(), s);
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["schema"], "oso-strokes-session/1");
+        assert_eq!(v["schema"], "oso-strokes-session/2");
+        assert_eq!((v["parts"][0]["file"].as_str(), v["parts"][0]["packets"].as_u64(), v["open_part"].as_u64()), (Some("imu.part1.bin"), Some(100), Some(2)));
+        assert_eq!((v["blocks"][0]["part"].as_u64(), v["markers"][0]["part"].as_u64()), (Some(1), Some(1)));
         assert_eq!(v["player"]["handed"], "L");
         assert_eq!(v["player"]["level"], "club");
         assert_eq!(v["blocks"][0]["status"], "done");
@@ -184,6 +216,20 @@ mod tests {
         assert_eq!(v["started_at"], "2026-10-17T14:03:22Z");
         // The player object carries the ID and the coarse attributes only
         assert_eq!(v["player"].as_object().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn v1_sessions_still_read() {
+        let mut v: serde_json::Value = serde_json::from_str(&sample().to_json()).unwrap();
+        v["schema"] = "oso-strokes-session/1".into();
+        for k in ["parts", "open_part"] {
+            v.as_object_mut().unwrap().remove(k);
+        }
+        v["blocks"].as_array_mut().unwrap().iter_mut().for_each(|b| drop(b.as_object_mut().unwrap().remove("part")));
+        v["markers"].as_array_mut().unwrap().iter_mut().for_each(|b| drop(b.as_object_mut().unwrap().remove("part")));
+        let s = Session::from_json(&v.to_string()).unwrap();
+        assert!(s.parts.is_empty() && s.open_part.is_none());
+        assert_eq!((s.blocks[0].part, s.markers[0].part), (1, 1));
     }
 
     #[test]

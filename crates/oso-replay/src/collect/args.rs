@@ -3,7 +3,8 @@
 use super::session::{Handed, Level, valid_height_bin, valid_player_id};
 use std::path::PathBuf;
 
-pub const COLLECT_USAGE: &str = "usage: oso-rec collect --player P07 [--protocol drills-v1|FILE] [--out DIR] [--handed R|L] [--level beginner|club|advanced] [--height-cm-bin 170-175] [--no-view] [--force]";
+pub const COLLECT_USAGE: &str = "usage: oso-rec collect --player P07 [--protocol drills-v1|FILE] [--out DIR] [--handed R|L] [--level beginner|club|advanced] [--height-cm-bin 170-175] [--no-view] [--force]
+       oso-rec collect --resume SESSION_DIR [--no-view] [--force]   (debug: --part-every-blocks N)";
 
 #[derive(Debug, PartialEq)]
 pub struct CollectArgs {
@@ -16,6 +17,10 @@ pub struct CollectArgs {
     pub height_bin: Option<String>,
     pub view: bool,
     pub force: bool,
+    /// Continue the session in this folder (the player comes from its session.json)
+    pub resume: Option<PathBuf>,
+    /// Debug: a new part after every N blocks
+    pub part_every_blocks: Option<u32>,
 }
 
 impl CollectArgs {
@@ -30,6 +35,8 @@ impl CollectArgs {
             height_bin: None,
             view: true,
             force: false,
+            resume: None,
+            part_every_blocks: None,
         };
         let mut it = args.iter();
         while let Some(f) = it.next() {
@@ -43,10 +50,12 @@ impl CollectArgs {
                 "--height-cm-bin" => a.height_bin = Some(val()?.clone()),
                 "--no-view" => a.view = false,
                 "--force" => a.force = true,
+                "--resume" => a.resume = Some(val()?.into()),
+                "--part-every-blocks" => a.part_every_blocks = Some(val()?.parse()?),
                 other => anyhow::bail!("unknown argument {other}\n{COLLECT_USAGE}"),
             }
         }
-        anyhow::ensure!(valid_player_id(&a.player), "--player must be an anonymous ID like P07 (P + 2-3 digits), never a name\n{COLLECT_USAGE}");
+        anyhow::ensure!(a.resume.is_some() && a.player.is_empty() || valid_player_id(&a.player), "--player must be an anonymous ID like P07 (P + 2-3 digits), never a name\n{COLLECT_USAGE}");
         if let Some(h) = &a.height_bin {
             anyhow::ensure!(valid_height_bin(h), "--height-cm-bin must be a 5 cm bin like 170-175");
         }
@@ -78,8 +87,18 @@ mod tests {
                 height_bin: Some("170-175".into()),
                 view: false,
                 force: true,
+                resume: None,
+                part_every_blocks: None,
             }
         );
+    }
+
+    #[test]
+    fn resume_needs_no_player_and_debug_flag_parses() {
+        let a = parse("--resume /x/20261017-140322-P07 --part-every-blocks 1").unwrap();
+        assert_eq!((a.resume.as_deref(), a.part_every_blocks, a.player.as_str()), (Some(std::path::Path::new("/x/20261017-140322-P07")), Some(1), ""));
+        assert!(parse("--resume /x --player Alice").is_err(), "a given player must still be an ID");
+        assert!(parse("--part-every-blocks 1").is_err());
     }
 
     #[test]

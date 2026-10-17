@@ -1,6 +1,6 @@
 # Collecting stroke data (operator guide)
 
-One guided session per player: about 45 minutes on court. Result: a folder with `imu.bin` (the full 500 Hz recording) and
+One guided session per player: about 45 minutes on court. Result: a folder with `imu.part1.bin`, `imu.part2.bin`, ... (the full 500 Hz recording, in parts) and
 `session.json` (who, which pod, which block was when). Read [consent.md](consent.md) first, and [README.md](README.md) for what
 each stroke means.
 
@@ -50,7 +50,8 @@ Order is shuffled per session (the seed is stored in `session.json`): warm-up fi
 | `space` / `n` | end this block and start the next (the first press starts block 1) |
 | `r` | redo: the attempt is marked `discarded` (data kept), the block starts again |
 | `s` | skip the block |
-| `p` | pause: ends the block, a break with no label; `space` starts the next |
+| `p` | short pause (a few minutes at most): ends the block, no label; the pod **keeps recording**, `space` starts the next |
+| `b` | **break** (restroom, water, rest): ends the block, saves the part, and leaves the pod idle (no flash used). `space` continues in a new part, `q` ends the session |
 | `q` (or Ctrl-C) | finish the session early |
 
 The pod's LED glows at every block start and end (a `0x06` marker). The live counter (gyro peak above the block's threshold, 0.8 s apart) rings
@@ -64,6 +65,25 @@ not_a_hit off. If a block over- or under-counts in the pilot, change the number 
 When the blocks are done: the recording stops, you may type a free-text note (no names), the session is downloaded from the pod
 with the packet count checked, and the folder is printed. The pod is only told it is uploaded after a complete download.
 
+## Parts, breaks and resuming
+**The pod's flash holds ~12.5 min of 500 Hz data (374,784 packets) per recording**, a drills session takes 30-40 min. So a session
+is recorded in **parts**: between blocks (never inside one) the part is stopped, downloaded (the packet count must match before
+the pod is told it is uploaded) and a new recording started. This happens by itself once about 75 % of the flash is used (or the
+next block would not fit), when the pod reports `flash_full` (the block in progress finishes first), or when you press `b`.
+The screen says "saving part N... (about 30 s, keep the racquet still)", then the pod erases its flash (up to ~20 s, the link may
+drop and is re-opened) and waits for `space`.
+- Use `b` for any real break. `p` is only for a minute or two: the pod keeps filling its flash while paused.
+- **Resume** after a crash, a quit or a pulled cable: `oso-rec collect --resume <session folder>`. It reads `session.json`,
+  continues with the first block that is not done/skipped (same seed, same order) and starts a new part. If the pod still holds
+  the unsaved part of that session (it was recording or not uploaded), it is downloaded into the folder first, after a check
+  that its time range contains that part's blocks. A pod holding a **different** session's data is refused: upload it first
+  (`oso-rec upload -o FILE`). The mount file must be unchanged.
+- `session.json` (schema `oso-strokes-session/2`) lists `parts` (`index`, `file`, `packets`, `t_first_us`, `t_last_us`); every
+  block and marker names its `part`. Times are the device clock of **that part's** recording, unwrapped from its first
+  packet: stitch parts by treating each file as its own recording; a time can also be compared across parts (the pod's
+  clock keeps running between parts) but not across a pod reboot. `open_part` is set while a recording is not uploaded yet.
+- Debug: `--part-every-blocks N` forces a part boundary every N blocks.
+
 ## After the session
 - Stop the phone video; save it as `video.mp4` **next to** the session folder's files (it is git-ignored; it never goes in the repo).
 - Check `session.json`: the blocks, the counts (blocks that ran short or long get reviewed later), the markers.
@@ -73,8 +93,9 @@ with the packet count checked, and the folder is printed. The pod is only told i
 - **No OSO device found / pod asleep:** `oso-rec wake` (a sleeping pod only advertises for 2 s every 30 s; it takes up to 40 s).
 - **"imu_ok clear":** the IMU did not start; power-cycle the pod.
 - **The pod holds an un-uploaded session:** `oso-rec upload -o old.bin`, or `--force` if it is disposable.
-- **Upload failed:** `collect` keeps the pod's session (it does not mark it uploaded) and prints
-  `oso-rec upload -o <folder>/imu.bin`; run it. `session.json` was already written with the block times.
+- **Upload failed:** `collect` keeps the pod's part (it does not mark it uploaded) and prints
+  `oso-rec collect --resume <folder>`; run it, it downloads the pending part into the folder and carries on.
+  `session.json` was already written with the block times.
 - **Link lost mid-session:** the pod keeps recording; the screen shows "reconnecting" and the counter pauses, then continues.
   Keys pressed meanwhile apply when the link is back.
 - **Misaligned data warning / implausible rest (after the framing guard):** the stream's bytes were shifted. Reset the pod
@@ -83,7 +104,7 @@ with the packet count checked, and the folder is printed. The pod is only told i
 - **Terminal garbled after a crash:** `stty sane`.
 
 ## Times in session.json
-Block `t_start_us` / `t_end_us` are the **device clock**, the same clock as the packets in `imu.bin`, so they map onto the
+Block `t_start_us` / `t_end_us` are the **device clock**, the same clock as the packets in the part file (`imu.partN.bin`, N = the block's `part`), so they map onto the
 recording directly. They are stamped when you press the key (to a few tens of ms); the `markers` list holds the pod's own marker
 times, which are exact (each block start/end sends one).
 

@@ -15,8 +15,9 @@ use std::sync::Arc;
 use oso_render::live::{LiveFrame, LiveKey, LiveShot, LiveSource};
 use oso_replay::collect::args::CollectArgs;
 use oso_replay::collect::blocks::{Effect, Key, Runner, Status as BlockStatus, View, clock, headline};
+use oso_replay::collect::parts;
 use oso_replay::collect::protocol::{self, Protocol};
-use oso_replay::collect::session::{self, MarkerRec, MountAxes, Pod, Player, ProtocolRef, Session};
+use oso_replay::collect::session::{self, MarkerRec, MountAxes, PartRec, Pod, Player, ProtocolRef, Session};
 use oso_replay::imu::live::LiveFusion;
 use oso_replay::imu::swingdet::{SwingCounter, THRESHOLD_DPS};
 use oso_replay::imu::mount::{Calibration, Mount};
@@ -227,6 +228,12 @@ async fn stream(out: PathBuf, secs: Option<u64>) -> anyhow::Result<()> {
 
 /// Downloads the pod's session into `out`; the markers the pod stored with it
 async fn upload(out: PathBuf) -> anyhow::Result<Vec<(u32, &'static str)>> {
+    upload_checked(out, &|_| Ok(())).await
+}
+
+/// Like `upload`, with `check` run on the written file before the pod is told "uploaded": a file that fails it is deleted and
+/// the pod keeps its session
+async fn upload_checked(out: PathBuf, check: &(dyn Fn(&packet::Capture) -> anyhow::Result<()> + Sync)) -> anyhow::Result<Vec<(u32, &'static str)>> {
     let d = connect().await?;
     let before = d.status().await?;
     eprintln!("{}", describe(&before));
@@ -261,8 +268,15 @@ async fn upload(out: PathBuf) -> anyhow::Result<Vec<(u32, &'static str)>> {
     anyhow::ensure!(raw.len() as u32 == done, "received {} packets, the device says {done}: not marking uploaded", raw.len());
     write_imu(&out, &raw)?;
     write_markers(&out, &markers)?;
-    let st = packet::parse(&std::fs::read(&out)?)?.stats;
+    let cap = packet::parse(&std::fs::read(&out)?)?;
+    let st = cap.stats;
     eprintln!("file parses: {} unique, {} lost (gaps from FIFO overflows), {} dup", st.unique, st.lost, st.duplicate);
+    if let Err(e) = check(&cap) {
+        std::fs::remove_file(&out).ok();
+        std::fs::remove_file(out.with_extension("markers.json")).ok();
+        d.p.disconnect().await.ok();
+        return Err(e.context("not marking uploaded: the pod keeps its session"));
+    }
     d.cmd(op::MARK_UPLOADED).await?;
     eprintln!("marked uploaded: the next power-on records again");
     d.p.disconnect().await.ok();
@@ -930,18 +944,7 @@ fn screen(v: &View, player: &str, session_s: f64, link: &str) -> String {
     } else {
         o += "  Press SPACE to start this block\n";
     }
-    o + &format!("\n  {}\n\n  SPACE/n next   r redo   s skip   p pause   q finish\n", b.instruction)
-}
-
-/// Everything the collect loop hands back
-struct Collected {
-    runner: Runner,
-    /// Stream markers (device t_us, source)
-    markers: Vec<(i64, &'static str)>,
-    /// Raw t_us of the first packet (the timeline's origin: `imu.bin` times unwrap from it)
-    first_t32: Option<u32>,
-    /// Kept for the operator-notes prompt
-    keys: UnboundedReceiver<u8>,
+    o + &format!("\n  {}\n\n  SPACE/n next   r redo   s skip   p pause   b break (save + rest)   q finish\n", b.instruction)
 }
 
 /// Next block-time source: the stream's device clock, extrapolated by the wall clock between packets
@@ -971,21 +974,62 @@ impl DevClock {
     }
 }
 
-/// Runs the blocks until the runner finishes. Streams for the counter (and the window); the recording on the pod is the data.
-#[allow(clippy::too_many_arguments)]
+/// How a run of blocks in one part ended
+enum Stop {
+    /// All blocks done (or q / Ctrl-C): save the last part and finish
+    Finished,
+    /// A part boundary between blocks (flash filling up): save, record a new part, go on
+    Split,
+    /// `b`: save, leave the pod idle until SPACE
+    Break,
+}
+
+struct PartRun {
+    d: Dev,
+    notes: Notes,
+    stop: Stop,
+    /// Stream markers (device t_us, source)
+    markers: Vec<(i64, &'static str)>,
+}
+
+struct Cfg {
+    player: String,
+    part: u32,
+    /// Debug `--part-every-blocks`
+    every: Option<u32>,
+    /// Session start (the screen's clock)
+    t0: Instant,
+}
+
+/// Packets stored in the pod's flash and whether it is full: from the status, else estimated from the stream clock
+async fn stored_packets(d: &Dev, clk: &DevClock) -> (u32, bool) {
+    match tokio::time::timeout(Duration::from_secs(3), d.status()).await {
+        Ok(Ok(s)) => (s.buffered_packets, s.state_bits & state::FLASH_FULL != 0),
+        _ => (estimated_packets(clk), false),
+    }
+}
+
+fn estimated_packets(clk: &DevClock) -> u32 {
+    clk.now().zip(clk.first).map_or(0, |(now, f)| ((now - i64::from(f)) / 2000).max(0) as u32)
+}
+
+/// Runs blocks until the runner finishes or a part boundary is due. Streams for the counter (and the window); the recording on
+/// the pod is the data. Block ends at the boundary: `Next` is turned into a pause so no block spans two parts.
 async fn run_blocks(
     mut d: Dev,
     mut notes: Notes,
-    mut runner: Runner,
-    mut keys: UnboundedReceiver<u8>,
-    player: String,
-    data: SyncSender<Vec<[u8; PACKET_LEN]>>,
-    shared: Arc<Shared>,
-) -> anyhow::Result<(Dev, Notes, Collected)> {
-    let (t0, mut clk) = (Instant::now(), DevClock { first: None, last: None, at: Instant::now() });
+    runner: &mut Runner,
+    keys: &mut UnboundedReceiver<u8>,
+    cfg: &Cfg,
+    data: &SyncSender<Vec<[u8; PACKET_LEN]>>,
+    shared: &Shared,
+) -> anyhow::Result<PartRun> {
+    let mut clk = DevClock { first: None, last: None, at: Instant::now() };
     let (mut counter, mut markers) = (SwingCounter::new(THRESHOLD_DPS), Vec::new());
     let (mut last_data, mut tick) = (Instant::now(), tokio::time::interval(Duration::from_millis(250)));
-    let mut link = String::new();
+    let (mut link, mut stop, mut flash_full) = (String::new(), None, false);
+    let blocks_in_part = |r: &Runner| r.records().iter().filter(|b| b.part == cfg.part).count() as u32;
+    let next_est = |r: &Runner| r.upcoming().map_or(0, parts::expected_packets);
     let apply = |effects: Vec<Effect>, d: &Dev| {
         for e in effects {
             match e {
@@ -1003,7 +1047,7 @@ async fn run_blocks(
             }
         }
     };
-    while !runner.finished() {
+    while !runner.finished() && stop.is_none() {
         tokio::select! {
             n = notes.next() => match n {
                 None => last_data = Instant::now() - STALL * 2,
@@ -1021,18 +1065,38 @@ async fn run_blocks(
                     data.try_send(batch).ok();
                 }
                 Some(n) => {
-                    if let Some(s) = Status::decode(&n.value)
-                        && let Some(src) = marker_source(s.event)
-                    {
-                        markers.push((i64::from(s.event_value), src));
+                    if let Some(s) = Status::decode(&n.value) {
+                        if let Some(src) = marker_source(s.event) {
+                            markers.push((i64::from(s.event_value), src));
+                        }
+                        flash_full |= s.state_bits & state::FLASH_FULL != 0;
                     }
                 }
             },
             k = keys.next() => match k {
                 Some(b) => if let Some(key) = Key::from_byte(b) {
-                    match clk.now() {
-                        Some(now) => apply(runner.key(key, now), &d),
-                        None => eprintln!("waiting for the first stream data"),
+                    if let Some(now) = clk.now() {
+                        let fx = match key {
+                            Key::Break => {
+                                stop = Some(Stop::Break);
+                                runner.key(Key::Pause, now)
+                            }
+                            Key::Next => {
+                                let (stored, full) = stored_packets(&d, &clk).await;
+                                flash_full |= full;
+                                let n = blocks_in_part(runner) + u32::from(runner.is_active());
+                                if parts::should_split(stored, flash_full, next_est(runner), n, cfg.every, true) {
+                                    stop = Some(Stop::Split);
+                                    runner.key(Key::Pause, now)
+                                } else {
+                                    runner.key(Key::Next, now)
+                                }
+                            }
+                            k => runner.key(k, now),
+                        };
+                        apply(fx, &d);
+                    } else {
+                        eprintln!("waiting for the first stream data");
                     }
                 },
                 // stdin closed (a pipe): carry on, the timed blocks and Ctrl-C still work
@@ -1041,7 +1105,7 @@ async fn run_blocks(
             _ = tick.tick() => {
                 if last_data.elapsed() > STALL {
                     link = "LINK LOST: reconnecting (counting paused)".into();
-                    print!("{}", screen(&runner.view(clk.now().unwrap_or(0)), &player, t0.elapsed().as_secs_f64(), &link));
+                    print!("{}", screen(&runner.view(clk.now().unwrap_or(0)), &cfg.player, cfg.t0.elapsed().as_secs_f64(), &link));
                     tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
                     // The pod keeps recording on its own; only the live stream is re-opened. Keys wait until it is back.
                     (d, notes) = retry(open, RETRY_WAIT).await;
@@ -1050,10 +1114,17 @@ async fn run_blocks(
                 }
                 if let Some(now) = clk.now() {
                     apply(runner.tick(now), &d);
+                    // Between blocks (a pause) and the flash is filling: do the boundary now rather than at the next SPACE
+                    if !runner.is_active() && !runner.finished()
+                        && parts::should_split(estimated_packets(&clk), flash_full, next_est(runner), blocks_in_part(runner), cfg.every, true)
+                    {
+                        stop = Some(Stop::Split);
+                    }
+                    let warn = if flash_full && runner.is_active() { "  FLASH FULL: finish this block; a new part follows" } else { "" };
                     let v = runner.view(now);
-                    print!("{}", screen(&v, &player, t0.elapsed().as_secs_f64(), &link));
+                    print!("{}", screen(&v, &cfg.player, cfg.t0.elapsed().as_secs_f64(), &format!("part {} {link}{warn}", cfg.part)));
                     if let Ok(mut t) = shared.title.lock() {
-                        *t = format!("{} | SPACE next, r redo, s skip, p pause, q (terminal) finish", headline(&v));
+                        *t = format!("{} | part {} | SPACE next, r redo, s skip, p pause, b break (terminal), q finish{warn}", headline(&v), cfg.part);
                     }
                 } else {
                     println!("\x1b[H\x1b[Jwaiting for the stream...");
@@ -1065,8 +1136,8 @@ async fn run_blocks(
     }
     // Let the last marker write go out before the recording is stopped
     tokio::time::sleep(Duration::from_millis(300)).await;
-    shared.done.store(true, Ordering::Relaxed);
-    Ok((d, notes, Collected { runner, markers, first_t32: clk.first, keys }))
+    let stop = if runner.finished() { Stop::Finished } else { stop.unwrap_or(Stop::Finished) };
+    Ok(PartRun { d, notes, stop, markers })
 }
 
 /// The optional free-text prompt at the end (the terminal is back in line mode; an empty or closed stdin skips it)
@@ -1090,12 +1161,245 @@ fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// A fresh connection with both characteristics subscribed, nothing started
+async fn open_quiet() -> anyhow::Result<(Dev, Notes)> {
+    let d = connect().await?;
+    let setup = async {
+        d.p.subscribe(&d.stream).await?;
+        d.p.subscribe(&d.status).await?;
+        anyhow::Ok(d.p.notifications().await?)
+    };
+    match setup.await {
+        Ok(notes) => Ok((d, notes)),
+        Err(e) => {
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            Err(e)
+        }
+    }
+}
+
+/// 0x03, then waits out the erase (a few seconds to ~20 s, when the link may drop: it is re-opened) until the pod reports
+/// recording, then starts the live stream
+async fn start_recording(mut d: Dev, mut notes: Notes, force: bool) -> anyhow::Result<(Dev, Notes)> {
+    if run_cmd(&d, &mut notes, op::START_REC, force).await? {
+        d.p.disconnect().await.ok();
+        bail!("recording not started");
+    }
+    let (t0, mut resent) = (Instant::now(), false);
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), d.status()).await {
+            Ok(Ok(s)) if s.state_bits & state::RECORDING != 0 && s.state_bits & state::ERASING == 0 => break,
+            // Neither erasing nor recording after a while: the command was lost with the link
+            Ok(Ok(s)) if s.state_bits & (state::RECORDING | state::ERASING) == 0 && t0.elapsed() > Duration::from_secs(6) && !resent => {
+                resent = true;
+                d.cmd(op::START_REC).await.ok();
+            }
+            Ok(Ok(_)) => {}
+            _ => {
+                eprintln!("[{}] link dropped while the pod erases; reconnecting", stamp());
+                tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+                (d, notes) = retry(open_quiet, RETRY_WAIT).await;
+            }
+        }
+        anyhow::ensure!(t0.elapsed() < Duration::from_secs(120), "the pod did not start recording within 2 minutes");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    d.cmd(op::START_STREAM).await?;
+    Ok((d, notes))
+}
+
+/// 0x02 + 0x04, and the pod must report recording stopped; the link is closed (the upload opens its own)
+async fn stop_recording(d: Dev, mut notes: Notes) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(3), d.cmd(op::STOP_STREAM)).await.ok();
+    run_cmd(&d, &mut notes, op::STOP_REC, false).await?;
+    let after = tokio::time::timeout(Duration::from_secs(5), d.status()).await.context("pod status timed out")??;
+    tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+    anyhow::ensure!(after.state_bits & state::RECORDING == 0, "the pod is still recording: `oso-rec record stop`");
+    Ok(())
+}
+
+/// The session folder and its metadata
+struct Env {
+    dir: PathBuf,
+    meta: Session,
+    shared: Arc<Shared>,
+}
+
+impl Env {
+    fn write(&self) -> anyhow::Result<()> {
+        std::fs::write(self.dir.join("session.json"), self.meta.to_json()).with_context(|| format!("writing {}/session.json", self.dir.display()))
+    }
+
+    /// A status line for the terminal and the window title
+    fn say(&self, text: &str) {
+        println!("\x1b[H\x1b[J\n  {text}\n");
+        if let Ok(mut t) = self.shared.title.lock() {
+            *t = text.to_string();
+        }
+    }
+
+    /// `part`'s block records from the runner (the earlier parts' stay as stored, already normalised)
+    fn sync_blocks(&mut self, runner: &Runner, part: u32) {
+        self.meta.blocks.retain(|b| b.part != part);
+        self.meta.blocks.extend(runner.records().iter().filter(|b| b.part == part).cloned());
+    }
+}
+
+/// (first, last) packet `t_us` of a file
+fn span(c: &packet::Capture) -> (i64, i64) {
+    let us = |s: Option<&packet::Sample>| s.map_or(0, |s| (s.t_dev * 1e6).round() as i64);
+    (us(c.samples.first()), us(c.samples.last()))
+}
+
+/// Downloads `part` (verified; refused when its time range contradicts the part's blocks) into the folder and records it in
+/// session.json. The pod must have stopped recording. session.json is written first, so a failed upload loses nothing.
+async fn upload_part(env: &mut Env, part: u32, live: &[(i64, &'static str)]) -> anyhow::Result<()> {
+    env.meta.markers.retain(|m| m.part != part);
+    env.meta.markers.extend(live.iter().map(|&(t, s)| MarkerRec { part, t_us: t, source: s.into() }));
+    env.meta.open_part = Some(part);
+    env.write()?;
+    let file = parts::part_file(part);
+    let path = env.dir.join(&file);
+    let blocks = env.meta.blocks.clone();
+    let info = std::sync::Mutex::new((0i64, 0i64, 0usize));
+    let check = |c: &packet::Capture| {
+        let (f, l) = span(c);
+        *info.lock().unwrap() = (f, l, c.stats.arrivals);
+        anyhow::ensure!(parts::part_matches(&blocks, part, f, l), "this recording (t_us {f}..{l}) does not contain part {part}'s blocks: it is another session's");
+        Ok(())
+    };
+    match upload_checked(path.clone(), &check).await {
+        Ok(stored) => {
+            let (f, l, n) = *info.lock().unwrap();
+            std::fs::remove_file(path.with_extension("markers.json")).ok();
+            for b in env.meta.blocks.iter_mut().filter(|b| b.part == part) {
+                b.t_start_us = b.t_start_us.map(|t| parts::unwrap_to(t, f));
+                b.t_end_us = b.t_end_us.map(|t| parts::unwrap_to(t, f));
+            }
+            // The pod's own record of the markers (taps and commands) replaces what the live stream saw
+            env.meta.markers.retain(|m| m.part != part);
+            env.meta.markers.extend(stored.iter().map(|&(t, s)| MarkerRec { part, t_us: parts::unwrap_to(i64::from(t), f), source: s.into() }));
+            env.meta.parts.push(PartRec { index: part, file, packets: n as u64, t_first_us: f, t_last_us: l });
+            env.meta.open_part = None;
+            env.write()
+        }
+        Err(e) => {
+            eprintln!("\nUPLOAD FAILED: {e:#}");
+            eprintln!("The pod still holds part {part} (not marked uploaded); the block times are in {}/session.json.", env.dir.display());
+            bail!("recover with: oso-rec collect --resume {}", env.dir.display())
+        }
+    }
+}
+
+/// During a break: true on SPACE/n, false on q (or a closed stdin or Ctrl-C)
+async fn wait_for_space(keys: &mut UnboundedReceiver<u8>) -> bool {
+    loop {
+        tokio::select! {
+            k = keys.next() => match k.and_then(|b| Some(Key::from_byte(b)).map(|k| (b, k))) {
+                Some((_, Some(Key::Next))) => return true,
+                Some((_, Some(Key::Quit))) | None => return false,
+                _ => {}
+            },
+            _ = tokio::signal::ctrl_c() => return false,
+        }
+    }
+}
+
+struct Loop {
+    env: Env,
+    runner: Runner,
+    keys: UnboundedReceiver<u8>,
+    data: SyncSender<Vec<[u8; PACKET_LEN]>>,
+    every: Option<u32>,
+    t0: Instant,
+    tty: Option<RawTty>,
+}
+
+/// Parts until the blocks are done: run, (prompt notes at the end), stop, save, then a new recording unless finished; a
+/// break waits for SPACE with the pod idle.
+async fn session_loop(mut l: Loop, mut d: Dev, mut notes: Notes, mut part: u32) -> anyhow::Result<()> {
+    let player = l.env.meta.player.id.clone();
+    let finish_notes = |l: &mut Loop| {
+        drop(l.tty.take());
+        println!("\x1b[H\x1b[J");
+    };
+    loop {
+        l.env.meta.open_part = Some(part);
+        l.env.write()?;
+        l.runner.set_part(part);
+        let cfg = Cfg { player: player.clone(), part, every: l.every, t0: l.t0 };
+        let PartRun { d: dd, notes: nn, stop, markers } = run_blocks(d, notes, &mut l.runner, &mut l.keys, &cfg, &l.data, &l.env.shared).await?;
+        let last = matches!(stop, Stop::Finished);
+        if last {
+            finish_notes(&mut l);
+            let n = operator_notes(&mut l.keys).await;
+            if !n.is_empty() {
+                let o = &mut l.env.meta.operator_notes;
+                *o = if o.is_empty() { n } else { format!("{o}\n{n}") };
+            }
+        }
+        l.env.say(&format!("saving part {part}... (about 30 s, keep the racquet still)"));
+        l.env.sync_blocks(&l.runner, part);
+        l.env.write()?;
+        stop_recording(dd, nn).await?;
+        upload_part(&mut l.env, part, &markers).await?;
+        if last {
+            break;
+        }
+        if let Stop::Break = stop {
+            l.env.say(&format!("ON BREAK: part {part} saved, the pod is idle. Press SPACE to continue (q to finish the session)"));
+            if !wait_for_space(&mut l.keys).await {
+                finish_notes(&mut l);
+                let n = operator_notes(&mut l.keys).await;
+                if !n.is_empty() {
+                    l.env.meta.operator_notes = n;
+                }
+                l.env.write()?;
+                break;
+            }
+        }
+        part += 1;
+        l.env.say(&format!("starting part {part}... (the pod erases its flash first, up to ~20 s)"));
+        let (dd, nn) = retry(open_quiet, RETRY_WAIT).await;
+        (d, notes) = start_recording(dd, nn, false).await?;
+    }
+    l.env.shared.done.store(true, Ordering::Relaxed);
+    let m = &l.env.meta;
+    let secs = m.blocks.iter().filter(|b| b.status != BlockStatus::Discarded).filter_map(|b| Some(b.t_end_us? - b.t_start_us?)).sum::<i64>() as f64 * 1e-6;
+    println!(
+        "{} block attempts in {} part(s) ({} skipped, {} discarded), {} reps counted, {} in blocks\nsession: {}",
+        m.blocks.iter().filter(|b| b.t_start_us.is_some()).count(),
+        m.parts.len(),
+        m.blocks.iter().filter(|b| b.status == BlockStatus::Skipped).count(),
+        m.blocks.iter().filter(|b| b.status == BlockStatus::Discarded).count(),
+        l.runner.total_counted(),
+        clock(secs),
+        l.env.dir.display()
+    );
+    Ok(())
+}
+
 async fn collect(a: CollectArgs) -> anyhow::Result<()> {
-    let text = match protocol::builtin(&a.protocol) {
+    let resumed = match &a.resume {
+        Some(dir) => {
+            let m = Session::from_json(&std::fs::read_to_string(dir.join("session.json")).with_context(|| format!("reading {}/session.json", dir.display()))?)?;
+            anyhow::ensure!(m.schema == session::SCHEMA, "only /2 sessions (recorded in parts) can be resumed");
+            Some((dir.clone(), m))
+        }
+        None => None,
+    };
+    let which = match &resumed {
+        Some((_, m)) if protocol::builtin(&m.protocol.name).is_some() => m.protocol.name.clone(),
+        _ => a.protocol.clone(),
+    };
+    let text = match protocol::builtin(&which) {
         Some(t) => t.to_string(),
-        None => std::fs::read_to_string(&a.protocol).with_context(|| format!("protocol {:?}: not built in (drills-v1, smoke) and not a file", a.protocol))?,
+        None => std::fs::read_to_string(&which).with_context(|| format!("protocol {which:?}: not built in (drills-v1, smoke) and not a file (use --protocol FILE)"))?,
     };
     let proto = Protocol::parse(&text)?;
+    if let Some((_, m)) = &resumed {
+        anyhow::ensure!((m.protocol.name.as_str(), m.protocol.version) == (proto.name.as_str(), proto.version), "the session used protocol {} v{}, not {} v{}", m.protocol.name, m.protocol.version, proto.name, proto.version);
+    }
     let root = match &a.out {
         Some(o) => o.clone(),
         None => PathBuf::from(std::env::var_os("HOME").context("no HOME")?).join("Datasets/oso-strokes/raw"),
@@ -1109,39 +1413,88 @@ async fn collect(a: CollectArgs) -> anyhow::Result<()> {
     }
     let mount = Mount::load(&mount_path)?;
     let axes: MountAxes = serde_json::from_str(&mount.to_json())?;
+    if let Some((_, m)) = &resumed {
+        let same = (0..3).all(|i| (m.mount.shaft[i] - axes.shaft[i]).abs() < 1e-6 && (m.mount.normal[i] - axes.normal[i]).abs() < 1e-6);
+        anyhow::ensure!(same, "~/.config/oso/mount.json differs from this session's mount: one session needs one mount (restore the file, or start a new session)");
+    }
 
     let d = connect().await?;
     let st = d.status().await?;
     eprintln!("{}", describe(&st));
     anyhow::ensure!(st.state_bits & state::IMU_OK != 0, "the pod reports no working IMU (imu_ok clear)");
-    anyhow::ensure!(st.state_bits & (state::RECORDING | state::UPLOADING) == 0, "the pod is already recording or uploading: `oso-rec record stop` first");
-    if st.state_bits & state::PENDING_UPLOAD != 0 {
-        anyhow::ensure!(a.force, "the pod holds an un-uploaded session: `oso-rec upload -o FILE` it first, or pass --force to overwrite it");
-        anyhow::ensure!(ask("This ERASES the pod's un-uploaded session. Type 'yes' to overwrite: ") == "yes", "not confirmed");
-    }
+    anyhow::ensure!(st.state_bits & state::UPLOADING == 0, "the pod is uploading");
+    let (pending, recording) = (st.state_bits & state::PENDING_UPLOAD != 0, st.state_bits & state::RECORDING != 0);
     // ponytail: framing_resets (Phase 16.0, #27) is not in Status on this base; add the warning when it lands
     d.p.subscribe(&d.stream).await?;
     d.p.subscribe(&d.status).await?;
-    let mut notes: Notes = d.p.notifications().await?;
-    if run_cmd(&d, &mut notes, op::START_REC, a.force).await? {
-        d.p.disconnect().await.ok();
-        bail!("recording not started");
-    }
-    d.cmd(op::START_STREAM).await?;
-    let started = unix_now();
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64) & ((1 << 48) - 1);
-    let blocks = proto.order(seed);
-    eprintln!("recording on the pod; {} blocks. SPACE starts the first.", blocks.len());
-    let pod = Pod {
-        mac: if d.p.address().to_string().replace([':', '0'], "").is_empty() { d.p.id().to_string() } else { d.p.address().to_string() },
-        fw: format!("{}.{}", st.fw_major, st.fw_minor),
-    };
-
+    let notes: Notes = d.p.notifications().await?;
     let shared = Arc::new(Shared { title: std::sync::Mutex::new(String::new()), done: Default::default() });
+
+    let (env, seed, force, d, notes) = match resumed {
+        None => {
+            anyhow::ensure!(!recording, "the pod is already recording: `oso-rec record stop` first");
+            if pending {
+                anyhow::ensure!(a.force, "the pod holds an un-uploaded session: `oso-rec upload -o FILE` it first, or pass --force to overwrite it");
+                anyhow::ensure!(ask("This ERASES the pod's un-uploaded session. Type 'yes' to overwrite: ") == "yes", "not confirmed");
+            }
+            let started = unix_now();
+            let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64) & ((1 << 48) - 1);
+            let dir = root.join(session::folder_name(started, &a.player));
+            std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+            let pod = Pod {
+                mac: if d.p.address().to_string().replace([':', '0'], "").is_empty() { d.p.id().to_string() } else { d.p.address().to_string() },
+                fw: format!("{}.{}", st.fw_major, st.fw_minor),
+            };
+            let meta = Session {
+                schema: session::SCHEMA.into(),
+                player: Player { id: a.player.clone(), handed: a.handed, level: a.level, height_bin: a.height_bin.clone() },
+                protocol: ProtocolRef { name: proto.name.clone(), version: proto.version, seed },
+                pod,
+                mount: axes,
+                started_at: session::iso_utc(started),
+                parts: Vec::new(),
+                open_part: None,
+                blocks: Vec::new(),
+                markers: Vec::new(),
+                operator_notes: String::new(),
+            };
+            (Env { dir, meta, shared: shared.clone() }, seed, pending && a.force, d, notes)
+        }
+        Some((dir, meta)) => {
+            let seed = meta.protocol.seed;
+            let mut env = Env { dir, meta, shared: shared.clone() };
+            let (d, notes) = match parts::resume_plan(&env.meta, pending, recording) {
+                parts::ResumePlan::Refuse(why) => {
+                    d.p.disconnect().await.ok();
+                    bail!("{why}");
+                }
+                parts::ResumePlan::Fresh => (d, notes),
+                parts::ResumePlan::UploadOpen(n) => {
+                    eprintln!("the pod still holds part {n} of this session: saving it into {} first", env.dir.display());
+                    if recording {
+                        stop_recording(d, notes).await?;
+                    } else {
+                        d.p.disconnect().await.ok();
+                    }
+                    upload_part(&mut env, n, &[]).await?;
+                    open_quiet().await?
+                }
+            };
+            (env, seed, false, d, notes)
+        }
+    };
+    let part = parts::next_part(&env.meta);
+    let blocks = proto.order(seed);
+    let runner = Runner::resume(blocks.clone(), env.meta.blocks.clone(), part);
+    anyhow::ensure!(!runner.finished(), "every block of this session is done");
+    eprintln!("{} blocks, starting at {}; part {part} records on the pod. SPACE starts the block.", blocks.len(), runner.view(0).idx + 1);
+    let (d, notes) = start_recording(d, notes, force).await?;
+
     let (data_tx, data_rx) = sync_channel(DATA_BATCHES);
-    let tty = RawTty::enter();
+    let tty = Some(RawTty::enter());
     let keys = stdin_bytes();
-    let task = tokio::spawn(run_blocks(d, notes, Runner::new(blocks), keys, a.player.clone(), data_tx, shared.clone()));
+    let l = Loop { env, runner, keys, data: data_tx, every: a.part_every_blocks, t0: Instant::now(), tty };
+    let task = tokio::spawn(session_loop(l, d, notes, part));
     if a.view {
         let view = CollectView { data: data_rx, fusion: LiveFusion::with_mount(mount), shared: shared.clone(), shown: String::new() };
         // A window that fails to open must not end the session: the terminal still drives it
@@ -1149,64 +1502,7 @@ async fn collect(a: CollectArgs) -> anyhow::Result<()> {
             eprintln!("live window unavailable ({e}); continuing in the terminal");
         }
     }
-    let finished = task.await?;
-    shared.done.store(true, Ordering::Relaxed);
-    drop(tty);
-    let (d, mut notes, mut c) = finished?;
-    println!("\x1b[H\x1b[J");
-
-    // Stop first, then the folder: the block times are the one thing that cannot be regenerated, so they are written
-    // before the (retryable) upload
-    d.cmd(op::STOP_STREAM).await.ok();
-    run_cmd(&d, &mut notes, op::STOP_REC, false).await?;
-    let after = d.status().await?;
-    tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
-    anyhow::ensure!(after.state_bits & state::RECORDING == 0, "the pod is still recording: `oso-rec record stop`");
-
-    let dir = root.join(session::folder_name(started, &a.player));
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let notes_txt = operator_notes(&mut c.keys).await;
-    let origin = c.first_t32.map_or(0, i64::from);
-    let total = c.runner.total_counted();
-    let blocks = c.runner.into_records();
-    let mut meta = Session {
-        schema: session::SCHEMA.into(),
-        player: Player { id: a.player.clone(), handed: a.handed, level: a.level, height_bin: a.height_bin.clone() },
-        protocol: ProtocolRef { name: proto.name.clone(), version: proto.version, seed },
-        pod,
-        mount: axes,
-        started_at: session::iso_utc(started),
-        blocks,
-        markers: c.markers.iter().map(|&(t, s)| MarkerRec { t_us: t, source: s.into() }).collect(),
-        operator_notes: notes_txt,
-    };
-    let write_meta = |m: &Session| std::fs::write(dir.join("session.json"), m.to_json()).with_context(|| format!("writing {}/session.json", dir.display()));
-    write_meta(&meta)?;
-    let imu = dir.join("imu.bin");
-    match upload(imu.clone()).await {
-        Ok(stored) => {
-            // The pod's own record of the markers (taps and commands) replaces what the live stream saw
-            std::fs::remove_file(imu.with_extension("markers.json")).ok();
-            meta.markers = stored.iter().map(|&(t, s)| MarkerRec { t_us: if i64::from(t) < origin { i64::from(t) + (1 << 32) } else { i64::from(t) }, source: s.into() }).collect();
-            write_meta(&meta)?;
-        }
-        Err(e) => {
-            eprintln!("\nUPLOAD FAILED: {e:#}");
-            eprintln!("The pod still holds the session (not marked uploaded); the block times are in {}/session.json.", dir.display());
-            bail!("recover with: oso-rec upload -o {}", imu.display());
-        }
-    }
-    let kept = meta.blocks.iter().filter(|b| b.t_start_us.is_some()).count();
-    let secs = meta.blocks.iter().filter_map(|b| Some(b.t_end_us? - b.t_start_us?)).sum::<i64>() as f64 * 1e-6;
-    println!(
-        "{} block attempts recorded ({} skipped, {} discarded), {total} reps counted, {} in blocks\nsession: {}",
-        kept,
-        meta.blocks.iter().filter(|b| b.status == BlockStatus::Skipped).count(),
-        meta.blocks.iter().filter(|b| b.status == BlockStatus::Discarded).count(),
-        clock(secs),
-        dir.display()
-    );
-    Ok(())
+    task.await?
 }
 
 #[tokio::main]

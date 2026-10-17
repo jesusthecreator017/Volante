@@ -23,6 +23,8 @@ pub enum Key {
     Skip,
     Pause,
     Quit,
+    /// Like pause, but the caller also saves the part and stops recording (a real break)
+    Break,
 }
 
 impl Key {
@@ -33,6 +35,7 @@ impl Key {
             b's' | b'S' => Some(Key::Skip),
             b'p' | b'P' => Some(Key::Pause),
             b'q' | b'Q' => Some(Key::Quit),
+            b'b' | b'B' => Some(Key::Break),
             _ => None,
         }
     }
@@ -44,6 +47,10 @@ pub enum Effect {
     Marker,
     /// The block's target is reached (reps counted, or the timed block's time is up): ring the bell
     Bell,
+}
+
+fn one() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +66,9 @@ pub enum Status {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
+    /// The part (recording) the block's times are on, 1-based
+    #[serde(default = "one")]
+    pub part: u32,
     /// Position in the session's block order
     pub index: usize,
     pub label: String,
@@ -87,6 +97,7 @@ pub struct Runner {
     cur: Option<Active>,
     records: Vec<Record>,
     finished: bool,
+    part: u32,
 }
 
 /// What the screen needs
@@ -105,7 +116,27 @@ pub struct View<'a> {
 
 impl Runner {
     pub fn new(blocks: Vec<Block>) -> Self {
-        Self { blocks, next: 0, cur: None, records: Vec::new(), finished: false }
+        Self { blocks, next: 0, cur: None, records: Vec::new(), finished: false, part: 1 }
+    }
+
+    /// Continues a stored session: `records` kept as they are, the first block without a done/redone/skipped record next
+    pub fn resume(blocks: Vec<Block>, records: Vec<Record>, part: u32) -> Self {
+        let next = super::parts::first_unfinished(blocks.len(), &records);
+        Self { finished: next >= blocks.len(), blocks, next, cur: None, records, part }
+    }
+
+    /// Records written from now on belong to this part
+    pub fn set_part(&mut self, part: u32) {
+        self.part = part;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.cur.is_some()
+    }
+
+    /// The block `Next` would start now (the one after the active block, or the shown one when idle)
+    pub fn upcoming(&self) -> Option<&Block> {
+        self.blocks.get(self.cur.as_ref().map_or(self.next, |a| a.idx + 1))
     }
 
     pub fn finished(&self) -> bool {
@@ -143,6 +174,7 @@ impl Runner {
         let redone = self.records.iter().any(|r| r.index == a.idx);
         let status = if status == Status::Done && redone { Status::Redone } else { status };
         self.records.push(Record {
+            part: self.part,
             index: a.idx,
             label: b.label.clone(),
             side: b.side.clone(),
@@ -185,6 +217,7 @@ impl Runner {
             (Key::Skip, false) => {
                 if let Some(b) = self.blocks.get(self.next) {
                     self.records.push(Record {
+                        part: self.part,
                         index: self.next,
                         label: b.label.clone(),
                         side: b.side.clone(),
@@ -216,11 +249,11 @@ impl Runner {
                     self.advance(now, &mut out);
                 }
             }
-            (Key::Pause, true) => {
+            (Key::Pause | Key::Break, true) => {
                 self.end(Status::Done, None, now, &mut out);
                 self.finished = self.next >= self.blocks.len();
             }
-            (Key::Pause, false) => {}
+            (Key::Pause | Key::Break, false) => {}
             (Key::Quit, _) => {
                 self.end(Status::Done, Some("finished early"), now, &mut out);
                 self.finished = true;

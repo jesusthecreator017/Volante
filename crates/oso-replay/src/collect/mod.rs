@@ -3,5 +3,6 @@
 
 pub mod args;
 pub mod blocks;
+pub mod parts;
 pub mod protocol;
 pub mod session;
