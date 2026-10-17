@@ -186,7 +186,7 @@ def main():
         rep = d / "report.json"
         cmd = ["cargo", "run", "--release", "--quiet", "--bin", "oso-imu", "--", "--imu", str(d / "imu.bin"),
                "--replay", str(base), "--sync", str(d / "sync.json"), "--player", "0", "-o", str(d / "racq.bin"),
-               "--report", str(rep)]
+               "--report", str(rep), "--mount", "identity"]
         p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         assert p.returncode == 0, p.stdout + p.stderr
         assert "shuttle contacts" in p.stdout

@@ -1,11 +1,20 @@
 //! Racquet-pod recorder (BLE central): talks to the firmware in firmware/ (profile: docs/ble-profile.md).
-//!   oso-rec scan | status | mark | record start [--force]|stop | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin
+//!   oso-rec scan | status | mark | record start [--force] [--no-view]|stop | live | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin
+//! `record start` and `live` open the live racquet window (keys: R re-centre, M sync marker, Esc stop streaming).
 //! Writes imu.bin (docs/data-format.md) and, when the device reported sync markers, imu.markers.json beside it.
 
 use anyhow::{Context, bail};
 use btleplug::api::{Central, CharPropFlags, Characteristic, Manager as _, Peripheral as _, ScanFilter, WriteType};
 use btleplug::platform::{Adapter, Manager, Peripheral};
 use futures::StreamExt;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel};
+use std::sync::Arc;
+use oso_render::live::{LiveFrame, LiveKey, LiveShot, LiveSource};
+use oso_replay::imu::live::LiveFusion;
+use oso_replay::imu::mount::{Calibration, Mount};
 use oso_replay::imu::packet;
 use oso_proto::uuid as gatt;
 use oso_proto::{PACKET_LEN, Status, event, op, state, state_ext};
@@ -13,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-const USAGE: &str = "usage: oso-rec scan | status | mark | record start [--force]|stop | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin";
+const USAGE: &str = "usage: oso-rec scan | status | mark | record start [--force] [--no-view]|stop | calibrate | live [--mount identity|flat|FILE] [--secs N] [--replay-file imu.bin [--time S] [--screenshot out.png]] | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin";
 
 fn u(v: u128) -> Uuid {
     Uuid::from_u128(v)
@@ -254,17 +263,17 @@ async fn upload(out: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `twice`: send the opcode again after 0.5 s (confirms a record-over-pending-session)
-async fn simple(opcode: u8, twice: bool) -> anyhow::Result<()> {
-    let d = connect().await?;
-    d.p.subscribe(&d.status).await?;
-    let mut notes = d.p.notifications().await?;
+type Notes = Pin<Box<dyn futures::Stream<Item = btleplug::api::ValueNotification> + Send>>;
+
+/// Sends `opcode` (`twice`: again after 0.5 s, confirms a record-over-pending-session) and prints the events that come
+/// back as status notifications for 2 s. True when the device answered with an error event.
+async fn run_cmd(d: &Dev, notes: &mut Notes, opcode: u8, twice: bool) -> anyhow::Result<bool> {
     d.cmd(opcode).await?;
     if twice {
         tokio::time::sleep(Duration::from_millis(500)).await;
         d.cmd(opcode).await?;
     }
-    // Events come back as status notifications
+    let mut failed = false;
     let t0 = Instant::now();
     while t0.elapsed() < Duration::from_secs(2) {
         let Ok(Some(n)) = tokio::time::timeout(Duration::from_millis(500), notes.next()).await else { continue };
@@ -272,11 +281,22 @@ async fn simple(opcode: u8, twice: bool) -> anyhow::Result<()> {
             && s.event != event::NONE
         {
             match s.event {
-                event::ERROR => eprintln!("device error {} (3 = un-uploaded session: upload it, or `record start --force` to overwrite; 5 = pod is sleeping: `oso-rec wake`)", s.event_value),
+                event::ERROR => {
+                    failed = true;
+                    eprintln!("device error {} (3 = un-uploaded session: upload it, or `record start --force` to overwrite; 5 = pod is sleeping: `oso-rec wake`)", s.event_value)
+                }
                 e => eprintln!("event {e} value {}", s.event_value),
             }
         }
     }
+    Ok(failed)
+}
+
+async fn simple(opcode: u8, twice: bool) -> anyhow::Result<()> {
+    let d = connect().await?;
+    d.p.subscribe(&d.status).await?;
+    let mut notes = d.p.notifications().await?;
+    run_cmd(&d, &mut notes, opcode, twice).await?;
     // A sleeping pod drops the link after answering, so this read may never complete
     match tokio::time::timeout(Duration::from_secs(3), d.status()).await {
         Ok(st) => eprintln!("{}", describe(&st?)),
@@ -284,6 +304,365 @@ async fn simple(opcode: u8, twice: bool) -> anyhow::Result<()> {
     }
     tokio::time::timeout(Duration::from_secs(2), d.p.disconnect()).await.ok(); // hangs on a dead link
     Ok(())
+}
+
+// ---- live racquet view -------------------------------------------------------------------------------------------
+
+/// BLE thread -> window, rare control events (unbounded; the stream itself goes over a bounded channel)
+enum Msg {
+    /// `state_bits` of the latest status
+    State(u8),
+    Disconnected,
+}
+
+/// Window -> BLE thread
+enum Cmd {
+    Marker,
+    Stop,
+}
+
+/// Stream batches (up to 13 packets each) the window may lag behind by: ~6 s at 500 Hz. Beyond it the newest batch is
+/// dropped (counted), which the sequence gap then shows as loss.
+const DATA_BATCHES: usize = 256;
+
+/// Forwards the stream to the window and the window's keys to the pod; ends on Stop (0x02 + disconnect). A lost link
+/// leaves the window open ("disconnected") until it is closed.
+// ponytail: no auto-reconnect; closing the window and rerunning `oso-rec live` re-attaches
+async fn stream_task(
+    d: Dev,
+    mut notes: Notes,
+    data: SyncSender<Vec<[u8; PACKET_LEN]>>,
+    ctl: Sender<Msg>,
+    dropped: Arc<AtomicU64>,
+    mut cmds: UnboundedReceiver<Cmd>,
+) {
+    let mut connected = true;
+    loop {
+        tokio::select! {
+            n = notes.next(), if connected => match n {
+                None => {
+                    connected = false;
+                    ctl.send(Msg::Disconnected).ok();
+                }
+                Some(n) if n.uuid == u(gatt::IMU_STREAM) => {
+                    let batch = n.value.as_chunks::<PACKET_LEN>().0.to_vec();
+                    if let Err(TrySendError::Full(b)) = data.try_send(batch) {
+                        dropped.fetch_add(b.len() as u64, Ordering::Relaxed);
+                    }
+                }
+                Some(n) => {
+                    if let Some(s) = Status::decode(&n.value) {
+                        ctl.send(Msg::State(s.state_bits)).ok();
+                        if let Some(src) = marker_source(s.event) {
+                            eprintln!("  marker ({src}) at device t_us={}", s.event_value);
+                        }
+                    }
+                }
+            },
+            c = cmds.next() => match c {
+                Some(Cmd::Marker) => {
+                    if connected && let Err(e) = d.cmd(op::MARK).await {
+                        eprintln!("marker: {e}");
+                    }
+                }
+                Some(Cmd::Stop) | None => {
+                    // Both hang on a dead link
+                    tokio::time::timeout(Duration::from_secs(3), d.cmd(op::STOP_STREAM)).await.ok();
+                    tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+                    return;
+                }
+            },
+        }
+    }
+}
+
+/// How often the title text is rebuilt (it also changes at once on a key)
+const TITLE_EVERY: Duration = Duration::from_millis(250);
+/// How long a calibration message stays in the title
+const NOTICE_FOR: Duration = Duration::from_secs(5);
+
+/// The window's data source for a pod
+struct PodView {
+    data: Receiver<Vec<[u8; PACKET_LEN]>>,
+    ctl: Receiver<Msg>,
+    dropped: Arc<AtomicU64>,
+    cmds: UnboundedSender<Cmd>,
+    fusion: LiveFusion,
+    mount: Mount,
+    calib: Calibration,
+    notice: Option<(String, Instant)>,
+    state_bits: u8,
+    connected: bool,
+    hz: f64,
+    /// Window start and packets received since
+    window: (Instant, u64),
+    /// `--secs`: close the window after this long
+    deadline: Option<Instant>,
+    title: String,
+    title_at: Instant,
+    dirty: bool,
+}
+
+impl PodView {
+    fn new(
+        data: Receiver<Vec<[u8; PACKET_LEN]>>,
+        ctl: Receiver<Msg>,
+        dropped: Arc<AtomicU64>,
+        cmds: UnboundedSender<Cmd>,
+        mount: Mount,
+        secs: Option<f64>,
+    ) -> Self {
+        Self {
+            data,
+            ctl,
+            dropped,
+            cmds,
+            fusion: LiveFusion::with_mount(mount),
+            mount,
+            calib: Calibration::Idle,
+            notice: None,
+            state_bits: state::STREAMING,
+            connected: true,
+            hz: 0.0,
+            window: (Instant::now(), 0),
+            deadline: secs.map(|s| Instant::now() + Duration::from_secs_f64(s)),
+            title: String::new(),
+            title_at: Instant::now(),
+            dirty: true,
+        }
+    }
+
+    /// C: next calibration step with the last second of raw samples
+    fn calibrate_key(&mut self) {
+        let msg = match self.calib.press(&self.fusion.recent_raw()) {
+            Ok(None) => None,
+            Ok(Some(m)) => {
+                self.mount = m;
+                self.fusion = LiveFusion::with_mount(m);
+                Some(match save_mount(&m) {
+                    Ok(p) => format!("mount saved ({})", p.display()),
+                    Err(e) => format!("mount applied, not saved: {e}"),
+                })
+            }
+            Err(reason) => Some(format!("rejected: {reason}")),
+        };
+        self.notice = msg.map(|m| (m, Instant::now()));
+        self.dirty = true;
+    }
+}
+
+fn save_mount(m: &Mount) -> anyhow::Result<PathBuf> {
+    let path = Mount::default_path().context("no HOME")?;
+    m.save(&path)?;
+    Ok(path)
+}
+
+impl LiveSource for PodView {
+    fn frame(&mut self) -> LiveFrame {
+        while let Ok(m) = self.ctl.try_recv() {
+            match m {
+                Msg::State(b) => self.state_bits = b,
+                Msg::Disconnected => self.connected = false,
+            }
+            self.dirty = true;
+        }
+        while let Ok(ps) = self.data.try_recv() {
+            self.window.1 += ps.len() as u64;
+            ps.iter().for_each(|p| self.fusion.push_packet(p));
+        }
+        let el = self.window.0.elapsed().as_secs_f64();
+        let rolled = el >= 1.0;
+        if rolled {
+            self.hz = self.window.1 as f64 / el;
+            self.window = (Instant::now(), 0);
+        }
+        if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed() > NOTICE_FOR) {
+            self.notice = None;
+            self.dirty = true;
+        }
+        let mut new_title = None;
+        if self.dirty || self.title_at.elapsed() >= TITLE_EVERY {
+            let total = (self.fusion.received + self.fusion.lost).max(1) as f64;
+            let t = title(&TitleInfo {
+                connected: self.connected,
+                state_bits: self.state_bits,
+                calibrating: self.fusion.calibrating(),
+                hz: self.hz,
+                loss_pct: 100.0 * self.fusion.lost as f64 / total,
+                dropped: self.dropped.load(Ordering::Relaxed),
+                prompt: self.notice.as_ref().map_or_else(|| self.calib.prompt(), |(m, _)| m),
+            });
+            self.title_at = Instant::now();
+            self.dirty = false;
+            if t != self.title {
+                if rolled {
+                    eprintln!("{t}");
+                }
+                self.title = t.clone();
+                new_title = Some(t);
+            }
+        }
+        LiveFrame { rotation: self.fusion.orientation(), title: new_title, quit: self.deadline.is_some_and(|d| Instant::now() >= d) }
+    }
+
+    fn key(&mut self, key: LiveKey) {
+        match key {
+            LiveKey::Recenter => self.fusion.recenter(),
+            LiveKey::Marker => {
+                self.cmds.unbounded_send(Cmd::Marker).ok();
+            }
+            LiveKey::Calibrate => self.calibrate_key(),
+            LiveKey::Quit => {
+                self.cmds.unbounded_send(Cmd::Stop).ok();
+            }
+        }
+    }
+}
+
+struct TitleInfo<'a> {
+    connected: bool,
+    state_bits: u8,
+    calibrating: bool,
+    hz: f64,
+    loss_pct: f64,
+    dropped: u64,
+    /// Calibration prompt or message ("" = none)
+    prompt: &'a str,
+}
+
+fn title(i: &TitleInfo) -> String {
+    let mode = if !i.connected {
+        "DISCONNECTED".to_string()
+    } else {
+        let mut v = Vec::new();
+        if i.state_bits & state::RECORDING != 0 {
+            v.push("recording");
+        }
+        v.push("streaming");
+        if i.calibrating {
+            v.push("calibrating: hold still");
+        }
+        v.join(" + ")
+    };
+    let dropped = if i.dropped > 0 { format!(" ({} dropped)", i.dropped) } else { String::new() };
+    let prompt = if i.prompt.is_empty() { String::new() } else { format!("{} | ", i.prompt) };
+    format!("{prompt}oso-rec live | {mode} | {:.0} Hz | loss {:.1} %{dropped} | R re-centre, M marker, C calibrate mount, Esc stop", i.hz, i.loss_pct)
+}
+
+/// A recorded imu.bin played back in real time (or frozen at `--time` for a screenshot): no BLE
+struct FileView {
+    samples: Vec<packet::Sample>,
+    next: usize,
+    start: Instant,
+    /// Some: frozen at this many seconds into the file
+    at: Option<f64>,
+    fusion: LiveFusion,
+    titled: bool,
+}
+
+impl LiveSource for FileView {
+    fn frame(&mut self) -> LiveFrame {
+        let t0 = self.samples.first().map_or(0.0, |s| s.t_dev);
+        let now = self.at.unwrap_or_else(|| self.start.elapsed().as_secs_f64());
+        while self.samples.get(self.next).is_some_and(|s| s.t_dev - t0 <= now) {
+            self.fusion.push_sample(self.samples[self.next]);
+            self.next += 1;
+        }
+        let title = (!std::mem::replace(&mut self.titled, true)).then(|| "oso-rec live (file) | R re-centre, Esc quit".to_string());
+        LiveFrame { rotation: self.fusion.orientation(), title, quit: false }
+    }
+
+    fn key(&mut self, key: LiveKey) {
+        if let LiveKey::Recenter = key {
+            self.fusion.recenter();
+        }
+    }
+}
+
+/// `record start` flags: (force, view)
+fn record_start_flags(args: &[String]) -> (bool, bool) {
+    (args.iter().any(|a| a == "--force"), !args.iter().any(|a| a == "--no-view"))
+}
+
+/// Starts the recording (`record`: Some(force)), then streams into the window. Esc leaves the recording running.
+async fn live(record: Option<bool>, secs: Option<f64>, mount: Mount) -> anyhow::Result<()> {
+    let d = connect().await?;
+    eprintln!("{}", describe(&d.status().await?));
+    d.p.subscribe(&d.stream).await?;
+    d.p.subscribe(&d.status).await?;
+    let mut notes: Notes = d.p.notifications().await?;
+    if let Some(force) = record {
+        if run_cmd(&d, &mut notes, op::START_REC, force).await? {
+            d.p.disconnect().await.ok();
+            bail!("recording not started");
+        }
+        eprintln!("recording started");
+    }
+    d.cmd(op::START_STREAM).await?;
+    let (data_tx, data_rx) = sync_channel(DATA_BATCHES);
+    let (tx, rx) = channel();
+    let dropped = Arc::new(AtomicU64::new(0));
+    let bits = d.status().await?.state_bits;
+    tx.send(Msg::State(bits)).ok();
+    let (ctx, crx) = unbounded();
+    let stop = ctx.clone();
+    let task = tokio::spawn(stream_task(d, notes, data_tx, tx, dropped.clone(), crx));
+    // The window runs on this (the main) thread, as winit requires; the BLE work is on the runtime's workers
+    let shown = oso_render::live::run_live(Box::new(PodView::new(data_rx, rx, dropped, ctx, mount, secs)), None);
+    // A window that failed to open must not leave the pod streaming
+    stop.unbounded_send(Cmd::Stop).ok();
+    anyhow::ensure!(tokio::time::timeout(Duration::from_secs(10), task).await.is_ok(), "pod did not disconnect in time");
+    shown?;
+    if record.is_some() || bits & state::RECORDING != 0 {
+        eprintln!("pod still recording, run `oso-rec record stop` to end");
+    } else {
+        eprintln!("streaming stopped");
+    }
+    Ok(())
+}
+
+/// `oso-rec calibrate`: the two-step mount calibration without the window (prompts in the terminal, Enter = go)
+async fn calibrate() -> anyhow::Result<()> {
+    let d = connect().await?;
+    d.p.subscribe(&d.stream).await?;
+    let mut notes: Notes = d.p.notifications().await?;
+    d.cmd(op::START_STREAM).await?;
+    let result: anyhow::Result<Mount> = async {
+        let mut fusion = LiveFusion::new();
+        let mut cal = Calibration::Idle;
+        cal.press(&[]).ok();
+        loop {
+            eprintln!("{}, then press Enter", cal.prompt());
+            // Keep draining the stream while waiting, so the last second before Enter is what gets averaged
+            let mut line = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new()));
+            loop {
+                tokio::select! {
+                    _ = &mut line => break,
+                    n = notes.next() => {
+                        let n = n.context("connection closed")?;
+                        n.value.as_chunks::<PACKET_LEN>().0.iter().for_each(|p| fusion.push_packet(p));
+                    }
+                }
+            }
+            match cal.press(&fusion.recent_raw()) {
+                Ok(Some(m)) => return Ok(m),
+                Ok(None) => {}
+                Err(reason) => eprintln!("rejected: {reason}"),
+            }
+        }
+    }
+    .await;
+    tokio::time::timeout(Duration::from_secs(3), d.cmd(op::STOP_STREAM)).await.ok();
+    tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+    let m: Mount = result?;
+    eprintln!("mount saved ({})", save_mount(&m)?.display());
+    Ok(())
+}
+
+fn live_file(path: &Path, at: Option<f64>, shot: Option<PathBuf>, mount: Mount) -> anyhow::Result<()> {
+    let samples = packet::parse(&std::fs::read(path)?)?.samples;
+    let view = FileView { samples, next: 0, start: Instant::now(), at: shot.as_ref().map(|_| at.unwrap_or(5.0)).or(at), fusion: LiveFusion::with_mount(mount), titled: false };
+    oso_render::live::run_live(Box::new(view), shot.map(|path| LiveShot { path, size: (900, 700) }))
 }
 
 /// 0x08: the pod stops recording, parks the IMU and deep-sleeps; the link then dies. Prints when it did.
@@ -347,6 +726,8 @@ async fn wake() -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1));
+    // `--secs N` closes the live window by itself (tests, hardware checks)
+    let live_secs = flag("--secs").and_then(|s| s.parse::<f64>().ok());
     let out = || flag("-o").map(PathBuf::from).context(USAGE);
     match args.first().map(String::as_str) {
         Some("scan") => {
@@ -363,14 +744,49 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("mark") => simple(op::MARK, false).await,
         Some("record") => match args.get(1).map(String::as_str) {
-            Some("start") => simple(op::START_REC, args.iter().any(|a| a == "--force")).await,
+            Some("start") => match record_start_flags(&args) {
+                (force, true) => live(Some(force), live_secs, Mount::resolve(flag("--mount").map(String::as_str))?).await,
+                (force, false) => simple(op::START_REC, force).await,
+            },
             Some("stop") => simple(op::STOP_REC, false).await,
             _ => bail!(USAGE),
         },
+        Some("live") => match flag("--replay-file") {
+            Some(f) => live_file(Path::new(f), flag("--time").map(|t| t.parse()).transpose()?, flag("--screenshot").map(PathBuf::from), Mount::resolve(flag("--mount").map(String::as_str))?),
+            None => live(None, live_secs, Mount::resolve(flag("--mount").map(String::as_str))?).await,
+        },
+        Some("calibrate") => calibrate().await,
         Some("sleep") => sleep().await,
         Some("wake") => wake().await,
         Some("stream") => stream(out()?, flag("--secs").map(|s| s.parse()).transpose()?).await,
         Some("upload") => upload(out()?).await,
         _ => bail!(USAGE),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn record_start_flags_parse() {
+        assert_eq!(record_start_flags(&args("record start")), (false, true));
+        assert_eq!(record_start_flags(&args("record start --force")), (true, true));
+        assert_eq!(record_start_flags(&args("record start --no-view")), (false, false));
+        assert_eq!(record_start_flags(&args("record start --no-view --force")), (true, false));
+    }
+
+    #[test]
+    fn title_shows_state_rate_and_loss() {
+        let info = |connected, bits, calibrating, hz, loss_pct, dropped, prompt| TitleInfo { connected, state_bits: bits, calibrating, hz, loss_pct, dropped, prompt };
+        let t = title(&info(true, state::RECORDING | state::STREAMING, false, 498.7, 0.25, 0, ""));
+        assert!(t.contains("recording + streaming") && t.contains("499 Hz") && t.contains("loss 0.2 %") && t.contains("R re-centre"));
+        assert!(title(&info(false, 0, false, 0.0, 0.0, 0, "")).contains("DISCONNECTED"));
+        assert!(title(&info(true, 1, true, 0.0, 0.0, 7, "C: go")).starts_with("C: go | "));
+        assert!(title(&info(true, 1, true, 0.0, 0.0, 7, "")).contains("hold still") && title(&info(true, 1, true, 0.0, 0.0, 7, "")).contains("7 dropped"));
     }
 }

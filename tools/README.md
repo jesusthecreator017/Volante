@@ -18,11 +18,11 @@ Test: `tools/.venv/bin/python tools/test_pose3d.py`
 # Racquet IMU (Phase 4)
 Synthetic IMU in the firmware's packet format, then fusion + time sync + racquet track (from the repo root, after the Pose steps):
 `tools/.venv/bin/python tools/synth_imu.py` (writes out/synth/imu.bin, imu_gt.npz, sync.json; ground truth from pose_gt.npz, player 0; `--hole T N` adds an N-packet hole at video time T)
-`cargo run --release --bin oso-imu -- --imu out/synth/imu.bin --replay assets/replay/replay.bin --sync out/synth/sync.json --player 0 -o assets/replay/replay.bin`
+`cargo run --release --bin oso-imu -- --imu out/synth/imu.bin --replay assets/replay/replay.bin --sync out/synth/sync.json --player 0 --mount identity -o assets/replay/replay.bin`
 Prints packet accounting, gyro bias, the sync table (start-clap-only offset, clap-fit offset and drift, per-impact residuals in ms: a check) and
 yaw-correction stats. Flags: `--no-video-yaw` (IMU heading as fused), `--yaw-const` (constant alignment only), `--beta B`
-(Madgwick gain, default 0.04), `--forward-only` (skip the backward fusion pass), `--report out.json`. Re-running replaces the `racquet` track (the other tracks stay byte-identical).
-Real device: `firmware/` (README there) + `oso-rec` write the same imu.bin format; or write it yourself and a sync.json `{"claps_video": [start, end]}`: do a clap/LED event at the start AND the end of each session (still ~2 s before each); the two give offset and drift.
+(Madgwick gain, default 0.04), `--forward-only` (skip the backward fusion pass), `--report out.json`, `--mount identity|flat|FILE` (how the IMU sits in the racquet; without it `~/.config/oso/mount.json`, else `flat`, so **synthetic data needs `--mount identity`**; see ../firmware/README.md). Re-running replaces the `racquet` track (the other tracks stay byte-identical).
+Real device: `firmware/` (README there) + `oso-rec` write the same imu.bin format; or write it yourself and a sync.json `{"claps_video": [start, end]}`: do a clap/LED event at the start AND the end of each session (still ~2 s before each); the two give offset and drift. `oso-rec record start` / `oso-rec live` show the pod's racquet live in a window (keys R, M, Esc): see firmware/README.md.
 Test (runs cargo): `tools/.venv/bin/python tools/test_imu.py`; Rust unit tests: `cargo test`, benches: `cargo bench --bench imu`.
 Format: ../docs/data-format.md
 

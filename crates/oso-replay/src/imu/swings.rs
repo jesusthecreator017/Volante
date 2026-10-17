@@ -47,7 +47,7 @@ impl Swing {
     }
 }
 
-/// `bias` in rad/s (sensor frame); `t_video = t_dev * (1 + a) + b`.
+/// `bias` in rad/s (racquet frame, after the mount rotation); `t_video = t_dev * (1 + a) + b`.
 pub fn detect(samples: &[Sample], gaps: &[Gap], bias: [f64; 3], a: f64, b: f64) -> Vec<Swing> {
     let dps: Vec<f64> = samples
         .iter()

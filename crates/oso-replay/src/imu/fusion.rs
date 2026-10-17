@@ -84,7 +84,7 @@ fn block_is_still(block: &[Sample]) -> bool {
     (super::norm(mean) / G - 1.0).abs() < STILL_ACC_G
 }
 
-fn mean_acc(s: &[Sample]) -> Vec3 {
+pub(super) fn mean_acc(s: &[Sample]) -> Vec3 {
     let n = s.len() as f64;
     std::array::from_fn(|a| s.iter().map(|x| x.acc[a] as f64).sum::<f64>() / n)
 }
@@ -156,16 +156,16 @@ pub fn madgwick_step(q: &mut [f64; 4], gyro: Vec3, acc: Option<Vec3>, dt: f64, b
     *q = r;
 }
 
-fn to_madgwick([x, y, z, w]: Quat) -> [f64; 4] {
+pub(super) fn to_madgwick([x, y, z, w]: Quat) -> [f64; 4] {
     [w, x, y, z]
 }
 
-fn from_madgwick([w, x, y, z]: [f64; 4]) -> Quat {
+pub(super) fn from_madgwick([w, x, y, z]: [f64; 4]) -> Quat {
     [x, y, z, w]
 }
 
 /// Z-up Madgwick world -> court frame (+Y up): rotate -90 deg about X.
-fn world_to_court() -> Quat {
+pub(super) fn world_to_court() -> Quat {
     from_axis_angle([1.0, 0.0, 0.0], -std::f64::consts::FRAC_PI_2)
 }
 
@@ -222,79 +222,96 @@ impl Track {
     }
 }
 
+/// Advances `q` from `prev` to `cur`. `prev2` / `next` are the neighbours (only used to fit the Hermite curve over a
+/// hole). `sign` -1 = backward pass (negated rates).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn step(
+    q: &mut [f64; 4],
+    prev2: Option<&Sample>,
+    prev: Option<&Sample>,
+    cur: &Sample,
+    next: Option<&Sample>,
+    bias: Vec3,
+    sign: f64,
+    params: Params,
+) {
+    let Some(prev) = prev else { return };
+    let up = [0.0, 0.0, 1.0];
+    let gyro_of = |s: &Sample| -> Vec3 {
+        std::array::from_fn(|a| sign * (s.gyro[a] as f64 - bias[a]))
+    };
+    let dt = cur.t_dev - prev.t_dev;
+    let acc = cur.acc.map(|c| c as f64);
+    if dt > MAX_DT {
+        // Lost packets: keep the heading, redo the tilt from gravity
+        let qm = from_madgwick(*q);
+        let tilt = from_two_vectors(rotate(qm, acc), up);
+        *q = to_madgwick(normalize(mul(tilt, qm)));
+    } else if dt > 0.0 {
+        let gated = (super::norm(acc) / G - 1.0).abs() <= ACC_GATE_G;
+        let (w0, w1) = (gyro_of(prev), gyro_of(cur));
+        if dt <= 1.5 * params.nominal_dt {
+            // Trapezoid
+            let rate = std::array::from_fn(|a| 0.5 * (w0[a] + w1[a]));
+            madgwick_step(q, rate, gated.then_some(acc), dt, params.beta);
+        } else {
+            // Lost packets: the rate between the neighbours is a cubic Hermite curve through their values and
+            // slopes, integrated in nominal-size sub-steps (one Euler step over 40 ms would be far off)
+            let slope = |a: &Sample, b: &Sample| -> Vec3 {
+                let h = b.t_dev - a.t_dev;
+                if h > 0.0 && h <= 1.5 * params.nominal_dt {
+                    let (wa, wb) = (gyro_of(a), gyro_of(b));
+                    std::array::from_fn(|k| (wb[k] - wa[k]) / h)
+                } else {
+                    [0.0; 3]
+                }
+            };
+            let m0 = prev2.map_or([0.0; 3], |p2| slope(p2, prev));
+            let m1 = next.map_or([0.0; 3], |n| slope(cur, n));
+            let n = (dt / params.nominal_dt).round().max(1.0) as usize;
+            for k in 0..n {
+                let u = (k as f64 + 0.5) / n as f64;
+                let (u2, u3) = (u * u, u * u * u);
+                let (h00, h10, h01, h11) = (
+                    2.0 * u3 - 3.0 * u2 + 1.0,
+                    u3 - 2.0 * u2 + u,
+                    3.0 * u2 - 2.0 * u3,
+                    u3 - u2,
+                );
+                let rate = std::array::from_fn(|a| {
+                    h00 * w0[a] + h10 * dt * m0[a] + h01 * w1[a] + h11 * dt * m1[a]
+                });
+                let last = k + 1 == n;
+                madgwick_step(
+                    q,
+                    rate,
+                    (gated && last).then_some(acc),
+                    dt / n as f64,
+                    params.beta,
+                );
+            }
+        }
+    }
+}
+
 /// One Madgwick pass over `samples` (in the order given; the backward pass feeds reversed time and negated rates).
 /// Returns the Madgwick-frame quaternion (w, x, y, z) after each sample.
 fn pass(samples: &[Sample], bias: Vec3, q0: [f64; 4], sign: f64, params: Params) -> Vec<[f64; 4]> {
-    let up = [0.0, 0.0, 1.0];
     let mut q = q0;
     let mut out = Vec::with_capacity(samples.len());
-    let gyro_at = |i: usize| -> Vec3 {
-        std::array::from_fn(|a| sign * (samples[i].gyro[a] as f64 - bias[a]))
-    };
     // The backward pass is handed reversed samples with negated times, so time runs forward in list order
-    let dt_at = |i: usize| samples[i].t_dev - samples[i - 1].t_dev;
-    for (i, s) in samples.iter().enumerate() {
-        let gyro = gyro_at(i);
-        let dt = if i > 0 { dt_at(i) } else { 0.0 };
-        let acc = s.acc.map(|c| c as f64);
-        if dt > MAX_DT {
-            // Lost packets: keep the heading, redo the tilt from gravity
-            let qm = from_madgwick(q);
-            let tilt = from_two_vectors(rotate(qm, acc), up);
-            q = to_madgwick(normalize(mul(tilt, qm)));
-        } else if dt > 0.0 {
-            let gated = (super::norm(acc) / G - 1.0).abs() <= ACC_GATE_G;
-            let (w0, w1) = (gyro_at(i - 1), gyro);
-            if dt <= 1.5 * params.nominal_dt {
-                // Trapezoid
-                let rate = std::array::from_fn(|a| 0.5 * (w0[a] + w1[a]));
-                madgwick_step(&mut q, rate, gated.then_some(acc), dt, params.beta);
-            } else {
-                // Lost packets: the rate between the neighbours is a cubic Hermite curve through their values and
-                // slopes, integrated in nominal-size sub-steps (one Euler step over 40 ms would be far off)
-                let slope = |a: usize, b: usize| -> Vec3 {
-                    let h = samples[b].t_dev - samples[a].t_dev;
-                    if h > 0.0 && h <= 1.5 * params.nominal_dt {
-                        let (wa, wb) = (gyro_at(a), gyro_at(b));
-                        std::array::from_fn(|k| (wb[k] - wa[k]) / h)
-                    } else {
-                        [0.0; 3]
-                    }
-                };
-                let m0 = if i >= 2 {
-                    slope(i - 2, i - 1)
-                } else {
-                    [0.0; 3]
-                };
-                let m1 = if i + 1 < samples.len() {
-                    slope(i, i + 1)
-                } else {
-                    [0.0; 3]
-                };
-                let n = (dt / params.nominal_dt).round().max(1.0) as usize;
-                for k in 0..n {
-                    let u = (k as f64 + 0.5) / n as f64;
-                    let (u2, u3) = (u * u, u * u * u);
-                    let (h00, h10, h01, h11) = (
-                        2.0 * u3 - 3.0 * u2 + 1.0,
-                        u3 - 2.0 * u2 + u,
-                        3.0 * u2 - 2.0 * u3,
-                        u3 - u2,
-                    );
-                    let rate = std::array::from_fn(|a| {
-                        h00 * w0[a] + h10 * dt * m0[a] + h01 * w1[a] + h11 * dt * m1[a]
-                    });
-                    let last = k + 1 == n;
-                    madgwick_step(
-                        &mut q,
-                        rate,
-                        (gated && last).then_some(acc),
-                        dt / n as f64,
-                        params.beta,
-                    );
-                }
-            }
-        }
+    for i in 0..samples.len() {
+        let at = |j: Option<usize>| j.and_then(|j| samples.get(j));
+        step(
+            &mut q,
+            at(i.checked_sub(2)),
+            at(i.checked_sub(1)),
+            &samples[i],
+            at(Some(i + 1)),
+            bias,
+            sign,
+            params,
+        );
         out.push(q);
     }
     out
