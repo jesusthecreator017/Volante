@@ -131,6 +131,7 @@ export class LiveSession {
       }
       this.raw.push(p);
       const { seq, tUs } = this.un.next(p);
+      if (this.earlyMarkers.length) for (const [t32, src] of this.earlyMarkers.splice(0)) this.addDeviceMarker(t32, src);
       this.stats.arrivals++;
       if (this.firstSeq === null) this.firstSeq = seq;
       if (this.seen.has(seq)) {
@@ -176,6 +177,21 @@ export class LiveSession {
       this.process(s);
     }
   }
+
+  /**
+   * A sync marker from a firmware status event (event_value = device t_us, 32-bit). Unwrapped against the newest
+   * packet; markers that arrive before any packet wait for the first one.
+   */
+  addDeviceMarker(t32: number, source: "tap" | "command") {
+    const t = this.un.peekTime(t32);
+    if (t === null) {
+      this.earlyMarkers.push([t32, source]);
+      return;
+    }
+    this.markers.push({ t: t * 1e-6, source });
+    this.stats.markers++;
+  }
+  private earlyMarkers: [number, "tap" | "command"][] = [];
 
   finish() {
     this.drain(true);

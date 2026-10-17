@@ -2,12 +2,12 @@
 
 import type { ImuDevice, ConnState } from "./ble/device";
 import { hostNowMs } from "./ble/device";
-import { CMD, type DeviceStatus } from "./ble/profile";
+import { CMD, ERR, EVENT, errorText, type DeviceStatus } from "./ble/profile";
 import { MockDevice, DEFAULT_MOCK, type MockOptions } from "./ble/mock";
 import { CapacitorBleDevice } from "./ble/capacitorBle";
 import { LiveSession } from "./core/live";
 import { analyzeSession, type SessionAnalysis } from "./core/analysis";
-import { parse, PACKET_LEN } from "./core/packet";
+import { parse, PACKET_LEN, type Marker } from "./core/packet";
 import { loadSettings, saveSettings, analysisSettings, type Settings } from "./settings";
 import { getSession, listSessions, newId, putSession, type StoredSession } from "./store";
 
@@ -32,6 +32,15 @@ class App {
   live: LiveSession | null = null;
   upload: LiveSession | null = null;
   uploadLastDataMs = 0;
+  /** packets the pod holds when the upload started (status.bufferedPackets) */
+  uploadExpected = 0;
+  /** info line for the Device page (wake, upload result, ...) */
+  notice: string | null = null;
+  /** asked before overwriting a session the pod has not uploaded (Device page sets a dialog) */
+  confirmOverwrite: () => Promise<boolean> = async () => confirm("The pod holds a session that was not uploaded. Erase it and record a new one?");
+  private eventWaiters: ((s: DeviceStatus) => boolean)[] = [];
+  private uploadWatch: ReturnType<typeof setInterval> | null = null;
+  private mock: MockDevice | null = null;
   /** notification inter-arrival times (ms), last 200 */
   interArrival: number[] = [];
   private lastArrivalMs = 0;
@@ -72,8 +81,9 @@ class App {
   async connectMock() {
     this.mockOpts.lossProb = this.settings.mockLossPct / 100;
     this.mockOpts.jitterMs = this.settings.mockJitterMs;
-    const dev = new MockDevice(async () => new Uint8Array(await (await fetch(`${BASE}sample/imu.bin`)).arrayBuffer()), this.mockOpts);
-    await this.attach(dev);
+    // One mock pod per page load: like the real one it keeps its stored session and sleep state across connections
+    this.mock ??= new MockDevice(async () => new Uint8Array(await (await fetch(`${BASE}sample/imu.bin`)).arrayBuffer()), this.mockOpts);
+    await this.attach(this.mock);
   }
 
   /** Must run inside a click handler on the web (Web Bluetooth user-gesture rule). */
@@ -85,10 +95,12 @@ class App {
   private async attach(dev: ImuDevice) {
     this.conn = "connecting";
     this.changed();
+    dev.offAll();
     dev.on("data", (dv, host) => this.onData(dv, host));
     dev.on("status", (s) => {
       this.status = s;
       this.statusAtMs = hostNowMs();
+      if (s.event !== EVENT.NONE) this.onEvent(s);
       this.changed();
     });
     dev.on("disconnect", () => this.onDisconnect());
@@ -118,6 +130,12 @@ class App {
     );
     this.rssi = await dev.readRssi().catch(() => null);
     this.battery = await dev.readBattery().catch(() => null);
+    this.notice = null;
+    if (this.status?.sleeping) {
+      // Caught a sleeping pod in its 2 s advert window: it has 10 s for 0x09, then resets into the normal boot
+      this.notice = "The pod was sleeping: sent wake (0x09). It restarts (~7 s); then connect again.";
+      await dev.command(CMD.WAKE).catch((e) => this.error(e));
+    }
     this.changed();
   }
 
@@ -128,6 +146,10 @@ class App {
   }
 
   private onDisconnect() {
+    if (this.upload) {
+      this.stopUploadWatch();
+      this.error("link lost during the upload: the pod keeps the session, upload again (or Finish upload now to keep what arrived)");
+    }
     this.polls.forEach(clearInterval);
     this.polls = [];
     this.conn = "disconnected";
@@ -137,8 +159,64 @@ class App {
 
   async command(cmd: number) {
     if (!this.device) throw new Error("not connected");
+    if (this.status?.sleeping && cmd !== CMD.WAKE) throw new Error(errorText(ERR.SLEEPING));
     await this.device.command(cmd);
     this.status = (await this.device.readStatus().catch(() => null)) ?? this.status;
+    this.changed();
+  }
+
+  /** Resolves with the first status event matching `pred` within `ms`, else null. */
+  private waitEvent(pred: (s: DeviceStatus) => boolean, ms: number): Promise<DeviceStatus | null> {
+    return new Promise((res) => {
+      const w = (s: DeviceStatus) => {
+        if (!pred(s)) return false;
+        clearTimeout(t);
+        res(s);
+        return true;
+      };
+      const t = setTimeout(() => {
+        this.eventWaiters = this.eventWaiters.filter((x) => x !== w);
+        res(null);
+      }, ms);
+      this.eventWaiters.push(w);
+    });
+  }
+
+  /** Status events (notifications only; a read always says none). */
+  private onEvent(s: DeviceStatus) {
+    const before = this.eventWaiters.length;
+    this.eventWaiters = this.eventWaiters.filter((w) => !w(s));
+    const awaited = this.eventWaiters.length < before;
+    switch (s.event) {
+      case EVENT.MARKER_TAP:
+      case EVENT.MARKER_CMD: {
+        const target = this.upload ?? this.live;
+        if (target) target.addDeviceMarker(s.eventValue, s.event === EVENT.MARKER_TAP ? "tap" : "command");
+        break;
+      }
+      case EVENT.UPLOAD_DONE:
+        if (this.upload) void this.completeUpload(s.eventValue);
+        break;
+      case EVENT.ERROR:
+        if (!awaited) this.error(`device: ${errorText(s.eventValue)}`);
+        break;
+    }
+  }
+
+  /** 0x03. A stored session that was not uploaded needs a second 0x03 within 5 s (after asking the user). */
+  async startRecording() {
+    const needConfirm = this.waitEvent((s) => s.event === EVENT.ERROR && s.eventValue === ERR.NEED_CONFIRM, 1500);
+    await this.command(CMD.START_RECORDING);
+    if (!(await needConfirm)) return;
+    if (!(await this.confirmOverwrite())) return;
+    await this.command(CMD.START_RECORDING);
+  }
+
+  /** 0x08: stops recording, parks the pod; the link closes. Reconnect (scan up to ~30 s) to wake it. */
+  async sleep() {
+    if (this.live) await this.stopSession();
+    await this.command(CMD.SLEEP);
+    this.notice = "Pod going to sleep. To wake it, connect again: it advertises 2 s every 30 s, keep the picker open.";
     this.changed();
   }
 
@@ -167,7 +245,7 @@ class App {
 
   async startSession() {
     if (!this.device) throw new Error("connect a device first");
-    this.live = new LiveSession(this.status?.rate_hz ?? 500, analysisSettings(this.settings), "stream");
+    this.live = new LiveSession(this.status?.rateHz ?? 500, analysisSettings(this.settings), "stream");
     this.interArrival = [];
     this.lastArrivalMs = 0;
     await this.command(CMD.START_STREAM);
@@ -195,25 +273,58 @@ class App {
   async startUpload() {
     if (!this.device) throw new Error("connect a device first");
     if (this.live) await this.stopSession();
-    this.upload = new LiveSession(this.status?.rate_hz ?? 500, analysisSettings(this.settings), "upload");
+    this.upload = new LiveSession(this.status?.rateHz ?? 500, analysisSettings(this.settings), "upload");
+    this.uploadExpected = this.status?.bufferedPackets ?? 0;
     this.uploadLastDataMs = hostNowMs();
-    await this.command(CMD.UPLOAD);
-    // Done when the device reports everything sent and the stream has been quiet for 500 ms
-    const poll = setInterval(async () => {
-      const s = (await this.device?.readStatus().catch(() => null)) ?? this.status;
-      if (s) this.status = s;
-      this.changed();
-      const done = s && s.upload_total_bytes && (s.upload_sent_bytes ?? 0) >= s.upload_total_bytes;
-      if (done && hostNowMs() - this.uploadLastDataMs > 500) {
-        clearInterval(poll);
-        await this.finishUpload();
+    this.notice = null;
+    try {
+      await this.command(CMD.UPLOAD);
+    } catch (e) {
+      this.upload = null;
+      throw e;
+    }
+    // The firmware ends with upload_done{count}; this only catches a stalled link (oso-rec gives up after 20 s too)
+    this.uploadWatch = setInterval(() => {
+      if (this.upload && hostNowMs() - this.uploadLastDataMs > 20000) {
+        this.stopUploadWatch();
+        this.error("upload stalled for 20 s: Finish upload now keeps what arrived (the pod still holds the session)");
       }
-    }, 250);
+      this.changed();
+    }, 1000);
   }
 
-  async finishUpload(): Promise<string | null> {
+  private stopUploadWatch() {
+    if (this.uploadWatch) clearInterval(this.uploadWatch);
+    this.uploadWatch = null;
+  }
+
+  /** upload_done: save, and only a complete upload is confirmed to the pod with 0x07 (mark uploaded). */
+  private async completeUpload(count: number) {
+    const up = this.upload;
+    if (!up) return;
+    // Packets arrive before the event, but give the last notifications a moment to land
+    await new Promise((r) => setTimeout(r, 100));
+    const got = up.stats.arrivals;
+    const id = await this.finishUpload(got === count ? null : `incomplete: ${got} of ${count} packets`);
+    if (got !== count) {
+      this.error(`upload: received ${got} packets, the pod says ${count}. Not marking it uploaded; upload again.`);
+      return;
+    }
+    try {
+      if (count > 0) await this.command(CMD.MARK_UPLOADED);
+      this.notice = `Uploaded ${count} packets${count ? "; the pod marked the session uploaded (its next power-on records again)" : " (empty session)"}.`;
+    } catch (e) {
+      this.error(e);
+    }
+    this.changed();
+    if (id) location.hash = `#/session/${id}`;
+  }
+
+  /** Saves what arrived. Called on upload_done, or by the user ("Finish upload now"), which never marks uploaded. */
+  async finishUpload(incomplete: string | null = "finished early"): Promise<string | null> {
     const up = this.upload;
     if (!up) return null;
+    this.stopUploadWatch();
     up.finish();
     this.upload = null;
     this.changed();
@@ -224,6 +335,7 @@ class App {
       imuBin: up.toImuBin(),
       markers: up.markers,
       arrivals: [],
+      name: `Uploaded ${new Date().toLocaleString()}${incomplete ? ` (${incomplete})` : ""}`,
     });
   }
 
@@ -244,7 +356,7 @@ class App {
     source: StoredSession["source"];
     deviceName: string | null;
     imuBin: Uint8Array;
-    markers: { t: number }[];
+    markers: Marker[];
     arrivals: [number, number][];
     name?: string;
     replay?: Uint8Array | null;

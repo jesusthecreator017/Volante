@@ -26,12 +26,17 @@ export interface ImuDevice {
   readRssi(): Promise<number | null>;
   readBattery(): Promise<number | null>;
   on<K extends keyof DeviceEvents>(ev: K, cb: DeviceEvents[K]): void;
+  /** drops every handler (a device object can be connected again, e.g. the mock pod) */
+  offAll(): void;
 }
 
 export class Emitter {
   private handlers: { [K in keyof DeviceEvents]?: DeviceEvents[K][] } = {};
   on<K extends keyof DeviceEvents>(ev: K, cb: DeviceEvents[K]) {
     (this.handlers[ev] ??= [] as never[]).push(cb as never);
+  }
+  offAll() {
+    this.handlers = {};
   }
   emit<K extends keyof DeviceEvents>(ev: K, ...args: Parameters<DeviceEvents[K]>) {
     for (const h of this.handlers[ev] ?? []) (h as (...a: unknown[]) => void)(...args);

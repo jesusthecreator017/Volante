@@ -53,7 +53,8 @@ export interface RawPacket {
 }
 
 /**
- * Marker packet emitted by the device on control 0x06 (see docs/ble-profile.md). It reuses the 18-byte layout with a
+ * Legacy marker packet from the pre-firmware app spec. The firmware sends sync markers as `status` events instead
+ * (docs/ble-profile.md, LiveSession.addDeviceMarker); this is only kept so older captures still parse. It reuses the 18-byte layout with a
  * signature in the six value slots that a real sensor can't produce (alternating rail values + ASCII "OSMK"):
  * ax=+32767 ay=-32768 az=+32767 gx=-32768 gy=0x534F ("OS") gz=0x4B4D ("MK"). seq = seq of the last real sample,
  * t_us = device time of the button press. Markers are routed out of the sample stream and never written to imu.bin.
@@ -152,6 +153,8 @@ export function rawPackets(bytes: Uint8Array): RawPacket[] {
 export interface Marker {
   /** Unwrapped device time, s */
   t: number;
+  /** firmware status event: tap detected on the pod, or control 0x06 */
+  source?: "tap" | "command";
 }
 
 /**

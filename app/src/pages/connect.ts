@@ -32,17 +32,25 @@ export function renderConnect(root: HTMLElement) {
     <li>Play.</li>
     <li>At the end: hold still ~2 s again and clap again (or press the button), then stop the session.</li>
   </ol>
+  <p class="note">The pod also detects the tap itself (gyro quiet 1 s, then a &gt; 5 g spike) and reports it as a marker.</p>
   <div class="row"><button id="mark">Mark sync event now (control 0x06)</button></div>
   <div id="sync"></div>
 
   <h2>On-device recording (record now, upload later)</h2>
-  <p class="note">Background Bluetooth is restricted on phones: the device can record into its own buffer and upload later.</p>
+  <p class="note">Background Bluetooth is restricted on phones: the pod records into its flash (about 12.5 min) and uploads later.
+  It starts recording by itself at power-on unless it still holds a session that was not uploaded. A complete upload
+  is confirmed to the pod (0x07), which frees it for the next recording.</p>
   <div class="row">
     <button id="recstart">Start recording (0x03)</button>
     <button id="recstop">Stop recording (0x04)</button>
-    <button id="upload">Upload buffered session (0x05)</button>
+    <button id="upload">Upload stored session (0x05)</button>
     <button id="upfinish">Finish upload now</button>
   </div>
+
+  <h2>Power (the pod has no switch)</h2>
+  <p class="note">Sleep stops recording and parks the pod (~70 h on a 200 mAh cell). To wake it, connect again: while asleep it
+  advertises 2 s every 30 s, so keep the picker open up to ~30 s. The app sends wake (0x09); the pod restarts (~7 s), then connect once more.</p>
+  <div class="row"><button id="sleep">Put pod to sleep (0x08)</button></div>
 
   <h2>Import</h2>
   <div class="row">
@@ -56,6 +64,7 @@ export function renderConnect(root: HTMLElement) {
       <div class="row"><button id="flat">Mounting check: hold racquet flat, face up, then press</button></div>
       <div id="flatres"></div></div>
   </div>
+  <p id="notice" class="note"></p>
   <p id="msg" class="error"></p>`;
 
   const $ = <T extends HTMLElement = HTMLButtonElement>(id: string) => root.querySelector<T>("#" + id)!;
@@ -84,11 +93,12 @@ export function renderConnect(root: HTMLElement) {
   });
   act("discard", () => app.stopSession(false));
   act("mark", () => app.command(CMD.SYNC_MARK));
-  act("recstart", () => app.command(CMD.START_RECORDING));
+  act("recstart", () => app.startRecording());
   act("recstop", () => app.command(CMD.STOP_RECORDING));
   act("upload", () => app.startUpload());
+  act("sleep", () => app.sleep());
   act("upfinish", async () => {
-    const id = await app.finishUpload();
+    const id = await app.finishUpload("finished early, not marked uploaded");
     if (id) location.hash = `#/session/${id}`;
   });
   act("sample", async () => {
@@ -119,8 +129,16 @@ export function renderConnect(root: HTMLElement) {
     $("start").disabled = !connected || !!app.live || !!app.upload;
     $("stop").disabled = !app.live;
     $("discard").disabled = !app.live;
-    $("mark").disabled = !connected;
-    for (const id of ["recstart", "recstop", "upload"]) $(id).disabled = !connected || !!app.upload;
+    const st = app.status;
+    const awake = connected && !st?.sleeping;
+    $("start").disabled ||= !awake;
+    $("mark").disabled = !awake || !!app.upload;
+    for (const id of ["recstart", "recstop", "upload", "sleep"]) $(id).disabled = !awake || !!app.upload;
+    $("recstart").disabled ||= !!st?.recording || !!st?.erasing;
+    $("recstop").disabled ||= !st?.recording && !st?.erasing;
+    $("upload").disabled ||= !!st?.erasing;
+    $("sleep").disabled ||= !!st?.erasing;
+    $("notice").textContent = app.notice ?? "";
     $("upfinish").disabled = !app.upload;
     $("dev").innerHTML = deviceTable();
     $("health").innerHTML = healthTable();
@@ -167,7 +185,8 @@ function deviceTable(): string {
   const lostPct = s && s.unique + s.lost ? (100 * s.lost) / (s.unique + s.lost) : null;
   const mtu = d?.mtu ?? null;
   const sinceLast = app.live && app.live.lastPacketHostMs ? performance.timeOrigin + performance.now() - app.live.lastPacketHostMs : null;
-  const upTotal = st?.upload_total_bytes ?? 0;
+  const upTotal = app.uploadExpected;
+  const upGot = app.upload?.stats.arrivals ?? 0;
   return kv([
     ["Device", d ? `${esc(d.name)} <small class="note">${esc(d.id)} (${d.kind})</small>` : na("not connected")],
     ["Connection state", app.conn],
@@ -176,16 +195,23 @@ function deviceTable(): string {
       "MTU",
       mtu ? `${mtu} B → ${packetsPerNotification(mtu)} packets/notification` : na(d ? "not exposed by Web Bluetooth (requested 247)" : "not connected"),
     ],
-    ["Firmware version", st?.fw ? esc(st.fw) : na(d ? "not reported" : "not connected")],
+    ["Firmware version", st ? `${st.fwMajor}.${st.fwMinor}` : na(d ? "not reported" : "not connected")],
+    ["Pod state", st ? podState() : na("not connected")],
     [
       "Battery",
-      app.battery !== null ? v(app.battery, "%", 0) : st?.battery_pct !== undefined ? `${st.battery_pct} % <small class="note">(status)</small>` : na(d ? "no Battery Service" : "not connected"),
+      app.battery !== null && app.battery !== 255
+        ? v(app.battery, "%", 0)
+        : st?.batteryPct != null
+          ? `${st.batteryPct} % <small class="note">(status)</small>`
+          : na(d ? "unknown (the firmware reports 255 until the battery divider is fitted)" : "not connected"),
     ],
     [
       "Sensor ranges",
-      st?.acc_range_g ? `±${st.acc_range_g} g, ±${st.gyro_range_dps} dps` : na(d ? "not reported" : "not connected"),
+      st?.accelG ? `±${st.accelG} g, ±${st.gyroDps} dps` : na(d ? "not reported" : "not connected"),
     ],
-    ["Sample rate (configured)", st?.rate_hz ? `${st.rate_hz} Hz` : na(d ? "not reported" : "not connected")],
+    ["Sample rate (configured)", st?.rateHz ? `${st.rateHz} Hz` : na(d ? "not reported" : "not connected")],
+    ["IMU", st ? (st.imuOk ? `<span class="ok">ok</span>${st.imuIs6500 ? " (MPU-6500)" : ""}` : `<span class="bad">not responding</span>`) : na("not connected")],
+    ["IMU FIFO overflows", st ? `${st.fifoOverflows}${st.fifoOverflows ? ` <small class="note">(real gaps in the data)</small>` : ""}` : na("not connected")],
     ["Sample rate (measured)", measuredRate],
     ["Packets received", s ? `${s.arrivals} (${s.unique} unique, ${s.notifications} notifications)` : na("no session")],
     ["Lost", s && lostPct !== null ? `${s.lost} (${lostPct.toFixed(2)} %)` : na("no packets yet")],
@@ -196,16 +222,29 @@ function deviceTable(): string {
       sinceLast !== null ? `${sinceLast.toFixed(0)} ms since last notification; last hole ${s!.lastGapPackets} packets (${s!.gaps} holes)` : na("not streaming"),
     ],
     ["Link latency (arrival jitter)", jitter],
-    ["Recording on device", st ? (st.recording ? `<span class="pill on">recording</span>` : "no") : na("not connected")],
-    ["Buffered on device", st ? bytes(st.buffered_bytes) : na("not connected")],
+    ["Stored on device", st ? `${st.bufferedPackets} packets (${bytes(st.bufferedPackets * 18)}, ${(st.bufferedPackets / (st.rateHz || 500)).toFixed(0)} s)` : na("not connected")],
     [
       "Upload progress",
-      app.upload || upTotal
-        ? `${bytes(st?.upload_sent_bytes ?? 0)} / ${bytes(upTotal)}${upTotal ? ` (${(100 * (st!.upload_sent_bytes ?? 0) / upTotal).toFixed(0)} %)` : ""}${app.upload ? ` · ${app.upload.stats.arrivals} packets received` : ""}`
+      app.upload
+        ? `${upGot} / ${upTotal} packets${upTotal ? ` (${Math.min(100, (100 * upGot) / upTotal).toFixed(0)} %)` : ""}`
         : na("no upload"),
     ],
     ["Status updated", app.statusAtMs ? date(app.statusAtMs) : na("never")],
   ]);
+}
+
+function podState(): string {
+  const st = app.status!;
+  if (st.sleeping) return `<span class="pill">sleeping</span> <small class="note">only wake (0x09) is accepted</small>`;
+  const pills = [
+    st.streaming && "streaming",
+    st.recording && "recording",
+    st.erasing && "erasing flash (recording starts after it)",
+    st.uploading && "uploading",
+    st.pendingUpload && "session not uploaded yet",
+    st.flashFull && "flash full (recording stopped)",
+  ].filter(Boolean) as string[];
+  return pills.length ? pills.map((p) => `<span class="pill on">${p}</span>`).join(" ") : "idle";
 }
 
 function healthTable(): string {
@@ -251,7 +290,7 @@ function syncList(): string {
   const t0 = L.samples[0]?.t ?? 0;
   const ev = [
     ...L.claps.map((c) => ({ kind: "clap", t: c.t, g: c.peakG })),
-    ...L.markers.map((m) => ({ kind: "button (0x06)", t: m.t, g: null as number | null })),
+    ...L.markers.map((m) => ({ kind: m.source === "tap" ? "tap (pod)" : "button (0x06)", t: m.t, g: null as number | null })),
   ].sort((a, b) => a.t - b.t);
   if (!ev.length) return `<p class="warn">No sync event yet — clap or press the button.</p>`;
   return `<table><tr><th>#</th><th>type</th><th>time</th><th>strength</th></tr>${ev

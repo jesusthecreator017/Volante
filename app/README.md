@@ -7,7 +7,7 @@ pipeline. There's a mock device, so everything works without hardware.
 
 - **Pages:** Device · Live · Session · Swing detail · History · Replay · Export · Settings · Debug. They work at
   phone width (no horizontal scrolling) and on desktop.
-- **Docs:** [`docs/ble-profile.md`](docs/ble-profile.md) is the BLE contract the firmware must implement.
+- **Docs:** the BLE contract is the firmware's [`../docs/ble-profile.md`](../docs/ble-profile.md); [`docs/ble-profile.md`](docs/ble-profile.md) says how the app uses it.
   [`docs/metrics.md`](docs/metrics.md) covers every metric, its formula, units and source.
   [`docs/data-format.md`](docs/data-format.md) covers the file formats, and [`docs/reference/`](docs/reference) holds
   the Rust reference implementation the algorithms were ported from.
@@ -39,7 +39,7 @@ Platform rules the code follows:
 ```bash
 npm install
 npm run dev          # http://localhost:5173 (localhost counts as secure: Web Bluetooth works in Chrome/Edge)
-npm test             # 45 unit tests, incl. the sample-session acceptance numbers
+npm test             # 55 unit tests, incl. the sample-session acceptance numbers and the BLE protocol
 npm run build        # -> dist/
 ```
 
@@ -52,7 +52,9 @@ npm run build        # -> dist/
    finishes and swings are detected. **Stop & save** opens the session.
 3. Settings → **Packet-loss injection (%)** adds random losses (some in 5–20 packet bursts) live, and
    **Notification latency jitter** randomizes delivery. "Mock device available" hides it.
-4. The mock implements the whole control contract: record (0x03/0x04), upload (0x05) and the sync marker (0x06).
+4. The mock behaves like the firmware: binary status, power-on recording after a short flash erase, the
+   overwrite confirm on 0x03, upload with `upload_done` and mark-uploaded (0x07), sync markers as status events
+   (0x06), and sleep/wake (0x08/0x09). It stays the same "pod" across reconnects until the page reloads.
 
 Or skip streaming: **Load sample session** (Device, Session or History page) imports the sample `imu.bin` together
 with its `replay.bin`, so the Replay page works right away.

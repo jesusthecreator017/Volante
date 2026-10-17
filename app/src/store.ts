@@ -1,5 +1,7 @@
 // Local session storage (IndexedDB). Works in browsers and in the Capacitor WebViews. No accounts, no cloud.
 
+import type { Marker } from "./core/packet";
+
 export interface StoredSession {
   id: string;
   /** host time ms when recorded / imported */
@@ -9,8 +11,8 @@ export interface StoredSession {
   deviceName: string | null;
   /** imu.bin exactly as received (arrival order, markers excluded) */
   imuBin: Uint8Array;
-  /** device sync markers (control 0x06), device time s */
-  markers: { t: number }[];
+  /** device sync markers (status events: pod tap or control 0x06), device time s */
+  markers: Marker[];
   /** [t_dev newest sample, host s] per notification, for the clock fit (live streams only) */
   arrivals: [number, number][];
   /** user stroke labels, by swing index */

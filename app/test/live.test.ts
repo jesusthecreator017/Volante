@@ -4,13 +4,13 @@ import { LiveSession } from "../src/core/live";
 import { parse } from "../src/core/packet";
 import { analyzeSession, fitClock } from "../src/core/analysis";
 const fitClockFrom = (a: [number, number][]) => fitClock(a)!.driftPpm;
-import { CMD } from "../src/ble/profile";
+import { CMD, EVENT, parseStatus } from "../src/ble/profile";
 import { sampleBytes } from "./helpers";
 
 function runMock(lossProb = 0, seed = 1) {
   let x = seed;
   const rand = () => ((x = (x * 16807) % 2147483647) / 2147483647);
-  const e = new MockEngine(sampleBytes(), { ...DEFAULT_MOCK, loop: false, lossProb }, rand);
+  const e = new MockEngine(sampleBytes(), { ...DEFAULT_MOCK, loop: false, lossProb, autoRecord: false }, rand);
   const live = new LiveSession(e.rateHz);
   e.command(CMD.START_STREAM);
   let host = 0;
@@ -71,25 +71,32 @@ describe("mock device + live pipeline", () => {
     expect(live.stats.gaps).toBeGreaterThan(44);
   });
 
-  test("record -> upload delivers the recorded packets; sync marker arrives as a marker", () => {
-    const e = new MockEngine(sampleBytes(), { ...DEFAULT_MOCK, loop: false });
+  test("record -> upload delivers the recorded packets, then markers and upload_done as status events", () => {
+    const e = new MockEngine(sampleBytes(), { ...DEFAULT_MOCK, loop: false, eraseMs: 0, autoRecord: false });
     e.command(CMD.START_RECORDING);
-    e.advance(2000);
+    e.advance(1000);
+    e.command(CMD.SYNC_MARK);
+    e.advance(1000);
     e.command(CMD.STOP_RECORDING);
-    const recorded = e.status().buffered_bytes! / 18;
+    const recorded = e.status().bufferedPackets;
     expect(Math.abs(recorded - 1000)).toBeLessThan(25); // 2 s at 500 Hz, minus the file's own losses
+    expect(e.events().map((d) => parseStatus(d)!.event)).toEqual([EVENT.MARKER_CMD]); // the live marker event
     e.command(CMD.UPLOAD);
     const up = new LiveSession(500, undefined, "upload");
+    let done: number | null = null;
     let guard = 0;
-    while (e.uploading && guard++ < 1000) for (const dv of e.advance(26)) up.ingest(dv, 0);
+    while (done === null && guard++ < 1000) {
+      for (const dv of e.advance(26)) up.ingest(dv, 0);
+      for (const ev of e.events().map((d) => parseStatus(d)!)) {
+        if (ev.event === EVENT.MARKER_CMD) up.addDeviceMarker(ev.eventValue, "command");
+        if (ev.event === EVENT.UPLOAD_DONE) done = ev.eventValue;
+      }
+    }
+    expect(done).toBe(recorded);
     expect(up.stats.arrivals).toBe(recorded);
-    expect(e.status().upload_sent_bytes).toBe(e.status().upload_total_bytes);
-    e.command(CMD.START_STREAM);
-    const s = new LiveSession(500);
-    for (const dv of e.advance(26)) s.ingest(dv, 0);
-    for (const dv of e.command(CMD.SYNC_MARK)) s.ingest(dv, 0);
-    expect(s.stats.markers).toBe(1);
-    expect(s.markers[0].t).toBeGreaterThan(0);
+    expect(up.markers.length).toBe(1);
+    expect(up.markers[0].t).toBeGreaterThan(up.samples[0].t);
+    expect(up.markers[0].t).toBeLessThan(up.samples[up.samples.length - 1].t);
   });
 });
 

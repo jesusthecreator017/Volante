@@ -2,7 +2,18 @@
 // implementing the full control/status contract of docs/ble-profile.md.
 
 import { Emitter, hostNowMs, type ImuDevice } from "./device";
-import { CMD, REQUESTED_MTU, packetsPerNotification, type DeviceStatus } from "./profile";
+import {
+  CMD,
+  ERR,
+  EVENT,
+  REQUESTED_MTU,
+  STATE,
+  STATE_EXT,
+  encodeStatus,
+  packetsPerNotification,
+  parseStatus,
+  type DeviceStatus,
+} from "./profile";
 import { encodePacket, parseHeader, rawPackets, MARKER_V, PACKET_LEN, type RawPacket } from "../core/packet";
 
 export interface MockOptions {
@@ -17,13 +28,32 @@ export interface MockOptions {
   /** upload speed multiple of real time */
   uploadSpeed: number;
   mtu: number;
+  /** flash erase before a recording starts, ms of device time (the real pod takes ~5-20 s) */
+  eraseMs: number;
+  /** firmware boot rule: power-on records by itself unless an un-uploaded session is stored */
+  autoRecord: boolean;
 }
 
-export const DEFAULT_MOCK: MockOptions = { lossProb: 0, burstProb: 0.2, jitterMs: 8, loop: true, uploadSpeed: 8, mtu: REQUESTED_MTU };
+export const DEFAULT_MOCK: MockOptions = {
+  lossProb: 0,
+  burstProb: 0.2,
+  jitterMs: 8,
+  loop: true,
+  uploadSpeed: 8,
+  mtu: REQUESTED_MTU,
+  eraseMs: 1500,
+  autoRecord: true,
+};
+
+/** Firmware limits (firmware/src/store.rs) */
+const MAX_MARKERS = 32;
+const CONFIRM_MS = 5000;
 
 /**
- * Timer-free core of the mock (unit-testable). The "device" produces packets in file arrival order on its own clock;
- * advance(ms) returns the notifications due.
+ * Timer-free core of the mock (unit-testable), following the firmware's control/status contract
+ * (docs/ble-profile.md): binary status, markers and upload_done as status events, record confirm, mark uploaded,
+ * sleep / wake. The "device" produces packets in file arrival order on its own clock; advance(ms) returns the
+ * notifications due, and events() the status events raised since the last call.
  */
 export class MockEngine {
   readonly rateHz: number;
@@ -36,18 +66,29 @@ export class MockEngine {
   private carry = 0;
   /** device clock since the start of the current loop, µs */
   private clockUs = 0;
+  /** device clock since boot, ms (timeouts) */
+  private nowMs = 0;
   /** per packet: device time relative to the file's first packet (unwrapped), µs */
   private relT: number[];
   private burst = 0;
   /** device micros of the most recent produced packet */
   private lastT32 = 0;
-  private lastSeq16 = 0;
   streaming = false;
   recording = false;
+  /** device time when the running flash erase ends (then recording starts), null when not erasing */
+  private eraseUntil: number | null = null;
   readonly recorded: RawPacket[] = [];
+  private storedMarkers: { t32: number; source: "tap" | "command" }[] = [];
+  /** a session with data exists in "flash" */
+  private started = false;
+  private uploaded = false;
+  /** last upload delivered everything: 0x07 is allowed */
+  private uploadOk = false;
+  private confirmUntil = -1;
   private uploadQueue: RawPacket[] = [];
   private uploadTotal = 0;
-  private uploadSent = 0;
+  sleeping = false;
+  private pendingEvents: [number, number][] = [];
   battery = 87;
 
   constructor(
@@ -74,26 +115,71 @@ export class MockEngine {
     const t0 = Math.min(...this.relT);
     this.relT = this.relT.map((x) => x - t0);
     this.spanT = Math.round(Math.max(...this.relT) + 1e6 / this.rateHz);
+    this.boot();
+  }
+
+  /** Normal boot: record unless the stored session has data that was not uploaded. */
+  private boot() {
+    this.sleeping = false;
+    this.streaming = false;
+    if (this.opts.autoRecord && !this.needsConfirm) this.eraseAndStart();
+  }
+
+  private get needsConfirm() {
+    return this.started && !this.uploaded && this.recorded.length > 0;
+  }
+
+  private eraseAndStart() {
+    this.recorded.length = 0;
+    this.storedMarkers = [];
+    this.started = true;
+    this.uploaded = false;
+    this.uploadOk = false;
+    if (this.opts.eraseMs > 0) this.eraseUntil = this.nowMs + this.opts.eraseMs;
+    else this.recording = true;
   }
 
   get perNotification() {
     return packetsPerNotification(this.opts.mtu);
   }
 
+  get uploading() {
+    return this.uploadQueue.length > 0;
+  }
+
+  /** The 24-byte status characteristic value, as the firmware encodes it. */
+  statusBytes(event: number = EVENT.NONE, eventValue = 0): DataView {
+    if (this.sleeping) {
+      // Sleeping cycle: minimal boot, the session fields read 0
+      return encodeStatus({ fwMajor: 0, fwMinor: 1, rateHz: this.rateHz, batteryPct: this.battery, stateBits: 0, accelG: 16,
+        gyroDps: 2000, bufferedPackets: 0, fifoOverflows: 0, event, eventValue, stateExt: STATE_EXT.SLEEPING });
+    }
+    const bits =
+      (this.streaming ? STATE.STREAMING : 0) |
+      (this.recording ? STATE.RECORDING : 0) |
+      (this.uploading ? STATE.UPLOADING : 0) |
+      (!this.recording && this.needsConfirm ? STATE.PENDING_UPLOAD : 0) |
+      STATE.IMU_OK |
+      (this.eraseUntil !== null ? STATE.ERASING : 0);
+    return encodeStatus({ fwMajor: 0, fwMinor: 1, rateHz: this.rateHz, batteryPct: this.battery, stateBits: bits, accelG: 16,
+      gyroDps: 2000, bufferedPackets: this.recorded.length, fifoOverflows: 0, event, eventValue, stateExt: 0 });
+  }
+
   status(): DeviceStatus {
-    return {
-      v: 1,
-      fw: "mock-0.1.0",
-      rate_hz: this.rateHz,
-      battery_pct: this.battery,
-      streaming: this.streaming,
-      recording: this.recording,
-      buffered_bytes: this.recorded.length * PACKET_LEN,
-      upload_total_bytes: this.uploadTotal,
-      upload_sent_bytes: this.uploadSent,
-      acc_range_g: 16,
-      gyro_range_dps: 2000,
-    };
+    return parseStatus(this.statusBytes())!;
+  }
+
+  /** Status events raised since the last call, as notification values. */
+  events(): DataView[] {
+    return this.pendingEvents.splice(0).map(([e, v]) => this.statusBytes(e, v));
+  }
+
+  private event(e: number, v: number) {
+    this.pendingEvents.push([e, v >>> 0]);
+  }
+
+  private error(code: number) {
+    this.event(EVENT.ERROR, code);
   }
 
   /** Next packet due by the device clock (file arrival order, paced by each packet's own timestamp so lost packets
@@ -110,7 +196,6 @@ export class MockEngine {
     const p = this.packets[this.pos++];
     const out: RawPacket = { seq16: (p.seq16 + this.loopSeq) & 0xffff, t32: (p.t32 + this.loopT) >>> 0, v: p.v };
     this.lastT32 = out.t32;
-    this.lastSeq16 = out.seq16;
     return out;
   }
 
@@ -138,8 +223,14 @@ export class MockEngine {
     return out;
   }
 
-  /** Advance the device clock by ms; returns notifications to deliver. */
+  /** Advance the device clock by ms; returns imu_stream notifications to deliver. */
   advance(ms: number): DataView[] {
+    this.nowMs += ms;
+    if (this.sleeping) return [];
+    if (this.eraseUntil !== null && this.nowMs >= this.eraseUntil) {
+      this.eraseUntil = null;
+      this.recording = true;
+    }
     this.clockUs += ms * 1000;
     this.carry += (ms / 1000) * this.rateHz;
     const n = Math.floor(this.carry);
@@ -154,18 +245,28 @@ export class MockEngine {
     const out = this.chunk(live);
     if (this.uploadQueue.length) {
       const k = Math.min(this.uploadQueue.length, Math.ceil(n * this.opts.uploadSpeed));
-      const part = this.uploadQueue.splice(0, k);
-      this.uploadSent += part.length * PACKET_LEN;
-      out.push(...this.chunk(part)); // upload is reliable (acknowledged by the firmware design), no loss injected
+      out.push(...this.chunk(this.uploadQueue.splice(0, k))); // flow-controlled: no loss on upload
+      if (!this.uploadQueue.length) {
+        // The stored markers follow the data, then upload_done with the packet count
+        for (const m of this.storedMarkers) this.event(m.source === "tap" ? EVENT.MARKER_TAP : EVENT.MARKER_CMD, m.t32);
+        this.event(EVENT.UPLOAD_DONE, this.uploadTotal);
+        this.uploadOk = true;
+      }
     }
     return out;
   }
 
-  get uploading() {
-    return this.uploadQueue.length > 0;
+  private stopRecording() {
+    this.recording = false;
+    this.eraseUntil = null;
   }
 
   command(cmd: number): DataView[] {
+    if (this.sleeping) {
+      if (cmd === CMD.WAKE) this.boot();
+      else this.error(ERR.SLEEPING);
+      return [];
+    }
     switch (cmd) {
       case CMD.START_STREAM:
         this.streaming = true;
@@ -174,24 +275,60 @@ export class MockEngine {
         this.streaming = false;
         break;
       case CMD.START_RECORDING:
-        this.recorded.length = 0;
-        this.recording = true;
+        if (this.recording || this.uploading || this.eraseUntil !== null) break; // already recording / busy
+        if (this.needsConfirm && this.nowMs >= this.confirmUntil) {
+          this.confirmUntil = this.nowMs + CONFIRM_MS;
+          this.error(ERR.NEED_CONFIRM);
+          break;
+        }
+        this.confirmUntil = -1;
+        this.eraseAndStart();
         break;
       case CMD.STOP_RECORDING:
-        this.recording = false;
+        this.stopRecording();
         break;
       case CMD.UPLOAD:
-        // Contract: streaming stops while an upload runs (both share imu_stream)
-        this.streaming = false;
+        if (this.eraseUntil !== null || this.uploading) {
+          this.error(ERR.BUSY);
+          break;
+        }
+        this.stopRecording();
+        this.streaming = false; // both share imu_stream
+        if (!this.started) {
+          this.error(ERR.NO_SESSION);
+          break;
+        }
+        this.uploadOk = false;
+        this.pendingEvents = []; // the firmware clears queued events before an upload
         this.uploadQueue = [...this.recorded];
-        this.uploadTotal = this.uploadQueue.length * PACKET_LEN;
-        this.uploadSent = 0;
+        this.uploadTotal = this.recorded.length;
+        if (!this.uploadTotal) {
+          this.event(EVENT.UPLOAD_DONE, 0);
+          this.uploadOk = true;
+        }
         break;
-      case CMD.SYNC_MARK: {
-        const m: RawPacket = { seq16: this.lastSeq16, t32: this.lastT32, v: [...MARKER_V] };
-        if (this.recording) this.recorded.push(m);
-        return this.streaming ? this.chunk([m]) : [];
-      }
+      case CMD.SYNC_MARK:
+        if (!this.uploading) this.event(EVENT.MARKER_CMD, this.lastT32);
+        if (this.recording && this.storedMarkers.length < MAX_MARKERS) this.storedMarkers.push({ t32: this.lastT32, source: "command" });
+        break;
+      case CMD.MARK_UPLOADED:
+        if (this.recording || !this.started || this.uploaded || !this.uploadOk) this.error(ERR.NO_SESSION);
+        else this.uploaded = true;
+        this.uploadOk = false;
+        break;
+      case CMD.SLEEP:
+        if (this.eraseUntil !== null || this.uploading) {
+          this.error(ERR.BUSY);
+          break;
+        }
+        this.stopRecording();
+        this.streaming = false;
+        this.sleeping = true;
+        break;
+      case CMD.WAKE:
+        break; // only honored while sleeping
+      default:
+        this.error(ERR.BAD_OPCODE);
     }
     return [];
   }
@@ -206,6 +343,7 @@ export class MockDevice extends Emitter implements ImuDevice {
   private last = 0;
   private statusTick = 0;
   private nextAt = 0;
+  /** the "pod": kept across connections like the real one keeps its flash, sleep state and clock */
   engine: MockEngine | null = null;
 
   constructor(
@@ -220,7 +358,7 @@ export class MockDevice extends Emitter implements ImuDevice {
   }
 
   async connect() {
-    this.engine = new MockEngine(await this.loadFile(), this.opts);
+    this.engine ??= new MockEngine(await this.loadFile(), this.opts);
     this.last = performance.now();
     // Nominal notification interval: 13 packets at 500 Hz = 26 ms
     this.timer = setInterval(() => this.tick(), 20);
@@ -231,34 +369,54 @@ export class MockDevice extends Emitter implements ImuDevice {
     const now = performance.now();
     const out = e.advance(now - this.last);
     this.last = now;
-    this.deliver(out);
-    if (++this.statusTick % 25 === 0) this.emit("status", e.status());
+    this.deliver(out.map((dv) => ["data", dv] as const));
+    this.flushEvents();
+    // The firmware notifies status once per second when no event happens
+    if (++this.statusTick % 50 === 0) this.deliver([["status", e.statusBytes()]]);
   }
 
-  private deliver(out: DataView[]) {
-    for (const dv of out) {
-      // Random latency, but notifications on one characteristic keep their order
+  private flushEvents() {
+    this.deliver(this.engine!.events().map((dv) => ["status", dv] as const));
+  }
+
+  /** Random latency, but notifications keep their order (status events after the data they follow). */
+  private deliver(out: (readonly ["data" | "status", DataView])[]) {
+    for (const [kind, dv] of out) {
       const now = performance.now();
       this.nextAt = Math.max(this.nextAt, now + Math.random() * this.opts.jitterMs);
-      setTimeout(() => this.emit("data", dv, hostNowMs()), this.nextAt - now);
+      setTimeout(() => {
+        if (!this.timer) return; // link closed
+        if (kind === "data") this.emit("data", dv, hostNowMs());
+        else this.emit("status", parseStatus(dv)!);
+      }, this.nextAt - now);
     }
   }
 
-  async disconnect() {
-    if (this.timer) clearInterval(this.timer);
+  /** The link drops: host disconnect, the pod going to sleep, or the reset after a wake. */
+  private drop() {
+    if (!this.timer) return;
+    clearInterval(this.timer);
     this.timer = null;
     this.emit("disconnect");
   }
 
+  async disconnect() {
+    this.drop();
+  }
+
   async command(cmd: number) {
     const e = this.engine;
-    if (!e) throw new Error("not connected");
-    this.deliver(e.command(cmd));
-    this.emit("status", e.status());
+    if (!e || !this.timer) throw new Error("not connected");
+    const wasSleeping = e.sleeping;
+    e.command(cmd);
+    this.flushEvents();
+    // Sleep: the pod parks ~300 ms after the write. Wake: software reset into the normal boot. Both close the link.
+    if ((!wasSleeping && e.sleeping) || (wasSleeping && !e.sleeping)) setTimeout(() => this.drop(), 300);
   }
 
   async readStatus() {
-    return this.engine?.status() ?? null;
+    // A read always has event = none: events only travel as notifications
+    return this.engine ? parseStatus(this.engine.statusBytes()) : null;
   }
 
   async readRssi() {
