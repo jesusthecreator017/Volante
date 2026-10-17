@@ -10,6 +10,10 @@ final class SessionStore {
     private(set) var sessions: [SessionMeta] = []
     @ObservationIgnored private var cache: [String: SessionAnalysis] = [:]
     var settings = AnalysisSettings()
+    /// What a list row shows, computed off the main actor once per session.
+    struct RowSummary { var readable: Bool; var swings = 0; var durationS = 0.0 }
+    private(set) var rowSummaries: [String: RowSummary] = [:]
+    @ObservationIgnored private var unreadable: Set<String> = []
 
     private let root: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -60,18 +64,43 @@ final class SessionStore {
     func delete(_ id: String) {
         try? FileManager.default.removeItem(at: folder(id))
         cache[id] = nil
+        rowSummaries[id] = nil
+        unreadable.remove(id)
         reload()
     }
 
     func analysis(_ meta: SessionMeta) -> SessionAnalysis? {
         if let a = cache[meta.id] { return a }
-        guard let d = try? Data(contentsOf: imuURL(meta.id)), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
+        if unreadable.contains(meta.id) { return nil }
+        guard let d = try? Data(contentsOf: imuURL(meta.id)), let cap = try? ImuFile.parse([UInt8](d)) else {
+            unreadable.insert(meta.id)
+            return nil
+        }
         var a = analyzeSession(cap, settings: settings)
         if let anchor = meta.anchor, !meta.heartRate.isEmpty {
             a.swings = attachHeartRate(a.swings, HeartRateSeries(meta.heartRate), anchor: anchor)
         }
         cache[meta.id] = a
         return a
+    }
+
+    /// Fills `rowSummaries` for a list row; the parse and analysis run off the main actor.
+    @MainActor
+    func loadRowSummary(_ meta: SessionMeta) async {
+        let id = meta.id
+        if rowSummaries[id] != nil { return }
+        let url = imuURL(id), settings = settings
+        let a = await Task.detached(priority: .userInitiated) { () -> SessionAnalysis? in
+            guard let d = try? Data(contentsOf: url), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
+            return analyzeSession(cap, settings: settings)
+        }.value
+        guard let a else {
+            unreadable.insert(id)
+            rowSummaries[id] = RowSummary(readable: false)
+            return
+        }
+        if meta.heartRate.isEmpty, cache[id] == nil { cache[id] = a } // the detail screen reuses it
+        rowSummaries[id] = RowSummary(readable: true, swings: a.summary.swingCount, durationS: a.summary.durationS)
     }
 
     /// The bundled synthetic session (same file as the web app's sample).

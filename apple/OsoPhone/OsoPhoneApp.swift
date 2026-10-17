@@ -10,6 +10,7 @@ struct OsoPhoneApp: App {
     @State private var watch = WatchReceiver()
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
+    @State private var router = Router()
 
     init() {
         let pi = PiServer()
@@ -19,11 +20,13 @@ struct OsoPhoneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }
-                SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }
-                WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }
+            TabView(selection: Bindable(router).tab) {
+                PodView().tabItem { Label("Pod", systemImage: "sensor.tag.radiowaves.forward") }.tag(Router.Tab.pod)
+                SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet.rectangle") }.tag(Router.Tab.sessions)
+                WearablesView().tabItem { Label("Connections", systemImage: "antenna.radiowaves.left.and.right") }.tag(Router.Tab.connections)
             }
+            .modifier(DebugOverrides())
+            .environment(router)
             .environment(store)
             .environment(pod)
             .environment(watch)
@@ -38,5 +41,31 @@ struct OsoPhoneApp: App {
             do { try store.save(imu: imu, meta: meta) } catch { pod.lastError = "save failed: \(error)" }
         }
         watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
+        #if DEBUG
+        applyLaunchArguments()
+        #endif
     }
+
+    #if DEBUG
+    /// See DebugOverrides in Theme.swift.
+    private func applyLaunchArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-osoTab"), i + 1 < args.count, let tab = Router.Tab(rawValue: args[i + 1]) { router.tab = tab }
+        if args.contains("-osoResetSample") { for m in store.sessions where m.source == .sample { store.delete(m.id) } }
+        if args.contains("-osoSample") {
+            if !store.sessions.contains(where: { $0.source == .sample }) { try? store.importSample() }
+            if var m = store.sessions.first(where: { $0.source == .sample }) {
+                if args.contains("-osoHeartRate"), m.heartRate.isEmpty, let a = store.analysis(m) {
+                    // synthetic heart rate (in memory only) so the chart can be screenshotted
+                    let wall = Date().timeIntervalSince1970
+                    m.anchor = ClockAnchor(deviceT: a.t0, wall: wall)
+                    m.heartRate = stride(from: -3.0, through: a.t1 - a.t0 + 3, by: 1).map { HeartRateSample(t: wall + $0, bpm: 112 + 1.8 * $0 + 4 * sin($0)) }
+                    m.heartRateSource = "Synthetic (debug)"
+                }
+                router.tab = .sessions
+                router.path = [m]
+            }
+        }
+    }
+    #endif
 }
