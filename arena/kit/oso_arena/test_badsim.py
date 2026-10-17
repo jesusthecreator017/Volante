@@ -94,19 +94,19 @@ def test_shot_solver():
     v = np.stack([vh, vy, np.zeros(K)], -1)
     err = np.full(K, np.nan)
     mx = h.copy()
-    for _ in range(400):
+    for i in range(400):
         po = p
-        p, v = sim.rk2(p, v)
+        p, v = sim.rk2(p, v, i * sim.DT)  # a struck shuttle: turnover drag from the hit
         mx = np.maximum(mx, p[:, 1])
         land = (p[:, 1] <= 0) & np.isnan(err)
         f = po[:, 1] / (po[:, 1] - p[:, 1])
         err = np.where(land, np.abs(po[:, 0] + f * (p[:, 0] - po[:, 0]) - D), err)
     print(f"shot table: landing error max {err.max() * 100:.2f} cm, mean {err.mean() * 100:.2f} cm, apex error max {np.abs(mx - apex).max() * 100:.1f} cm")
     assert err.max() < 0.05
-    # against the reference solver (RK4 truth) on a few cases: velocity and landing
+    # against the reference solver (RK4 truth, no turnover) on a few cases: the turnover drag asks for a slightly faster launch (< 12 %, more for fast smashes)
     for i in range(5):
         v_ref = shp.solve_shot([0, h[i], 0], 0.0, [D[i], 0, 0], T[i])
-        assert abs(vh[i] - v_ref[0]) < 0.15 and abs(vy[i] - v_ref[1]) < 0.15, (vh[i], vy[i], v_ref)
+        assert 0 <= vh[i] - v_ref[0] < 0.12 * abs(v_ref[0]) + 0.15 and abs(vy[i] - v_ref[1]) < 0.12 * np.hypot(*v_ref[:2]) + 0.15, (vh[i], vy[i], v_ref)
     # end to end through a hit: no noise, the flight lands on the aimed point (3D, 5 cm)
     s = one(noise_scale=0.0)
     s.shp[0], s.shv[0] = [-3.0, 1.9, 0.4], 0
@@ -117,9 +117,9 @@ def test_shot_solver():
     s._hit(np.array([0]), 0)
     target = s.land[0].copy()
     p, v = s.shp[0].copy(), s.shv[0].copy()
-    for _ in range(600):
+    for i in range(600):
         po = p
-        p, v = sim.rk2(p, v)
+        p, v = sim.rk2(p, v, i * sim.DT)
         if p[1] <= 0:
             f = po[1] / (po[1] - p[1])
             lx = po + f * (p - po)
@@ -135,7 +135,7 @@ def test_smash_noise():
         s = sim.BadSim(4000, 1)
         s.shp[:] = [-3.0, h, 0.0]
         s.shv[:] = 0
-        s.pos[:, 0] = [-3.2, 0.0]
+        s.pos[:, 0] = [-3.45, -0.5]  # the shuttle is 0.45 m ahead and 0.5 m to the racquet side: contact quality 1
         s.vel[:] = 0
         s.shots[:] = 3
         s._act = np.tile(np.array([0, 0, 1, ax, 0.0, u]), (4000, 2, 1))
@@ -360,9 +360,9 @@ def test_serve_aim_is_normalised_over_the_service_court():
                 s._act[0, sv] = [0, 0, 1, ax, az, 0.5]
                 s._hit(np.array([0]), sv)
                 p, v = s.shp[0].copy(), s.shv[0].copy()
-                for _ in range(600):
+                for i in range(600):
                     po = p
-                    p, v = sim.rk2(p, v)
+                    p, v = sim.rk2(p, v, i * sim.DT)
                     if p[1] <= 0:
                         f = po[1] / (po[1] - p[1])
                         break

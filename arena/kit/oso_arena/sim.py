@@ -5,6 +5,9 @@ Net height is the centre value (1.524 m) everywhere. Shuttle: oso_arena/physics.
 integrated with midpoint RK2 at 1/120 s (error vs the RK4 truth < 2 mm over a 2 s clear; test_badsim.py checks 2 cm).
 The policy acts at 30 Hz: `step` holds the action for 4 sim steps.
 
+Phase 14.2b: singles laws (see CONTRACT.md section 6), a net-cord model, a shuttle turnover phase after every hit and physical racquet
+contact (contact quality from the shuttle's position in the hitter's body frame scales the launch cap and the aim noise).
+
 Shots: the action's target landing point (normalised over the opponent's half; for the serve over the diagonal service court, so
 a policy cannot get stuck always serving into the wrong court) and flight-time parameter u are turned into a launch velocity by a lookup table
 (distance, contact height, flight time) -> (horizontal speed, vertical speed, apex), built once with a vectorised Newton solve on
@@ -62,21 +65,55 @@ SERVE_FAULT_PENALTY = 0.5  # extra loss for the server on a serve fault (on top 
 BASE_REWARD, BASE_X, BASE_SIGMA = 0.001, 3.8, 0.8
 RALLY_CAP_SHOTS = 150  # a longer rally is replayed (a "let"), nobody scores
 
-# fault reasons
-NET, OUT, MISSED, SERVE, LET = range(5)
-REASONS = ["net", "out", "missed", "serve", "let"]
+# Phase 14.2b shuttle physics. Drag: sim steps use physics.py's model (terminal velocity 6.8 m/s, fitted to video, tools/shuttle_physics.py).
+# Turnover: a struck shuttle starts skirt first and flips cork first within a few ms; modelled (assumed values, not fitted) as 30 ms of
+# extra drag, x1.6 decaying linearly to x1.0.
+TURNOVER_S, TURNOVER_DRAG = 0.03, 1.6
+# Net tape: BWF Law 1.9: tape 75 mm wide folded over the cord, top 1.524 m at the centre and 1.55 m at the posts. Modelled as a horizontal
+# cylinder along z of radius TAPE_R; the shuttle (cork radius SHUTTLE_R) touches it when its centre is within CORD_R of the tape axis.
+TAPE_R, SHUTTLE_R = 0.02, 0.03
+CORD_R = TAPE_R + SHUTTLE_R
+CORD_E, CORD_TANGENT, CORD_SIGMA = 0.15, 0.5, 0.2  # normal restitution, tangential damping, x-velocity deflection sigma (m/s); a soft, slack tape
+CEILING_Y, HALL_X, HALL_Z = 11.5, 12.0, 9.5  # hall ceiling (crates/oso-render hall.rs) and the tighter of its walls around our court
+NET_TOUCH_X = 0.10  # a lunging / jumping hit this close to the net plane touches the net (approximation of Law 13.4.3)
+SERVE_MAX_H = 1.15  # BWF Law 9.1.3: the whole shuttle below the server's waist, ~1.15 m (we use the shuttle centre)
+# Racquet contact (CONTRACT.md "Contact quality"). Body frame of the hitter: f forward (toward the net), l lateral (racquet side +),
+# y height. The ideal zone is in front of the right shoulder; the zone's f minimum relaxes to ZONE_F_OVERHEAD at ZONE_OVERHEAD_Y and
+# above (an overhead stroke is hit above the head, not out in front).
+ZONE_F, ZONE_L, ZONE_Y = (0.2, 0.7), (0.2, 0.9), (0.9, 2.9)
+ZONE_F_OVERHEAD, ZONE_OVERHEAD_Y = -0.1, (2.0, 2.6)
+LOSS_ZONE, ZONE_SPAN = 0.6, 0.8  # loss = 0.6 * min(1, distance outside the zone / (0.8 * reach))
+CRAMPED_R, LOSS_CRAMPED = 0.35, 0.25  # closer than 0.35 m to the body (horizontally): up to 0.25
+LATE_F, LOSS_LATE = 0.5, 0.4  # behind the body: 0.4 at 0.5 m behind
+BACKHAND_L, LOSS_BACKHAND = 0.4, 0.2  # non-racquet side: 0.2 at 0.4 m
+LOSS_STRETCH = 0.15  # lunge or jump
+Q_SPEED = (0.6, 0.4)  # launch cap x (0.6 + 0.4 q)
+Q_NOISE = 1.5  # aim sigma x (1 + 1.5 (1 - q))
+MISHIT_Q, MISHIT_SPEED, MISHIT_SIGMA = 0.15, 0.4, np.radians(25.0)  # frame hit: 40 % of the intended speed, direction error sigma 25 deg
+
+# fault reasons (indices into stats["faults"]; the Pi and the match log use the names)
+NET, OUT, MISSED, SERVE, NET_TOUCH, CEILING, LET = range(7)
+REASONS = ["net", "out", "missed", "serve", "net_touch", "ceiling", "let"]
 ACT_DIM, OBS_DIM = 6, 37  # 29 Phase 13.2 floats + own build (4) + opponent build (4)
 OBS_BASE = 29
 
 
-def accel(v):
-    return np.array([0.0, -sp.G, 0.0]) - K_DRAG * np.linalg.norm(v, axis=-1, keepdims=True) * v
+def drag_factor(tau):
+    """Drag multiplier tau seconds after a hit: TURNOVER_DRAG, decaying linearly to 1 over TURNOVER_S (the shuttle flies skirt first)."""
+    return 1.0 + (TURNOVER_DRAG - 1.0) * np.clip(1.0 - np.asarray(tau, float) / TURNOVER_S, 0.0, 1.0)
 
 
-def rk2(p, v):
-    """One midpoint step of the drag flight; p, v [..., 3]."""
-    vm = v + 0.5 * DT * accel(v)
-    return p + DT * vm, v + DT * accel(vm)
+def accel(v, kd=1.0):
+    """Gravity plus quadratic drag; kd (scalar or one per row of v) multiplies the drag."""
+    kd = np.asarray(kd, float)
+    return np.array([0.0, -sp.G, 0.0]) - K_DRAG * (kd[..., None] if kd.ndim else kd) * np.linalg.norm(v, axis=-1, keepdims=True) * v
+
+
+def rk2(p, v, tau=None):
+    """One midpoint step of the drag flight; p, v [..., 3]. tau = time since the last hit (scalar or per row; None = no turnover)."""
+    k1, k2 = (1.0, 1.0) if tau is None else (drag_factor(tau), drag_factor(np.asarray(tau) + 0.5 * DT))
+    vm = v + 0.5 * DT * accel(v, k1)
+    return p + DT * vm, v + DT * accel(vm, k2)
 
 
 def max_launch_speed(h, lo=25.0, hi=90.0):
@@ -98,7 +135,7 @@ D_GRID = np.linspace(0.1, 15.0, 75)
 H_GRID = np.linspace(0.1, 3.3, 33)
 T_STEPS = np.arange(12, 361, 6)  # flight times in sim steps (0.1 .. 3.0 s)
 T_GRID = T_STEPS * DT
-TABLE_VERSION = 2
+TABLE_VERSION = 3  # 3: turnover drag in the flights the table solves
 
 
 def _flight(vh, vy, h0, n):
@@ -106,8 +143,8 @@ def _flight(vh, vy, h0, n):
     p = np.stack([np.zeros_like(vh), h0, np.zeros_like(vh)], -1)
     v = np.stack([vh, vy, np.zeros_like(vh)], -1)
     apex = p[..., 1].copy()
-    for _ in range(n):
-        p, v = rk2(p, v)
+    for i in range(n):
+        p, v = rk2(p, v, i * DT)  # i * DT = time since the hit
         np.maximum(apex, p[..., 1], out=apex)
     return p[..., 0], p[..., 1], apex
 
@@ -278,6 +315,26 @@ def is_over(s, o, win=WIN_POINTS):
     return (s >= win and s - o >= WIN_BY) | (s >= CAP_POINTS)
 
 
+def tape_height(z):
+    """Net tape top at z: 1.524 m at the centre, 1.55 m at the posts (|z| = 3.05), linear."""
+    return NET_H + (C.NET_TOP_POST - NET_H) * np.clip(np.abs(z) / C.HALF_WIDTH, 0.0, 1.0)
+
+
+def contact_quality(f, l, y, reach, extended):
+    """Contact quality q in [0, 1] of a racquet hit with the shuttle at (f forward, l lateral, y height) in the hitter's body frame
+    (arrays). 1 inside the ideal zone, lowered by: distance outside the zone, cramped (< CRAMPED_R from the body), late (f < 0),
+    backhand (l < 0), stretched (`extended`: a lunge or jump). `reach` is the hitter's normal reach (m)."""
+    f_lo = ZONE_F[0] + (ZONE_F_OVERHEAD - ZONE_F[0]) * np.clip((y - ZONE_OVERHEAD_Y[0]) / (ZONE_OVERHEAD_Y[1] - ZONE_OVERHEAD_Y[0]), 0, 1)
+    d = np.sqrt(np.maximum(f_lo - f, 0) ** 2 + np.maximum(f - ZONE_F[1], 0) ** 2 + np.maximum(ZONE_L[0] - l, 0) ** 2
+                + np.maximum(l - ZONE_L[1], 0) ** 2 + np.maximum(ZONE_Y[0] - y, 0) ** 2 + np.maximum(y - ZONE_Y[1], 0) ** 2)
+    loss = (LOSS_ZONE * np.minimum(1.0, d / (ZONE_SPAN * reach))
+            + LOSS_CRAMPED * np.clip(1.0 - np.hypot(f, l) / CRAMPED_R, 0, 1)
+            + LOSS_LATE * np.clip((-f - np.maximum(-f_lo, 0)) / LATE_F, 0, 1)  # an overhead stroke may be hit slightly behind
+            + LOSS_BACKHAND * np.clip(-l / BACKHAND_L, 0, 1)
+            + LOSS_STRETCH * extended)
+    return np.clip(1.0 - loss, 0.0, 1.0)
+
+
 def in_bounds(x, z):
     """Singles court, lines are in."""
     return (np.abs(x) <= HL) & (np.abs(z) <= HW)
@@ -309,7 +366,8 @@ class BadSim:
         self.log_game = log_game
         self.log_shots = False  # fill self.shot_log (one row per hit) for the evaluation's shot mix
         self.shot_log = []
-        self.stats = dict(rallies=0, rally_shots=0, hits=0, games=0, faults=np.zeros(5, int), points=np.zeros(2, int))
+        self.stats = dict(rallies=0, rally_shots=0, hits=0, games=0, faults=np.zeros(len(REASONS), int), points=np.zeros(2, int),
+                          cords=0, mishits=0, q_sum=0.0)
         n = n_games
         self.pos = np.zeros((n, 2, 2))
         self.vel = np.zeros((n, 2, 2))
@@ -327,6 +385,8 @@ class BadSim:
         self.land = np.zeros((n, 2))  # predicted landing (world x, z)
         self.land_t = np.zeros(n)
         self.rally_t = np.zeros(n)
+        self.tsh = np.ones(n)  # time since the shuttle was last hit (drives the turnover drag)
+        self._hit_fault = np.full(n, -1)  # fault reason set by a hit itself (net touch, high serve), -1 none
         self._act = np.zeros((n, 2, ACT_DIM))
         self._pend = np.full(n, -1)  # index in shot_log of each game's latest shot (its x_end is not known yet)
         self.t = 0.0
@@ -393,6 +453,7 @@ class BadSim:
         self.land[idx, 0], self.land[idx, 1] = self.shp[idx, 0], zs
         self.land_t[idx] = T_TOSS
         self.rally_t[idx] = 0
+        self.tsh[idx] = 1.0
         self._pend[idx] = -1
         if self.log_game is not None and self.log_game in idx:
             g = self.log_game
@@ -472,6 +533,7 @@ class BadSim:
         # --- players
         tv = np.where((self.react > 0)[..., None], self.vel, self._tv)  # reacting: hold the current velocity
         tv = np.where((self.freeze > 0)[..., None], 0.0, tv)
+        tv = np.where((self.shots == 0)[:, None, None], 0.0, tv)  # Law 9.1: both stand still until the serve is struck
         nrm = np.linalg.norm(tv, axis=-1, keepdims=True)
         tv = tv * np.minimum(1.0, self._p["v_max"][..., None] / np.maximum(nrm, 1e-9))
         dv = tv - self.vel
@@ -495,15 +557,18 @@ class BadSim:
         self.land_t -= dt
         # --- shuttle
         old = self.shp.copy()
-        self.shp, self.shv = rk2(self.shp, self.shv)
+        self.shp, self.shv = rk2(self.shp, self.shv, self.tsh)
+        self.tsh += dt
         self.t += dt
         self.nsub += 1
+        self._net_cord(old)
         hitter = self.last_hitter
         cross = old[:, 0] * self.shp[:, 0] < 0
         with np.errstate(all="ignore"):
             f = old[:, 0] / (old[:, 0] - self.shp[:, 0])
-        yc = old[:, 1] + f * (self.shp[:, 1] - old[:, 1])
-        net_fault = cross & (yc < NET_H) & (self.shots > 0)
+            yc = old[:, 1] + f * (self.shp[:, 1] - old[:, 1])
+            zc = old[:, 2] + f * (self.shp[:, 2] - old[:, 2])
+        net_fault = cross & (yc < tape_height(zc)) & (self.shots > 0)
         legal = cross & ~net_fault & (self.shots > 0)
         if self.shaping:
             reward[legal, hitter[legal]] += self.shaping
@@ -521,7 +586,9 @@ class BadSim:
             fl = old[:, 1] / (old[:, 1] - self.shp[:, 1])
         lx = old[:, 0] + fl * (self.shp[:, 0] - old[:, 0])
         lz = old[:, 2] + fl * (self.shp[:, 2] - old[:, 2])
-        ended = net_fault | landed
+        oob = (self.shots > 0) & ~landed & ~net_fault & ((self.shp[:, 1] > CEILING_Y) | (np.abs(self.shp[:, 0]) > HALL_X)
+                                                         | (np.abs(self.shp[:, 2]) > HALL_Z))  # ceiling / walls: the hitter's fault
+        ended = net_fault | landed | oob
         # who loses and why
         loser = np.where(self.shots == 0, self.server, hitter)
         own_side = lx * SIGN[hitter] > 0
@@ -529,22 +596,68 @@ class BadSim:
         zsgn = -service_z_sign(self.server, self.score[np.arange(n), self.server])  # diagonal court
         good = np.where(serve_shot, in_service_court(lx, lz, zsgn), in_bounds(lx, lz))
         landing_reason = np.where(self.shots == 0, SERVE, np.where(own_side, NET, np.where(good, MISSED, np.where(serve_shot, SERVE, OUT))))
-        reason = np.where(net_fault, np.where(self.shots == 0, SERVE, NET), landing_reason)
+        reason = np.where(net_fault, np.where(self.shots == 0, SERVE, NET), np.where(oob, CEILING, landing_reason))
         hitter_wins = reason == MISSED
         loser = np.where(hitter_wins, 1 - hitter, loser)
         if self.log_game is not None:
             self._log_step()
         # --- hits (games whose rally continues)
         alive = ~ended
+        self._hit_fault[:] = -1
         for p in (0, 1):
             _, ext = self._can_hit(p)
             idx = np.nonzero(alive & self._swing[:, p] & ext)[0]
             if len(idx):
                 self._hit(idx, p)
+        hf = self._hit_fault >= 0  # the hit itself was a fault (net touch, serve struck too high): the hitter loses at once
+        if hf.any():
+            reason = np.where(hf, self._hit_fault, reason)
+            loser = np.where(hf, self.last_hitter, loser)
+            lx = np.where(hf, self.shp[:, 0], lx)
+            lz = np.where(hf, self.shp[:, 2], lz)
+        lx, lz = np.where(oob, self.shp[:, 0], lx), np.where(oob, self.shp[:, 2], lz)
         capped = alive & (self.shots >= RALLY_CAP_SHOTS)  # a rally this long is replayed
-        end_idx = np.nonzero(ended | capped)[0]
+        end_idx = np.nonzero(ended | capped | hf)[0]
         if len(end_idx):
             self._finish(end_idx, loser, reason, capped, landed, lx, lz, reward, done)
+
+    def _net_cord(self, old):
+        """Net-cord contact for the step old -> self.shp: where the segment first enters the circle of radius CORD_R around the tape axis
+        (in the x-y plane), the normal velocity component is reflected with CORD_E, the tangential part (also z) damped by CORD_TANGENT,
+        x gets CORD_SIGMA noise, and the shuttle sits on the circle. The flight then continues under the drag model."""
+        new = self.shp
+        ht = tape_height(0.5 * (old[:, 2] + new[:, 2]))
+        fx, fy = old[:, 0], old[:, 1] - ht
+        dx, dy = new[:, 0] - fx, new[:, 1] - old[:, 1]
+        a = dx * dx + dy * dy
+        b = 2 * (fx * dx + fy * dy)
+        c = fx * fx + fy * fy - CORD_R**2
+        with np.errstate(all="ignore"):
+            disc = b * b - 4 * a * c
+            t1 = (-b - np.sqrt(disc)) / (2 * a)
+        idx = np.nonzero((a > 0) & (c > 0) & (disc > 0) & (t1 >= 0) & (t1 <= 1))[0]
+        if len(idx) == 0:
+            return
+        t1 = t1[idx]
+        nx, ny = (fx[idx] + t1 * dx[idx]) / CORD_R, (fy[idx] + t1 * dy[idx]) / CORD_R  # normal at the contact point
+        v = self.shv[idx]
+        vn = v[:, 0] * nx + v[:, 1] * ny
+        m = vn < 0  # moving into the tape
+        if not m.any():
+            return
+        idx, t1, nx, ny, vn, v = idx[m], t1[m], nx[m], ny[m], vn[m], v[m]
+        tx_, ty_ = v[:, 0] - vn * nx, v[:, 1] - vn * ny
+        vx = -CORD_E * vn * nx + CORD_TANGENT * tx_ + self.rng.normal(size=len(idx)) * CORD_SIGMA
+        vy = -CORD_E * vn * ny + CORD_TANGENT * ty_
+        pc = old[idx] + t1[:, None] * (new[idx] - old[idx])
+        self.shp[idx, 0] = pc[:, 0] + nx * 1e-4
+        self.shp[idx, 1] = pc[:, 1] + ny * 1e-4
+        self.shp[idx, 2] = pc[:, 2]
+        self.shv[idx, 0], self.shv[idx, 1], self.shv[idx, 2] = vx, vy, CORD_TANGENT * v[:, 2]
+        self.stats["cords"] += len(idx)
+        if self.log_game is not None and self.log_game in idx:
+            g = self.log_game
+            self._event("cord", pos=self.shp[g].tolist(), v=self.shv[g].tolist(), tau=float(self.tsh[g]))
 
     def _hit(self, idx, p):
         """Executes the shot of player p in games idx (action = self._act[idx, p])."""
@@ -557,6 +670,7 @@ class BadSim:
         lunge = np.hypot(sh[:, 0] - self.pos[idx, p, 0], sh[:, 2] - self.pos[idx, p, 1]) > self._p["reach"][idx, p] * self.reach_scale
         extended = lunge | jump
         first = self.shots[idx] == 0
+        serve = first
         tx = m * (HL / 2 + HL / 2 * a[:, 3])
         tz = m * (HW * a[:, 4])
         # A serve's aim is normalised over the diagonal service court instead of the whole half, so a policy cannot get stuck
@@ -576,15 +690,30 @@ class BadSim:
         vh, vy, _ = tab.lookup(D, h0, T)
         speed0 = np.hypot(vh, vy)
         pspeed = np.linalg.norm(self.vel[idx, p], axis=-1)
+        # contact point in the hitter's body frame: forward (toward the net), lateral (racquet side +; the right of a player facing the net
+        # is +z for player 0 and -z for player 1), height
+        cf = -SIGN[p] * (sh[:, 0] - self.pos[idx, p, 0])
+        cl = m * (sh[:, 2] - self.pos[idx, p, 1])
+        q = contact_quality(cf, cl, h0, self._p["reach"][idx, p] * self.reach_scale, extended)
         sigma = ((0.15 + 0.25 * speed0 / 90 + SMASH_NOISE * (speed0 / 90) ** 2 + 0.3 * extended + 0.2 * pspeed / self._p["v_max"][idx, p])
-                 * self._p["noise_mult"][idx, p] * self.noise_scale)
+                 * self._p["noise_mult"][idx, p] * self.noise_scale * (1 + Q_NOISE * (1 - q)))
         tx2 = tx + self.rng.normal(size=k) * sigma
         tz2 = tz + self.rng.normal(size=k) * sigma
         D2, dx2, dz2 = self._dir(tx2 - sh[:, 0], tz2 - sh[:, 2], p)
         vh, vy, apex = tab.lookup(D2, h0, T)
         sp2 = np.hypot(vh, vy)
-        scale = np.minimum(1.0, launch_cap(h0, pw) / np.maximum(sp2, 1e-9))
+        scale = np.minimum(1.0, launch_cap(h0, pw) * (Q_SPEED[0] + Q_SPEED[1] * q) / np.maximum(sp2, 1e-9))
         vh, vy = vh * scale, vy * scale
+        mis = q < MISHIT_Q  # a frame hit: slow and in a random direction
+        if mis.any():
+            km = int(mis.sum())
+            e = self.rng.normal(size=(km, 2)) * MISHIT_SIGMA
+            sm_ = MISHIT_SPEED * np.hypot(vh[mis], vy[mis])
+            el = np.arctan2(vy[mis], vh[mis]) + e[:, 0]
+            hd = np.arctan2(dz2[mis], dx2[mis]) + e[:, 1]
+            vh[mis], vy[mis] = sm_ * np.cos(el), sm_ * np.sin(el)
+            dx2, dz2 = dx2.copy(), dz2.copy()
+            dx2[mis], dz2[mis] = np.cos(hd), np.sin(hd)
         self.shv[idx, 0], self.shv[idx, 1], self.shv[idx, 2] = vh * dx2, vy, vh * dz2
         self.land[idx, 0], self.land[idx, 1] = tx2, tz2
         self.land_t[idx] = T
@@ -593,15 +722,20 @@ class BadSim:
         self.react[idx, p] = 0.0
         self.last_hitter[idx] = p
         self.since_hit[idx, p] = 0.0
+        self.tsh[idx] = 0.0
+        self._hit_fault[idx] = np.where((np.abs(sh[:, 0]) < NET_TOUCH_X) & extended, NET_TOUCH, np.where(serve & (h0 > SERVE_MAX_H), SERVE, -1))
+        self.stats["mishits"] += int(mis.sum())
+        self.stats["q_sum"] += float(q.sum())
         self.freeze[idx, p] = np.where(jump, FREEZE_JUMP, np.where(lunge, FREEZE_LUNGE, 0.0))
         self.shots[idx] += 1
         self.stats["hits"] += k
         if self.log_shots:
-            self._log_shots(idx, p, first, h0, sh[:, 0], vh, vy, apex, tx2, tz2, extended)
+            self._log_shots(idx, p, first, h0, sh[:, 0], vh, vy, apex, tx2, tz2, extended, q)
         if self.log_game is not None and self.log_game in idx:
-            q = int(np.nonzero(idx == self.log_game)[0][0])
-            self._event("hit", p=p, h=float(h0[q]), lunge=bool(lunge[q]), jump=bool(jump[q]), pos=sh[q].tolist(),
-                        v=self.shv[idx[q]].tolist(), target=[float(tx2[q]), float(tz2[q])], T=float(T[q]))
+            j = int(np.nonzero(idx == self.log_game)[0][0])
+            self._event("hit", p=p, h=float(h0[j]), lunge=bool(lunge[j]), jump=bool(jump[j]), pos=sh[j].tolist(),
+                        v=self.shv[idx[j]].tolist(), target=[float(tx2[j]), float(tz2[j])], T=float(T[j]), q=float(q[j]),
+                        body=[float(cf[j]), float(cl[j]), float(h0[j])], mishit=bool(mis[j]))
 
     @staticmethod
     def _dir(dx, dz, p):
@@ -611,7 +745,7 @@ class BadSim:
         uz = np.where(ok, dz / np.maximum(D, 1e-9), 0.0)
         return D, ux, uz
 
-    def _log_shots(self, idx, p, first, h0, x0, vh, vy, apex, tx, tz, ext):
+    def _log_shots(self, idx, p, first, h0, x0, vh, vy, apex, tx, tz, ext, q):
         for j, g in enumerate(idx):
             if self._pend[g] >= 0:  # the previous shot of this game ends at this contact
                 self.shot_log[self._pend[g]][8] = abs(x0[j])
@@ -620,7 +754,7 @@ class BadSim:
             # game, player, first, h, |x| contact, v0, launch angle deg, apex, |x| end (intended landing until updated), decision step
             self.shot_log.append([int(g), p, bool(first[j]), float(h0[j]), abs(float(x0[j])), float(np.hypot(vh[j], vy[j])),
                                   float(np.degrees(np.arctan2(vy[j], vh[j]))), float(apex[j]), abs(float(tx[j])), self.dstep,
-                                  float(self.disp[g]), 0.0, float(self.runlen[g, 1 - p])])  # + d, opponent run (filled later), its start
+                                  float(self.disp[g]), 0.0, float(self.runlen[g, 1 - p]), float(q[j])])  # + d, opponent run (filled later), its start, contact quality
 
     def _close_run(self, g, opp):
         """Row [11] of game g's latest shot = path length its receiver (player opp) ran since that hit."""

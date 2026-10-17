@@ -52,7 +52,9 @@ def _rallies(events):
     for e in events:
         if e["kind"] == "start":
             cur = dict(game=e["game"], ends=e["ends"], interval_before_s=e["interval_before_s"], start_t=e["t"], end_t=None, server=e["s"],
-                       winner=None, reason=None, shots=0, score=list(e["score"]))
+                       winner=None, reason=None, shots=0, score=list(e["score"]), contact_q=[])
+        elif e["kind"] == "hit" and cur is not None:
+            cur["contact_q"].append(round(e["q"], 4))  # contact quality of each shot of the rally, in order
         elif e["kind"] == "land" and cur is not None:
             cur.update(end_t=e["t"], reason=e["reason"], shots=e["shots"])
             if e["reason"] == "let":

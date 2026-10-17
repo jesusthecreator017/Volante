@@ -6,8 +6,12 @@ import numpy as np
 from helpers import run
 from oso_arena import bot, builds, sim
 
-# sha256 of a fixed 900-step rollout (random actions + bot) of the Phase 13.2 simulator, recorded BEFORE the builds change (29-float obs)
-GOLDEN_13_2 = "2aad0a5a1f0373f0f6a6cbcfb32151c5e3b0bcc289ca12d9fb89c066e3f478dd"
+# sha256 of a fixed 900-step rollout (random actions + bot) of the all-6 simulator (obs[:29], rewards, positions, velocities, shuttle).
+# Phase 14.2: 2aad0a5a... reproduced the Phase 13.2 simulator exactly, recorded before the builds existed.
+# Phase 14.2b changed the physics on purpose (net cord, turnover drag, racquet contact quality, players still before the serve, new
+# faults), so that hash is retired and this one, recorded from the 14.2b simulator, replaces it. It guards against accidental changes
+# from here on (any later physics change must replace it and say why). The rollout draws random actions so most hits are poor contacts.
+GOLDEN_14_2B = "8cada2d8290e69e51d02d670fe91b3d3ea4e58ebfb30bf0ab932e4f46a8e8512"
 
 
 def fingerprint(builds_arr=None, n=8, steps=900, seed=11):
@@ -26,12 +30,12 @@ def fingerprint(builds_arr=None, n=8, steps=900, seed=11):
     return h.hexdigest(), s
 
 
-def test_all6_equals_phase_13_2_simulator():
+def test_all6_matches_the_golden_rollout():
     fp, s = fingerprint()
-    assert fp == GOLDEN_13_2, "the all-6 simulator no longer reproduces Phase 13.2 (obs[:29], rewards, positions, velocities, shuttle)"
-    assert s.stats["hits"] == 457 and s.stats["rallies"] == 127
+    assert fp == GOLDEN_14_2B, "the all-6 simulator changed (obs[:29], rewards, positions, velocities, shuttle): see the note on GOLDEN_14_2B"
+    assert s.stats["hits"] == 381 and s.stats["rallies"] == 159 and s.stats["cords"] == 15 and s.stats["mishits"] == 84
     fp2, _ = fingerprint(np.full((8, 2, 4), 6))  # explicit all-6 builds are the same thing
-    assert fp2 == GOLDEN_13_2
+    assert fp2 == GOLDEN_14_2B
 
 
 def test_obs_dim_and_build_columns():
@@ -108,6 +112,8 @@ def test_speed_stat_changes_running():
     b = np.array([[[6, 10, 4, 4], [6, 1, 9, 4]]])  # player 0 fast, player 1 slow
     s = sim.BadSim(1, 0, builds=b)
     s.pos[0, 0], s.pos[0, 1] = [-6.0, 0.0], [6.0, 0.0]
+    s.shots[:], s.last_hitter[:] = 2, 1  # a rally in progress (before the serve nobody moves)
+    s.shp[:], s.shv[:] = [0.0, 10.5, 0.0], 0.0  # the shuttle starts high (1.9 s to fall): nothing ends
     a = np.zeros((1, 2, 6))
     a[..., 0] = 1.0  # both run toward the net
     a[..., 2] = -1

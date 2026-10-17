@@ -317,7 +317,7 @@ def main():
             wl = win["bot_w"] + win["bot_l"]
             row = dict(min=round(elapsed / 60, 1), it=it, msamples=round(samples / 1e6, 1), sps=int(sps), prog=round(prog, 3),
                        shaping=round(game.shaping, 3), base=round(game.base_scale, 2), noise=round(game.noise_scale, 2), reach=round(game.reach_scale, 2),
-                       train_selfplay_rally=round(win["shots"] / max(sum(win["faults"][k] for k in sim.REASONS[:4]), 1), 2),
+                       train_selfplay_rally=round(win["shots"] / max(sum(win["faults"][k] for k in sim.REASONS[:-1]), 1), 2),
                        train_bot_point_wr=round(win["bot_w"] / max(wl, 1), 3), pg=round(float(np.mean([l[0] for l in win["loss"]])), 4),
                        vl=round(float(np.mean([l[1] for l in win["loss"]])), 4), std=round(float(net.log_std.exp().mean()), 3),
                        eval=q, pool=len(pool))
