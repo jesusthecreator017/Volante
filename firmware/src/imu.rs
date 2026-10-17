@@ -1,4 +1,4 @@
-//! MPU-9250 / 9255 / 6500 driver: 500 Hz accel + gyro through the 512 B FIFO (12 B per sample).
+//! MPU-9250 / 9255 / 6500 driver: 500 Hz accel + gyro through the 512 B FIFO (14 B per frame: accel, temp, gyro).
 
 use esp_hal::Async;
 use esp_hal::i2c::master::{Error, I2c};
@@ -17,8 +17,8 @@ const FIFO_COUNT_H: u8 = 0x72;
 const FIFO_R_W: u8 = 0x74;
 const WHO_AM_I: u8 = 0x75;
 
-pub const SAMPLE_BYTES: usize = 12;
-/// The FIFO is 512 B; at 504 (42 samples) the next sample overwrote the oldest
+pub const SAMPLE_BYTES: usize = 14;
+/// The FIFO is 512 B; at 504 (36 frames) the next sample overwrote the oldest
 pub const FIFO_FULL: u16 = 504;
 /// (register, value) in the order they are written. Read back and logged at init.
 const CONFIG_REGS: [(u8, u8); 7] = [
@@ -27,7 +27,7 @@ const CONFIG_REGS: [(u8, u8); 7] = [
     (GYRO_CONFIG, 0x18), // +-2000 dps
     (ACCEL_CONFIG, 0x18), // +-16 g
     (ACCEL_CONFIG2, 0x02), // accel DLPF 99 Hz
-    (FIFO_EN, 0x78),    // accel + gyro
+    (FIFO_EN, 0xF8),    // temp + accel + gyro (temp is the framing sentinel)
     (PWR_MGMT_2, 0),
 ];
 
@@ -86,6 +86,8 @@ impl<'d> Imu<'d> {
         for (reg, v) in CONFIG_REGS {
             self.write(reg, v).await?;
         }
+        // Settle, then start the FIFO on a frame boundary (after all config writes)
+        embassy_time::Timer::after_millis(10).await;
         self.reset_fifo().await?;
         for (reg, want) in CONFIG_REGS {
             let mut got = [0u8];
@@ -114,13 +116,21 @@ impl<'d> Imu<'d> {
         Ok(u16::from_be_bytes(c) & 0x1FFF)
     }
 
-    /// Whole samples out of the FIFO: `buf.len()` must be a multiple of 12
+    /// Whole samples out of the FIFO: `buf.len()` must be a multiple of 14
     pub async fn read_fifo(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         self.read(FIFO_R_W, buf).await
     }
 }
 
-/// One FIFO sample (big-endian ax ay az gx gy gz) as native i16s
+/// One FIFO frame (big-endian ax ay az temp gx gy gz) as native i16s, temperature left out
 pub fn parse(s: &[u8]) -> [i16; 6] {
-    core::array::from_fn(|i| i16::from_be_bytes([s[2 * i], s[2 * i + 1]]))
+    core::array::from_fn(|i| {
+        let o = if i < 3 { 2 * i } else { 2 * i + 2 };
+        i16::from_be_bytes([s[o], s[o + 1]])
+    })
+}
+
+/// Raw TEMP_OUT of a FIFO frame
+pub fn temp(s: &[u8]) -> i16 {
+    i16::from_be_bytes([s[6], s[7]])
 }

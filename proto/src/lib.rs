@@ -104,7 +104,7 @@ pub mod err {
 
 pub const STATUS_LEN: usize = 24;
 
-/// `status` characteristic: 23 packed little-endian bytes + 1 reserved zero byte.
+/// `status` characteristic: 24 packed little-endian bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Status {
     pub fw_major: u8,
@@ -123,6 +123,46 @@ pub struct Status {
     pub state_ext: u8,
     /// Live-stream packets dropped on notify errors since the last connection
     pub stream_drops: u16,
+    /// FIFO framing guard resets since boot (byte 23), saturating
+    pub framing_resets: u8,
+}
+
+/// Consecutive implausible FIFO temperature samples that mean the 14 B framing is lost
+pub const FRAMING_BAD_LIMIT: u8 = 3;
+/// MPU-6500 TEMP_OUT limits: -40..+85 C with `T = raw / 333.87 + 21`
+const TEMP_MIN: i16 = -20_366;
+const TEMP_MAX: i16 = 21_367;
+/// 0.5 C between neighbouring samples
+const TEMP_STEP: i16 = 167;
+
+/// Framing check on the temperature word that sits between accel and gyro in every FIFO frame (a shifted read puts
+/// gyro/accel bytes there instead, which jump around or leave the range).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FramingGuard {
+    last_ok: Option<i16>,
+    bad: u8,
+}
+
+impl FramingGuard {
+    pub const fn new() -> Self {
+        Self { last_ok: None, bad: 0 }
+    }
+
+    /// Feeds one sample's raw temperature; true once `FRAMING_BAD_LIMIT` in a row were implausible
+    pub fn check(&mut self, raw: i16) -> bool {
+        let ok = (TEMP_MIN..=TEMP_MAX).contains(&raw) && self.last_ok.is_none_or(|l| raw.abs_diff(l) <= TEMP_STEP as u16);
+        if ok {
+            (self.last_ok, self.bad) = (Some(raw), 0);
+        } else {
+            self.bad += 1;
+        }
+        self.bad >= FRAMING_BAD_LIMIT
+    }
+
+    /// After a FIFO reset: start over
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
 }
 
 impl Status {
@@ -141,6 +181,7 @@ impl Status {
         o[16..20].copy_from_slice(&self.event_value.to_le_bytes());
         o[20] = self.state_ext;
         o[21..23].copy_from_slice(&self.stream_drops.to_le_bytes());
+        o[23] = self.framing_resets;
         o
     }
 
@@ -162,6 +203,7 @@ impl Status {
             event_value: u32::from_le_bytes([b[16], b[17], b[18], b[19]]),
             state_ext: b[20],
             stream_drops: u16::from_le_bytes([b[21], b[22]]),
+            framing_resets: b[23],
         })
     }
 }
@@ -211,15 +253,28 @@ mod tests {
     }
 
     #[test]
+    fn framing_guard_trips_on_three_bad_in_a_row() {
+        let mut g = FramingGuard::new();
+        assert!(!g.check(0) && !g.check(100) && !g.check(-60));
+        // out of range, out of range, then a valid one clears the run
+        assert!(!g.check(30_000) && !g.check(-30_000) && !g.check(-60));
+        // step too large counts against the last good value (-60)
+        assert!(!g.check(500) && !g.check(900) && g.check(-4000));
+        g.reset();
+        assert!(!g.check(5000));
+    }
+
+    #[test]
     fn status_roundtrip() {
         let s = Status {
             fw_major: 1, fw_minor: 2, rate_hz: 500, battery_pct: 255, state_bits: state::STREAMING | state::IMU_OK,
             accel_g: 16, gyro_dps: 2000, buffered_packets: 123_456, fifo_overflows: 7,
             event: event::UPLOAD_DONE, event_value: 0xdead_beef, state_ext: state_ext::SLEEPING, stream_drops: 0x0102,
+            framing_resets: 9,
         };
         let b = s.encode();
         assert_eq!(b.len(), 24);
-        assert_eq!((b[20], &b[21..]), (1, &[2u8, 1, 0][..]));
+        assert_eq!((b[20], &b[21..]), (1, &[2u8, 1, 9][..]));
         assert_eq!((op::SLEEP, op::WAKE, err::SLEEPING), (8, 9, 5));
         assert_eq!(Status::decode(&b), Some(s));
         assert_eq!(Status::decode(&b[..23]), None);
