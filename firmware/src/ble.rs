@@ -5,7 +5,7 @@
 
 use crate::shared::{
     BATTERY, CMD, CONNECTED, Cmd, EVENTS, LAST_ACT_MS, NOTIFY_ERRS, OVERFLOWS, SLEEP_REQ, STATE, STATE_EXT, STORED, STREAM,
-    STREAM_DROPS, UPLOAD_OK, UPLOAD_REQ, has, now_ms, now_us, set,
+    FRAMING_RESETS, STREAM_DROPS, UPLOAD_OK, UPLOAD_REQ, has, now_ms, now_us, set,
 };
 use crate::sleep::{SLEEP_ADV_MS, SLEEP_CONNECT_S};
 use crate::store::Store;
@@ -66,6 +66,7 @@ fn status(ev: u8, value: u32) -> [u8; oso_proto::STATUS_LEN] {
         event_value: value,
         state_ext: STATE_EXT.load(Relaxed),
         stream_drops: STREAM_DROPS.load(Relaxed),
+        framing_resets: FRAMING_RESETS.load(Relaxed).min(255) as u8,
     }
     .encode()
 }

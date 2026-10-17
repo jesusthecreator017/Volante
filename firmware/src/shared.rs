@@ -22,6 +22,8 @@ pub enum Cmd {
 
 pub static STATE: AtomicU8 = AtomicU8::new(0);
 pub static OVERFLOWS: AtomicU16 = AtomicU16::new(0);
+/// FIFO framing-guard resets since boot (status byte 23, saturating)
+pub static FRAMING_RESETS: AtomicU16 = AtomicU16::new(0);
 /// Live-stream packets dropped on notify errors since the last connect (status bytes 21..23)
 pub static STREAM_DROPS: AtomicU16 = AtomicU16::new(0);
 /// Notify errors since boot (diagnostics)

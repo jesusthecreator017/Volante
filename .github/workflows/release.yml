@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build everything, publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # a version tag on a tag push, "dev" for a manual dry run
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build arena/kit --outdir dist-kit
+          ls -l dist-kit
+      - name: Check the wheel in a fresh venv
+        run: |
+          python -m venv "$RUNNER_TEMP/v"
+          "$RUNNER_TEMP/v/bin/pip" install dist-kit/*.whl
+          if unzip -l dist-kit/*.whl | grep -q 'oso_arena/data/base_40min.safetensors'; then
+            "$RUNNER_TEMP/v/bin/oso-arena" check base
+          else
+            echo "::notice::the base model is not in this tree, so this wheel does not carry it and 'check base' was skipped"
+            "$RUNNER_TEMP/v/bin/oso-arena" --help >/dev/null
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kit
+          path: dist-kit/*
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasm
+      - uses: ./.github/actions/wasm-pack
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Build and zip
+        run: |
+          mkdir -p out
+          web/arena/build.sh
+          (cd web/dist/viewer && zip -qrX "$GITHUB_WORKSPACE/out/oso-viewer-arena-$TAG.zip" .)
+          web/replay/build.sh
+          R=$RUNNER_TEMP/replay
+          mkdir -p "$R/pkg"
+          cp web/replay/index.html web/replay/stats.js web/replay/timeline.js "$R/"
+          cp web/replay/pkg/oso.js web/replay/pkg/oso_bg.wasm "$R/pkg/"
+          [ -d web/replay/pkg/snippets ] && cp -R web/replay/pkg/snippets "$R/pkg/"
+          cp -R assets "$R/assets"
+          (cd "$R" && zip -qrX "$GITHUB_WORKSPACE/out/oso-viewer-replay-$TAG.zip" .)
+          (cd site && npm ci --no-audit --no-fund && npm run build)
+          (cd site/dist && zip -qrX "$GITHUB_WORKSPACE/out/site-$TAG.zip" .)
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web
+          path: out/*
+
+  pi-bundle:
+    # arena/handoff/make_bundle.sh rebuilds the wheel, viewer and site itself; needs only gates it on those two succeeding first
+    needs: [kit, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasm
+      - uses: ./.github/actions/wasm-pack
+      - name: Build the bundle
+        run: |
+          python -m pip install numpy safetensors build setuptools wheel
+          PYTHON=python arena/handoff/make_bundle.sh
+          mkdir -p out
+          cp dist/oso-arena-pi.zip "out/oso-arena-pi-$TAG.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pi-bundle
+          path: out/*
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: esp-rs/xtensa-toolchain@ec6d36527049a7f4fb2cb0c1a644668c1bb8a2a4 # v1.7.0
+        with:
+          buildtargets: esp32s3
+          default: false
+      # The toolchain itself is not cached: espup downloads prebuilt binaries in about a minute. Only the build products are.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: firmware
+      - name: Build
+        working-directory: firmware
+        run: cargo build --release
+      - name: Image
+        working-directory: firmware
+        run: |
+          curl -fsSL https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-unknown-linux-gnu.zip -o "$RUNNER_TEMP/espflash.zip"
+          unzip -q "$RUNNER_TEMP/espflash.zip" -d "$RUNNER_TEMP/espflash"
+          ESPFLASH=$RUNNER_TEMP/espflash/espflash
+          chmod +x "$ESPFLASH"
+          mkdir -p ../out
+          # App image only. A merged image with a partition table is padded to the flash size and would overwrite the imu data partition.
+          "$ESPFLASH" save-image --chip esp32s3 target/xtensa-esp32s3-none-elf/release/oso-fw "../out/oso-fw-$TAG.bin"
+          # The app goes where partitions.csv puts the factory partition, and must fit in it
+          read -r OFFSET SIZE < <(awk -F'[ ,]+' '$3=="factory"{print $4, $5}' partitions.csv)
+          [ "$(stat -c %s "../out/oso-fw-$TAG.bin")" -le "$((SIZE))" ] || { echo "app image larger than the factory partition ($SIZE)"; exit 1; }
+          cp partitions.csv ../out/partitions.csv
+          cat > ../out/FLASHING.txt <<TXT
+          oso-fw $TAG (XIAO ESP32-S3 racquet pod)
+
+          Update a pod that already runs oso-fw (keeps the recorded session in the imu partition):
+            espflash write-bin $OFFSET oso-fw-$TAG.bin
+
+          $OFFSET is the factory partition in partitions.csv (size $SIZE). Do NOT write a merged image or erase the flash:
+          the imu partition (0x190000, 0x670000) holds recorded sessions.
+
+          First flash of a blank board (bootloader and partition table are needed): from a checkout of this tag,
+            cd firmware && cargo run --release
+          which runs: espflash flash --partition-table partitions.csv
+          TXT
+          cat ../out/FLASHING.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware
+          path: out/*
+
+  release:
+    needs: [kit, web, pi-bundle, firmware]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: |
+          sha256sum ./* > SHA256SUMS.txt
+          ls -l
+      - name: Publish
+        if: github.ref_type == 'tag' && inputs.dry_run != true
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$TAG" ./* --title "$TAG" --generate-notes --verify-tag

@@ -5,14 +5,22 @@
 //! count was read and earlier ones `k * period` before it, where `period` is a slow average of the measured MPU
 //! sample period (the MPU clock is up to 1 % off the ESP clock, which the drift fit in `src/imu/sync.rs` needs).
 
-use crate::imu::{FIFO_FULL, Imu, SAMPLE_BYTES, parse};
-use crate::shared::{CMD, Cmd, IMU_ASLEEP, OVERFLOWS, REC, SLEEP_REQ, STREAM, has, now_us, push_lossy};
+use crate::imu::{FIFO_FULL, Imu, SAMPLE_BYTES, parse, temp};
+use crate::shared::{CMD, Cmd, FRAMING_RESETS, IMU_ASLEEP, OVERFLOWS, REC, SLEEP_REQ, STREAM, has, now_us, push_lossy};
 use core::sync::atomic::Ordering::Relaxed;
 use embassy_time::{Duration, Ticker};
-use oso_proto::{Marker, Packet, SRC_TAP, TapDetector, state as bits};
+use oso_proto::{FramingGuard, Marker, Packet, SRC_TAP, TapDetector, state as bits};
 
 const MAX_BATCH: usize = FIFO_FULL as usize / SAMPLE_BYTES;
 const NOMINAL_PERIOD_US: u32 = 2000;
+
+/// `seq` after a FIFO restart: advanced by the samples that fit in the time since the last read (a real gap)
+fn after_gap(seq: u16, t_read: u32, last_read: Option<u32>, period_q8: u32) -> u16 {
+    match last_read {
+        Some(last) => seq.wrapping_add((((t_read.wrapping_sub(last) as u64) << 8) / period_q8 as u64) as u16),
+        None => seq,
+    }
+}
 
 #[embassy_executor::task]
 pub async fn run(mut imu: Imu<'static>) {
@@ -27,6 +35,13 @@ pub async fn run(mut imu: Imu<'static>) {
     // Rate report window
     let (mut rep_t, mut rep_n) = (now_us(), 0u32);
     let mut last_v = [0i16; 6];
+    let mut guard = FramingGuard::new();
+    // Bytes left over after the last whole-frame read (nonzero twice in a row = a byte was lost)
+    let mut last_rem = 0usize;
+    // The first batch after init may hold a partial frame from the boot-time overflow
+    let mut discard_first = true;
+    #[cfg(feature = "fault_inject")]
+    let mut injected = false;
     let mut tick = Ticker::every(Duration::from_millis(10));
     loop {
         tick.next().await;
@@ -51,26 +66,64 @@ pub async fn run(mut imu: Imu<'static>) {
                 continue;
             }
             let n = OVERFLOWS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
-            if let Some(last) = last_read {
-                let lost = (t_read.wrapping_sub(last) as u64) << 8;
-                seq = seq.wrapping_add((lost / period_q8 as u64) as u16);
-            }
+            seq = after_gap(seq, t_read, last_read, period_q8);
             last_read = Some(t_read);
             (acc_dt, acc_n) = (0, 0);
+            last_rem = 0;
+            guard.reset();
             log::warn!("imu FIFO overflow #{n}");
             continue;
         }
-        let n = count as usize / SAMPLE_BYTES;
+        #[cfg_attr(not(feature = "fault_inject"), allow(unused_mut))]
+        let mut n = count as usize / SAMPLE_BYTES;
+        let rem = count as usize % SAMPLE_BYTES;
+        // A leftover that is the same twice in a row is not a sample mid-write: a byte was lost or added
+        let stuck = rem != 0 && rem == last_rem;
+        last_rem = rem;
+        if stuck {
+            framing_reset(&mut imu, "FIFO count not a whole frame").await;
+            seq = after_gap(seq, t_read, last_read, period_q8);
+            last_read = Some(t_read);
+            (acc_dt, acc_n) = (0, 0);
+            last_rem = 0;
+            guard.reset();
+            continue;
+        }
         if n == 0 {
             continue;
+        }
+        #[cfg(feature = "fault_inject")]
+        if !injected && n >= 2 && rem == 0 && now_us() > 10_000_000 {
+            injected = true;
+            log::warn!("fault_inject: dropping one FIFO byte");
+            let _ = imu.read_fifo(&mut [0u8; 1]).await;
+            n -= 1;
         }
         if imu.read_fifo(&mut buf[..n * SAMPLE_BYTES]).await.is_err() {
             // A burst cut short leaves the 12 B framing unknown: start over (the gap shows as a seq jump)
             let _ = imu.reset_fifo().await;
-            if let Some(last) = last_read {
-                let lost = (t_read.wrapping_sub(last) as u64) << 8;
-                seq = seq.wrapping_add((lost / period_q8 as u64) as u16);
-            }
+            seq = after_gap(seq, t_read, last_read, period_q8);
+            last_read = Some(t_read);
+            (acc_dt, acc_n) = (0, 0);
+            last_rem = 0;
+            guard.reset();
+            continue;
+        }
+
+        // Framing sentinel: validate the whole batch before anything is emitted
+        let misaligned = buf[..n * SAMPLE_BYTES].chunks_exact(SAMPLE_BYTES).any(|s| guard.check(temp(s)));
+        if misaligned {
+            framing_reset(&mut imu, "implausible FIFO temperature").await;
+            seq = after_gap(seq, t_read, last_read, period_q8);
+            last_read = Some(t_read);
+            (acc_dt, acc_n) = (0, 0);
+            last_rem = 0;
+            guard.reset();
+            continue;
+        }
+        if discard_first {
+            discard_first = false;
+            seq = after_gap(seq, t_read, last_read, period_q8);
             last_read = Some(t_read);
             (acc_dt, acc_n) = (0, 0);
             continue;
@@ -111,6 +164,13 @@ pub async fn run(mut imu: Imu<'static>) {
             (rep_t, rep_n) = (t_read, 0);
         }
     }
+}
+
+/// Restarts the FIFO on a frame boundary and counts it (status byte 23)
+async fn framing_reset(imu: &mut Imu<'static>, why: &str) {
+    let _ = imu.reset_fifo().await;
+    let n = FRAMING_RESETS.fetch_add(1, Relaxed) + 1;
+    log::warn!("imu framing reset #{n}: {why}");
 }
 
 /// Tap detector, BLE stream and flash recorder
