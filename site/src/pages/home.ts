@@ -3,7 +3,7 @@ import { actionLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, o
 import { append, h, link, s } from "../dom";
 import type { Tournament, TournamentSummary } from "../types";
 
-export function home(root: HTMLElement) {
+export function arenaHome(root: HTMLElement) {
   const featured = h("section", { class: "card featured", "aria-labelledby": "feat-h" });
   const top = h("div");
   const latest = h("div");
@@ -18,10 +18,10 @@ export function home(root: HTMLElement) {
         { class: "lead" },
         "Start from our base model, pick a build and a play style, and train your own neural-network player. Upload it and it plays the ladder around the clock, plus a tournament every Sunday, all watchable in 3D.",
       ),
-      h("div", { class: "row" }, link("/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/ladder", h("span", { class: "btn" }, "See the ladder"))),
+      h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
     ),
     featured,
-    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, actionLink("/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, actionLink("/arena/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
@@ -89,14 +89,14 @@ function renderFeatured(el: HTMLElement, t: Tournament | null) {
     h(
       "div",
       { class: "row" },
-      final?.match_id ? link(`/matches/${final.match_id}`, h("span", { class: "btn primary" }, "Watch the final")) : null,
-      link(`/tournaments/${t.id}`, h("span", { class: "btn" }, "Bracket")),
+      final?.match_id ? link(`/arena/matches/${final.match_id}`, h("span", { class: "btn primary" }, "Watch the final")) : null,
+      link(`/arena/tournaments/${t.id}`, h("span", { class: "btn" }, "Bracket")),
     ),
   ]);
 }
 
 /** Decorative top-down badminton court (half-court view): thin lines, themed by CSS classes. */
-function court(): SVGSVGElement {
+export function court(): SVGSVGElement {
   // 6.1 x 13.4 m court; 1 unit = 0.1 m. Singles 5.18 wide, doubles-long service line 0.76 m inside the back line.
   const line = (x1: number, y1: number, x2: number, y2: number, cls = "court-line") => s("line", { x1, y1, x2, y2, class: cls });
   return s(

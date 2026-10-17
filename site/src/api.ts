@@ -8,6 +8,7 @@ import type {
   Me,
   ModelDetail,
   ModelSummary,
+  Pod,
   Season,
   Tournament,
   TournamentSummary,
@@ -30,6 +31,7 @@ let meCache: Promise<Me> | null = null;
 
 async function call<T>(method: string, path: string, body?: BodyInit): Promise<T> {
   const headers: Record<string, string> = { accept: "application/json" };
+  if (typeof body === "string") headers["content-type"] = "application/json";
   if (method !== "GET") headers["x-csrf-token"] = csrf || (await me()).csrf;
   const r = await fetch(path, { method, headers, body, credentials: "same-origin" });
   if (r.status === 204) return undefined as T;
@@ -98,6 +100,9 @@ export const api = {
   retireModel: (id: number) => call<void>("DELETE", `/api/models/${id}`),
   /** Requested from the Pi agent as an additive endpoint (site/README.md): the contract has no "my models" list. */
   myModels: () => call<{ items: ModelSummary[] }>("GET", "/api/models?owner=me").then((r) => r.items),
+  /** Additive endpoints (site/README.md): the signed-in user's pods and the display-name rename. */
+  pods: () => call<{ items: Pod[] }>("GET", "/api/me/pods").then((r) => r.items),
+  renamePod: (id: string, name: string) => call<Pod>("PATCH", `/api/me/pods/${encodeURIComponent(id)}`, JSON.stringify({ name })),
   deleteAccount: () => call<void>("DELETE", "/api/me"),
   logout: () => call<void>("POST", "/auth/logout"),
 };

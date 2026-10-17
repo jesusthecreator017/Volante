@@ -26,7 +26,7 @@ const VIEWER_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'wasm-uns
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
   ".wasm": "application/wasm", ".woff2": "font/woff2", ".json": "application/json", ".obj": "text/plain",
-  ".mtl": "text/plain", ".gltf": "model/gltf+json", ".bin": "application/octet-stream", ".png": "image/png", ".jpg": "image/jpeg",
+  ".mtl": "text/plain", ".gltf": "model/gltf+json", ".bin": "application/octet-stream", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg",
 };
 
 /** `root` + url path, or null when it escapes root or is not a file. */

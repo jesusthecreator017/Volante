@@ -2,7 +2,7 @@
 
 - Badminton is one of the fastest racquet sports, but players who want to improve only have a coach or phone video to scrub through.
 - Neither tells you how fast you swung, when in the swing you hit the shuttle, or how your strokes change over a match.
-- **oso** turns a small racquet sensor, two cameras and the phone or watch you already own into a 3D replay with numbers for every stroke.
+- **Volante** turns a small racquet sensor, two cameras and the phone or watch you already own into a 3D replay with numbers for every stroke.
 
 ## What it does
 
@@ -12,7 +12,7 @@
 - **Stroke classifier:** trained on 11,301 labelled hits from pro matches, it labels 12 stroke types.
 - **Mobile app:** one codebase for web, iOS and Android that connects to the pod, shows live swings and plays back the replay.
 - **Native iPhone + Apple Watch apps:** SwiftUI apps that run on a real iPhone; the watch records wrist motion (200 Hz) and heart rate during a badminton workout and hands the session to the phone.
-- **oso Arena:** an AI badminton game. Players pick a stat build (power, speed, reach, accuracy), train a small neural network with our pip kit and a Claude coaching skill, upload it, and it plays an always-on Elo ladder and a weekly tournament. Every match is watchable in 3D in the browser.
+- **Volante Arena:** an AI badminton game. Players pick a stat build (power, speed, reach, accuracy), train a small neural network with our pip kit and a Claude coaching skill, upload it, and it plays an always-on Elo ladder and a weekly tournament. Every match is watchable in 3D in the browser.
 - **Tap to sync:** tapping the racquet at the start and end of a session lines the sensor clock up with the video.
 - **In progress:** Fitbit heart rate on each swing, and the public Arena server on a Raspberry Pi.
 
@@ -53,7 +53,7 @@
 - Embedded async Rust on an ESP32
 - What each wearable platform really exposes: raw motion on Apple Watch, heart-rate summaries from Fitbit
 
-## What's next for oso
+## What's next for Volante
 
 - Test end to end on the real pod
 - Record wrist (watch) and racquet (pod) together in one session

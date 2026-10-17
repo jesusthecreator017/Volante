@@ -66,7 +66,7 @@ export function getStarted(root: HTMLElement) {
       h("li", null, `${UPLOADS_PER_DAY} uploads per day. You have one active model; a new upload retires the previous one (its history stays).`),
       h("li", null, "The server checks the file; if it's rejected you get the reasons in plain language."),
     ),
-    h("p", null, link("/my-models", h("span", { class: "btn primary" }, "Upload a model"))),
+    h("p", null, link("/arena/my-models", h("span", { class: "btn primary" }, "Upload a model"))),
     h("h2", null, "The rules"),
     h(
       "ul",

@@ -17,7 +17,7 @@ export async function myModels(root: HTMLElement) {
     if (!m.user) {
       slot.append(
         h("p", null, "Sign in with GitHub to upload a model."),
-        h("a", { href: loginUrl("/my-models"), class: "btn primary" }, "Sign in with GitHub"),
+        h("a", { href: loginUrl("/arena/my-models"), class: "btn primary" }, "Sign in with GitHub"),
       );
       return;
     }
@@ -48,7 +48,7 @@ export async function myModels(root: HTMLElement) {
         list.append(
           ms.length
             ? h("ul", { class: "my-models" }, ms.map((x) => modelCard(x, () => void refreshList())))
-            : h("p", { class: "muted" }, "No models yet. ", link("/get-started", "Get started"), " to train one."),
+            : h("p", { class: "muted" }, "No models yet. ", link("/arena/get-started", "Get started"), " to train one."),
         );
       });
     void refreshList();
@@ -103,7 +103,7 @@ function uploadError(err: unknown): HTMLElement {
     return h("p", { class: "error" }, `That's the daily limit of ${UPLOADS_PER_DAY} uploads.${when}`);
   }
   if (err instanceof ApiError && err.status === 413) return h("p", { class: "error" }, `The server refused the file as too large (limit ${MAX_UPLOAD_BYTES / 1024} KiB).`);
-  if (err instanceof ApiError && err.status === 401) return h("p", { class: "error" }, "Your session ended. ", h("a", { href: loginUrl("/my-models") }, "Sign in again"), ".");
+  if (err instanceof ApiError && err.status === 401) return h("p", { class: "error" }, "Your session ended. ", h("a", { href: loginUrl("/arena/my-models") }, "Sign in again"), ".");
   return errorBox(err);
 }
 
@@ -115,7 +115,7 @@ function pendingCard(d: ModelDetail): HTMLElement {
     d.status === "pending" ? h("p", { class: "loading" }, "Checking the model… this takes a few seconds.") : null,
     d.status === "active" ? h("p", null, "Accepted. It now plays its 10 placement matches. ", modelLink(d)) : null,
     d.status === "rejected"
-      ? [h("p", null, "The checker rejected it:"), h("ul", { class: "reasons" }, (d.reject_reasons ?? ["no reason given"]).map((r) => h("li", null, r))), h("p", { class: "muted small" }, "Fix it with the kit and upload again. ", link("/get-started", "How to improve"))]
+      ? [h("p", null, "The checker rejected it:"), h("ul", { class: "reasons" }, (d.reject_reasons ?? ["no reason given"]).map((r) => h("li", null, r))), h("p", { class: "muted small" }, "Fix it with the kit and upload again. ", link("/arena/get-started", "How to improve"))]
       : null,
   );
 }

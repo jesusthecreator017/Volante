@@ -1,5 +1,7 @@
 # Stroke dataset: classes and definitions
 
+Volante is the product name; command and package names keep the `oso` prefix.
+
 Design: `docs/superpowers/specs/2026-10-17-stroke-dataset-design.md` (on the stroke-dataset branch). The data itself lives in
 `~/Datasets/oso-strokes/`, never in this repo. Operator guide: [collection.md](collection.md). Consent: [consent.md](consent.md).
 

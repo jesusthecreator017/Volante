@@ -1,5 +1,7 @@
 # Volante
 
+Volante is the product name; command and package names keep the `oso` prefix.
+
 Badminton, measured. A sensor in the racquet handle, two cameras and the phone or watch you already own turn a session into
 a 3D replay with numbers for every stroke: racquet-head speed, impact timing, stroke type, rallies and heart rate. Next to it,
 **Volante Arena**: a public ladder where people train small neural networks to play badminton and watch their matches in 3D.

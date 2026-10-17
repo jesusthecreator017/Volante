@@ -1,10 +1,14 @@
-# oso Arena website (frontend)
+# Volante website (frontend)
 
-The public Arena site: Home, Ladder, Model, Match (3D viewer + rally list), Tournaments, My models (upload),
-Get started, Terms, Privacy. Built against the API contract in `oso-web-app-PROMPT.md` section 6. The Pi agent's
+Volante is the product name; command and package names keep the `oso` prefix.
+
+The site is the **racquet pod's** landing page (`/`: hero, features with honest status chips, how it works, an example
+report, an Arena teaser), Settings (`/settings`: pod display names, delete account), Terms and Privacy. The **Arena** (AI
+badminton) is a sub-section under `/arena`: Home, Ladder, Model, Match (3D viewer + rally list), Tournaments, My models
+(upload), Get started. Built against the API contract in `oso-web-app-PROMPT.md` section 6. The Pi agent's
 server serves the **API** and this **static build**; it does not render pages.
 
-- TypeScript + Vite, no UI framework, no runtime dependencies besides the bundled font (~12 KB gzipped JS, ~5 KB CSS, plus ~45 KB of self-hosted Barlow Condensed woff2).
+- TypeScript + Vite, no UI framework, no runtime dependencies besides the bundled font (~17 KB gzipped JS, ~6 KB CSS, plus ~45 KB of self-hosted Barlow Condensed woff2).
 - Every user string is a text node (`src/dom.ts`); there is no `innerHTML`. `h()` refuses `style` attributes.
 - Works at 390 px with no horizontal scroll, light and dark (system, or the toggle in the header).
 
@@ -12,7 +16,7 @@ server serves the **API** and this **static build**; it does not render pages.
 cd site
 npm install
 npm run dev:mock     # every page against a fake API with fixtures (src/mock.ts) + a viewer placeholder
-npm test             # 11 unit tests: rules, DOM safety, router, API client (CSRF, errors, 429)
+npm test             # unit tests: rules, DOM safety, routes + redirects, landing, pod rename, mock API, API client
 npm run build        # -> dist/  (mock code is compiled out)
 ```
 
@@ -26,13 +30,41 @@ npx vite build --mode mock                                     # fake API compil
 OSO_REPLAY=../out/e2e/match.bin node scripts/serve-pi.mjs      # http://localhost:8090/matches/905
 ```
 
+## Routes
+
+| Path | Page |
+|---|---|
+| `/` | pod landing |
+| `/settings` | pods + account (signed in) |
+| `/terms`, `/privacy` | site-wide |
+| `/arena` | Arena home |
+| `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`, `/arena/get-started` | Arena pages |
+
+Old paths (`/ladder`, `/models/<id>`, `/matches/<id>`, `/tournaments[/<id>]`, `/my-models`, `/get-started`) redirect
+client-side (`history.replaceState`) to the `/arena/...` equivalent. Anything else shows "Not found".
+
+## Landing page notes
+
+- Imagery is **our own renders** (`src/assets/{ready,swing,follow}.{webp,png}`, 640x512, each under 15 KB) from
+  `oso-rec live --replay-file out/hw/smashes_live1.bin --time 6|27|36 --screenshot` (cropped 640x512+130+100, `cwebp -q 80`,
+  PNG quantised to 64 colours), plus inline SVG. No third-party images, no live 3D.
+- Feature statuses live in `FEATURES` in `src/pages/landing.ts`; flip `status` when something ships. Proof chips use only
+  verified figures (500 Hz, 6-axis IMU, Bluetooth LE; about 12 minutes recorded per session on the pod).
+- The example report uses the real 2026-10-17 smash session numbers (41 smashes, mean ~69 km/h, max ~95 km/h, estimated);
+  the per-swing sparkline is an illustrative deterministic series with exactly that mean and max (labelled as such).
+- **TODO(owner):** the hero and feature renders show the racquet OBJ model, whose licence is unknown. Replace them or clear
+  the model before a public launch.
+- Visuals are sensible defaults from accessibility/touch/performance rules, not picks from the ui-ux-pro-max database
+  (not available when this was built).
+
 ## For the Pi agent: serving the build
 
 1. **Static files:** serve `site/dist/` at `/`. `assets/*` are content-hashed (`Cache-Control: immutable`);
    `index.html` must revalidate (`no-cache`).
 2. **History routing:** answer these page paths with `dist/index.html` (status 200):
-   `/`, `/ladder`, `/models/<id>`, `/matches/<id>`, `/tournaments`, `/tournaments/<id>`, `/my-models`,
-   `/get-started`, `/terms`, `/privacy`. Any other unknown path can also fall back to it; the site shows "Not found".
+   `/`, `/settings`, `/terms`, `/privacy`, `/arena`, `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`,
+   `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`, `/arena/get-started`. The old pre-/arena paths
+   (`/ladder`, `/models/<id>`, ...) stay served too: the site redirects them client-side. Any other unknown path can also fall back to it; the site shows "Not found".
 3. **Viewer bundle:** build it with `web/arena/build.sh` (repo root; needs Rust + wasm-pack) and serve the result,
    `web/dist/viewer/`, at `/viewer/` (same origin, so the rally list can call `iframe.contentWindow.oso_seek(t)`).
    The Match page embeds `/viewer/index.html?match=/api/matches/<id>/replay.bin`; the viewer retries `202` with
@@ -45,7 +77,7 @@ OSO_REPLAY=../out/e2e/match.bin node scripts/serve-pi.mjs      # http://localhos
    On `/viewer/` only, add `'wasm-unsafe-eval'` to `script-src` (WebAssembly). Verified with the real viewer and a
    real 20 MB match: no violations.
 5. **Sign-in:** the site links to `/auth/github/login?next=<path>`. Please honor `next` (same-origin paths only)
-   when redirecting after the callback, defaulting to `/my-models` as in the contract.
+   when redirecting after the callback, defaulting to `/arena/my-models` (the old `/my-models` still works through the redirect).
 
 ## For the Pi agent: one additive endpoint requested
 
@@ -59,13 +91,25 @@ Until it exists the page shows the upload form and polls the uploaded model, but
 Also used, and assumed optional per the contract text: `GET /api/matches` **without** `model=` (latest matches on
 the home page). If that should stay model-only, say so and the home page will show the ladder only.
 
+## For the Pi agent: pods endpoints (additive, Settings page)
+
+```
+GET   /api/me/pods                 [auth]          200 {"items":[Pod]}
+PATCH /api/me/pods/{id}            [auth + CSRF]   body {"name": "..."}  -> 200 Pod | 400 {"error":"invalid_name"} | 404
+Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_seen": "2026-10-17T15:20:00Z" | null}
+```
+`name` is an account display name stored on the server, linked to the pod's id; it never changes the pod's Bluetooth name.
+Validate: trim, 1-40 characters, no control or format characters. `no-store` on the GET. Pairing/linking
+(`POST /api/me/pods`, from the Volante app) is future work: until then Settings shows "No pods linked yet: pair one in the Volante
+app." The same rows are in `arena/handoff/PROMPT.md` (section 6 table and cross-check).
+
 ## Decisions taken (change freely)
 
 - **Ladder sorting** applies within the current page of 50 (the API has no sort parameter); rank order is the server's.
 - **Replays on phones / data saver** don't load until the user taps "Load 3D replay" (10-30 MB).
 - **Suggested style** is shown as "Smasher?" with a tooltip saying it's a guess from the build (the handoff leaves
   public badges as an open question for the owner).
-- **Delete account** asks the user to type their GitHub login.
+- **Delete account** (now in Settings) asks the user to type their GitHub login.
 - Terms and Privacy carry the handoff's points and are marked as draft text for the owner.
-- No branding beyond the name "oso Arena", a shuttle-orange accent and an SVG favicon. Domain and identity are the
+- No branding beyond the name "Volante Arena", a shuttle-orange accent and an SVG favicon. Domain and identity are the
   owner's call.

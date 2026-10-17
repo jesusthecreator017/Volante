@@ -68,7 +68,7 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
 
   function pager(l: Ladder) {
     if (l.total <= PAGE) return null;
-    const go = (o: number) => () => navigate(`/ladder?${new URLSearchParams({ ...(season ? { season: String(season) } : {}), offset: String(o) })}`);
+    const go = (o: number) => () => navigate(`/arena/ladder?${new URLSearchParams({ ...(season ? { season: String(season) } : {}), offset: String(o) })}`);
     return h(
       "nav",
       { class: "pager", "aria-label": "Ladder pages" },
@@ -99,7 +99,7 @@ function renderPicker(el: HTMLElement, seasons: Season[], current?: number) {
   const active = seasons.find((s) => s.active)?.id;
   const sel = h(
     "select",
-    { id: "season", onchange: (e: Event) => navigate(`/ladder?season=${(e.target as HTMLSelectElement).value}`) },
+    { id: "season", onchange: (e: Event) => navigate(`/arena/ladder?season=${(e.target as HTMLSelectElement).value}`) },
     seasons.map((s) => h("option", { value: s.id, selected: (current ?? active) === s.id }, `Season ${s.id}${s.active ? " (current)" : ""}`)),
   );
   el.append(h("label", { for: "season" }, "Season "), sel);

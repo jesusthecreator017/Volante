@@ -19,7 +19,7 @@ export function match(root: HTMLElement, p: Record<string, string>) {
 }
 
 function render(root: HTMLElement, m: MatchDetail) {
-  document.title = `${m.a.name} vs ${m.b.name} · oso Arena`;
+  document.title = `${m.a.name} vs ${m.b.name} · Arena · Volante`;
   const player = (side: Side) => {
     const x = side === "a" ? m.a : m.b;
     return h(

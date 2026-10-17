@@ -1,4 +1,4 @@
-# oso-arena kit
+# Volante Arena kit (`oso-arena`)
 
 Train a small neural network to play singles badminton, check it, play it against the scripted bot, and watch the match in 3D.
 Python package `oso_arena` for contract **`oso-arena/1`** (`oso_arena/CONTRACT.md`, a copy of `arena/contract/CONTRACT.md`, the
