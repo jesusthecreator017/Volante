@@ -180,12 +180,46 @@ function footer(): HTMLElement {
   );
 }
 
+/** What a failed GitHub sign-in reason means for the person trying (the server sends ?signin=failed&reason=...). */
+export const SIGNIN_REASONS: Record<string, string> = {
+  denied: "You cancelled the GitHub sign-in.",
+  no_state_cookie: "Your browser didn't keep the sign-in cookie. Allow cookies for this site and try again.",
+  state_expired: "The sign-in took longer than 10 minutes. Try again.",
+  state_mismatch: "The sign-in link was out of date. Try again.",
+  bad_verification_code: "GitHub's sign-in code had expired or was already used. Try again.",
+  incorrect_client_credentials: "Sign-in is misconfigured on the server (the GitHub app's ID or secret). The site owner needs to fix it.",
+  redirect_uri_mismatch: "Sign-in is misconfigured on the server (the GitHub app's callback URL). The site owner needs to fix it.",
+  github_unreachable: "The server couldn't reach GitHub. Try again in a minute.",
+  banned: "This account can't sign in.",
+};
+
+/** A banner for ?signin=failed (then the parameters are removed from the address bar). */
+function signInNotice(): HTMLElement | null {
+  const q = new URLSearchParams(location.search);
+  if (q.get("signin") !== "failed") return null;
+  const reason = (q.get("reason") ?? "").replace(/[^a-z0-9_]/g, "").slice(0, 40);
+  q.delete("signin");
+  q.delete("reason");
+  history.replaceState(null, "", location.pathname + (q.size ? `?${q}` : "") + location.hash);
+  const close = h("button", { type: "button", class: "icon-btn notice-close", "aria-label": "Dismiss" }, icon("x"));
+  const box = h(
+    "div",
+    { class: "notice notice-bad", role: "alert" },
+    icon("warning-circle"),
+    h("p", null, h("strong", null, "Sign-in didn't work. "), SIGNIN_REASONS[reason] ?? `Something went wrong (${reason || "unknown"}). Try again.`),
+    h("a", { href: loginUrl("/arena"), class: "btn small with-icon" }, icon("github-logo"), "Try again"),
+    close,
+  );
+  close.addEventListener("click", () => box.remove());
+  return box;
+}
+
 async function boot() {
   if (__MOCK__) await (await import("./mock")).installMock();
   applyTheme(getTheme());
   const main = h("main", { id: "main", tabindex: "-1" });
   const toast = h("div", { id: "toast", class: "toast", role: "status", "aria-live": "polite" });
-  document.body.replaceChildren(h("a", { href: "#main", class: "skip" }, "Skip to content"), shell(), main, footer(), toast);
+  document.body.replaceChildren(h("a", { href: "#main", class: "skip" }, "Skip to content"), shell(), signInNotice() ?? "", main, footer(), toast);
   start(main);
 }
 

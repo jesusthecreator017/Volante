@@ -2170,3 +2170,35 @@ select {
   width: 18px;
   height: 18px;
 }
+
+/* Sign-in failure banner (main.ts signInNotice) */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px auto 0;
+  max-width: min(1120px, calc(100% - 2 * var(--gutter)));
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--glass-line);
+}
+.notice p {
+  margin: 0;
+  flex: 1 1 260px;
+}
+.notice-bad {
+  background: var(--bad-soft);
+  color: var(--text);
+}
+.notice-bad > .ph {
+  color: var(--bad);
+  width: 22px;
+  height: 22px;
+}
+.notice-close.icon-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
