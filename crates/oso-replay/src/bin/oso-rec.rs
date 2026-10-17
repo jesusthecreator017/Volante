@@ -501,7 +501,7 @@ struct PodView {
     title: String,
     title_at: Instant,
     dirty: bool,
-    /// Last second of samples for the misalignment check, and whether it was already reported
+    /// Last few seconds of samples for the misalignment check, and whether it was already reported
     recent: Vec<packet::Sample>,
     warned: bool,
 }
@@ -592,7 +592,7 @@ impl LiveSource for PodView {
             if !self.warned {
                 // ponytail: ignores the u32 t_us wrap (71 min); a wrap only delays the warning by one window
                 let end = self.recent.last().map_or(0.0, |s| s.t_dev);
-                self.recent.retain(|s| end - s.t_dev <= 1.0);
+                self.recent.retain(|s| end - s.t_dev <= packet::IMPLAUSIBLE_WINDOW_S + 1.0);
                 if packet::implausible_rest(&self.recent) {
                     self.warned = true;
                     self.notice = Some((packet::MISALIGNED_WARNING.to_string(), Instant::now()));

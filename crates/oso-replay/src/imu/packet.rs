@@ -144,12 +144,17 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Capture> {
 pub const MISALIGNED_WARNING: &str =
     "IMU data looks misaligned: reset the pod (oso-rec sleep, then wake)";
 
-/// Still but wrong gravity for >= 0.5 s (|w| < 20 deg/s while |a| is outside 0.7-1.3 g): physically impossible, so the
-/// FIFO bytes were misaligned. Samples must be in time order.
+/// Length of the windows `implausible_rest` judges, seconds. Callers keep at least this much (plus a margin) of samples.
+pub const IMPLAUSIBLE_WINDOW_S: f64 = 2.0;
+
+/// Misaligned FIFO bytes (the pod's 7-byte shift), seen as physically impossible data. Samples must be in time order.
+/// - Still but wrong gravity for >= 0.5 s: |w| < 20 deg/s while |a| is outside 0.7-1.3 g.
+/// - In any 2 s window, a steady spin: mean |w| > 200 deg/s with a coefficient of variation < 0.15 (a racquet cannot hold
+///   a constant rate for seconds), or a steady wrong gravity: median |a| outside 0.5-2.0 g with |a| CV < 0.1.
 pub fn implausible_rest(samples: &[Sample]) -> bool {
+    let norm = |v: [f32; 3]| v.iter().map(|c| (*c as f64).powi(2)).sum::<f64>().sqrt();
     let mut since: Option<f64> = None;
     for s in samples {
-        let norm = |v: [f32; 3]| v.iter().map(|c| (*c as f64).powi(2)).sum::<f64>().sqrt();
         let (a, w) = (norm(s.acc) / G, norm(s.gyro).to_degrees());
         if w < 20.0 && !(0.7..=1.3).contains(&a) {
             if s.t_dev - *since.get_or_insert(s.t_dev) >= 0.5 {
@@ -158,6 +163,26 @@ pub fn implausible_rest(samples: &[Sample]) -> bool {
         } else {
             since = None;
         }
+    }
+    // Back-to-back windows; a trailing partial window is not judged
+    let mut i = 0;
+    while i < samples.len() {
+        let end = samples[i..].iter().position(|s| s.t_dev - samples[i].t_dev >= IMPLAUSIBLE_WINDOW_S);
+        let Some(end) = end.map(|e| i + e) else { break };
+        let win = &samples[i..end];
+        let cv = |x: &[f64]| {
+            let m = x.iter().sum::<f64>() / x.len() as f64;
+            (m, (x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / x.len() as f64).sqrt() / m.abs().max(1e-9))
+        };
+        let w: Vec<f64> = win.iter().map(|s| norm(s.gyro).to_degrees()).collect();
+        let mut a: Vec<f64> = win.iter().map(|s| norm(s.acc) / G).collect();
+        let (wm, wcv) = cv(&w);
+        let (_, acv) = cv(&a);
+        a.sort_by(f64::total_cmp);
+        if (wm > 200.0 && wcv < 0.15) || (!(0.5..=2.0).contains(&a[a.len() / 2]) && acv < 0.1) {
+            return true;
+        }
+        i = end;
     }
     false
 }
@@ -210,6 +235,52 @@ mod tests {
         let fifo = rest_bytes();
         assert!(!implausible_rest(&capture_of(&fifo)));
         assert!(implausible_rest(&capture_of(&fifo[7..])));
+    }
+
+    const HW: &str = "/Users/jesusgonzalez07/Desktop/MacToUSB/Rust/oso/out/hw";
+
+    /// Raw frames of a recording, or None when the file is not on this machine
+    fn hw_frames(name: &str) -> Option<Vec<[i16; 6]>> {
+        let b = std::fs::read(format!("{HW}/{name}")).ok()?;
+        Some(b[HEADER_LEN..].as_chunks::<PACKET_LEN>().0.iter().map(|p| oso_proto::Packet::decode(p).v).collect())
+    }
+
+    fn fifo_of(frames: &[[i16; 6]]) -> Vec<u8> {
+        frames.iter().flatten().flat_map(|v| v.to_be_bytes()).collect()
+    }
+
+    #[test]
+    fn real_still_shifted_by_seven_bytes_is_flagged() {
+        // ~12k frames of the pod sitting still start near frame 108_493 (|a| 1 g, |w| < 5 dps)
+        let Some(frames) = hw_frames("smashes_live1.bin") else { return };
+        let fifo = fifo_of(&frames[108_600..111_600]);
+        assert!(!implausible_rest(&capture_of(&fifo)));
+        let shifted = capture_of(&fifo[7..]);
+        let w = shifted.iter().map(|s| s.gyro.iter().map(|c| (*c as f64).powi(2)).sum::<f64>().sqrt().to_degrees()).sum::<f64>()
+            / shifted.len() as f64;
+        eprintln!("shifted mean |w| = {w:.0} dps");
+        assert!(implausible_rest(&shifted));
+    }
+
+    #[test]
+    fn real_smash_sessions_are_not_flagged() {
+        for name in ["smashes_live1.bin", "smashes.bin"] {
+            let Some(frames) = hw_frames(name) else { continue };
+            assert!(!implausible_rest(&capture_of(&fifo_of(&frames))), "{name}");
+        }
+    }
+
+    #[test]
+    fn steady_spin_or_steady_wrong_gravity_is_flagged() {
+        let s = |t: f64, acc: f32, gyro: f32| Sample { t_dev: t, acc: [0.0, 0.0, acc], gyro: [gyro, 0.0, 0.0], saturated: false };
+        let spin = (840.0f32).to_radians();
+        let v: Vec<_> = (0..1500).map(|i| s(i as f64 * 0.002, G as f32, spin * (1.0 + 0.05 * (i % 3) as f32))).collect();
+        assert!(implausible_rest(&v));
+        let v: Vec<_> = (0..1500).map(|i| s(i as f64 * 0.002, 3.8 * G as f32, spin * (1.0 + (i % 2) as f32))).collect();
+        assert!(implausible_rest(&v), "steady 3.8 g");
+        // a violent but varying swing is fine
+        let v: Vec<_> = (0..1500).map(|i| s(i as f64 * 0.002, G as f32, if i % 100 < 10 { spin } else { 0.5 })).collect();
+        assert!(!implausible_rest(&v));
     }
 
     #[test]
