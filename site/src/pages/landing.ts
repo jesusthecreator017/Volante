@@ -129,7 +129,6 @@ function collage(): HTMLElement {
       s("g", { transform: "translate(470 470) rotate(-36)" }, s("circle", { r: 14, class: "f-hot" }), s("path", { d: "M-14 0-46-16M-14 0H-46M-14 0-46 16", class: "f-none s-hot s-2" })),
       s("path", { d: "M20 612h16M28 604v16M572 28h16M580 20v16", class: "f-none s-line" }),
     ),
-    h("span", { class: "chip collage-tag" }, "500 samples/s"),
   );
 }
 
@@ -201,9 +200,9 @@ function step(n: number, art: SVGSVGElement, title: string, text: string): HTMLE
   return h("li", { class: `step s${n} reveal` }, art, h("span", { class: "step-n", "aria-hidden": "true" }, `0${n}`), h("h3", null, title), h("p", null, text));
 }
 
-/** Section heading: mono kicker, then a light lead-in and a heavy payoff. */
-function head(id: string, kicker: string, light: string, heavy: string): HTMLElement[] {
-  return [h("p", { class: "kicker" }, kicker), h("h2", { id }, h("span", { class: "lt" }, light), " ", h("span", { class: "hv" }, heavy))];
+/** Section heading: a light lead-in and a heavy payoff. */
+function head(id: string, light: string, heavy: string): HTMLElement {
+  return h("h2", { id }, h("span", { class: "lt" }, light), " ", h("span", { class: "hv" }, heavy));
 }
 
 function teaserArt(cls: string): SVGSVGElement {
@@ -225,7 +224,6 @@ export function landing(root: HTMLElement) {
       h(
         "div",
         { class: "l-hero-copy" },
-        h("p", { class: "kicker" }, "The pod · racquet data"),
         h("h1", { class: "display" }, h("span", { class: "lt" }, "Every swing,"), h("br"), h("span", { class: "hv" }, "measured.")),
         h("p", { class: "lead" }, "A small pod clips onto your racquet, records every swing at 500 samples a second and turns it into swing counts, speed and replays."),
         h("div", { class: "row cta" }, link("/#how", h("span", { class: "btn primary" }, "See how it works")), link("/arena", h("span", { class: "btn" }, "Try the Arena"))),
@@ -233,11 +231,11 @@ export function landing(root: HTMLElement) {
       ),
       collage(),
     ),
-    h("section", { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" }, ...head("features-h", "Features", "Hard numbers.", "Honest labels."), h("p", { class: "lead" }, "Every card says what works today and what is still being built. Speeds are estimated from the motion data."), h("div", { class: "features" }, FEATURES.map(feature))),
+    h("section", { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" }, head("features-h", "Hard numbers.", "Honest labels."), h("div", { class: "features" }, FEATURES.map(feature))),
     h(
       "section",
       { class: "l-sec how", id: "how", "aria-labelledby": "how-h", tabindex: "-1" },
-      ...head("how-h", "How it works", "Three steps,", "one diagonal."),
+      head("how-h", "Three steps,", "one diagonal."),
       h(
         "ol",
         { class: "steps" },
@@ -246,7 +244,7 @@ export function landing(root: HTMLElement) {
         step(3, reportArt(), "Get your report", "Swings are counted and timed and head speed is estimated, then shown as a report."),
       ),
     ),
-    h("section", { class: "l-sec", id: "report", "aria-labelledby": "report-h" }, ...head("report-h", "Report", "Read a session", "in ten seconds."), report(), h("p", { class: "muted small foot" }, "Example. Headline figures come from a real 41-smash session; the swing-by-swing chart is illustrative. All values are estimates from the sensor.")),
+    h("section", { class: "l-sec", id: "report", "aria-labelledby": "report-h" }, head("report-h", "Read a session", "in ten seconds."), report(), h("p", { class: "muted small foot" }, "Example. Headline figures come from a real 41-smash session; the swing-by-swing chart is illustrative. All values are estimates from the sensor.")),
     h(
       "section",
       { class: "l-sec teasers" },
@@ -254,7 +252,6 @@ export function landing(root: HTMLElement) {
         "article",
         { class: "arena-teaser card reveal", "aria-labelledby": "arena-h" },
         teaserArt("tz-art tz-block"),
-        h("p", { class: "kicker" }, "Arena"),
         h("h2", { id: "arena-h" }, h("span", { class: "lt" }, "Train a small AI."), " ", h("span", { class: "hv" }, "Watch it play.")),
         h("p", null, "The Arena is a badminton game for AIs: train a small neural network, upload it, and watch it climb the ladder and play weekly tournaments in 3D."),
         h("p", null, link("/arena", h("span", { class: "btn primary" }, "Explore the Arena"))),
