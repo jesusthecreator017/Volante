@@ -88,6 +88,31 @@ final class FitbitLink: NSObject, ASWebAuthenticationPresentationContextProvidin
         return refresh
     }
 
+    static let autoAttachKey = "volante.fitbit.auto"
+    /// Sessions the last pass tried, so one that Fitbit has no data for yet is asked again only after a while.
+    @ObservationIgnored private var tried: [String: Date] = [:]
+    private(set) var lastAttached: Date?
+
+    /// Adds Fitbit heart rate to recent sessions that have a clock anchor and none yet. Fitbit only has the data once the
+    /// tracker has synced, so this runs on save, when the app becomes active, and when Sessions opens.
+    func backfill(_ store: SessionStore) async {
+        let auto = UserDefaults.standard.object(forKey: Self.autoAttachKey) as? Bool ?? true
+        guard auto, connected == true, !busy else { return }
+        let now = Date()
+        for meta in store.sessions where meta.source != .sample && meta.heartRate.isEmpty && meta.anchor != nil
+            && now.timeIntervalSince(meta.createdAt) < 7 * 86400 && now.timeIntervalSince(tried[meta.id] ?? .distantPast) > 600 {
+            tried[meta.id] = now
+            guard let anchor = meta.anchor, let a = store.analysis(meta) else { continue }
+            let from = Date(timeIntervalSince1970: anchor.wall(a.t0) - 60), to = Date(timeIntervalSince1970: anchor.wall(a.t1) + 60)
+            guard let hr = try? await heartRate(from: from, to: to), !hr.isEmpty else { continue }
+            var m = meta
+            m.heartRate = hr
+            m.heartRateSource = "Fitbit"
+            try? store.writeMeta(m)
+            lastAttached = now
+        }
+    }
+
     /// Heart rate for a time window, fetched by the Pi.
     func heartRate(from: Date, to: Date) async throws -> [HeartRateSample] {
         try await pi.heartRate(from: from, to: to)
