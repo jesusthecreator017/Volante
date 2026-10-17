@@ -354,11 +354,21 @@ async fn retry<T, F: AsyncFnMut() -> anyhow::Result<T>>(mut attempt: F, wait: Du
 /// A fresh connection that is streaming (0x01) with both characteristics subscribed
 async fn open() -> anyhow::Result<(Dev, Notes)> {
     let d = connect().await?;
-    d.p.subscribe(&d.stream).await?;
-    d.p.subscribe(&d.status).await?;
-    let notes: Notes = d.p.notifications().await?;
-    d.cmd(op::START_STREAM).await?;
-    Ok((d, notes))
+    // A half-open link left connected would keep the pod from advertising, so close it on any failure
+    let setup = async {
+        d.p.subscribe(&d.stream).await?;
+        d.p.subscribe(&d.status).await?;
+        let notes: Notes = d.p.notifications().await?;
+        d.cmd(op::START_STREAM).await?;
+        anyhow::Ok(notes)
+    };
+    match setup.await {
+        Ok(notes) => Ok((d, notes)),
+        Err(e) => {
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            Err(e)
+        }
+    }
 }
 
 enum End {
@@ -436,13 +446,16 @@ async fn stream_task(
         }
         eprintln!("[{}] link lost, reconnecting", stamp());
         ctl.send(Msg::Reconnecting).ok();
-        tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
-        // Marker presses while away are dropped; Stop (or the window closing) ends the task
+        // Marker presses while away are dropped; Stop (or the window closing) ends the task, even mid-disconnect
         let stopped = async {
             while let Some(Cmd::Marker) = cmds.next().await {}
         };
+        let reopen = async {
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            retry(open, RETRY_WAIT).await
+        };
         tokio::select! {
-            (nd, nn) = retry(open, RETRY_WAIT) => {
+            (nd, nn) = reopen => {
                 eprintln!("[{}] reconnected", stamp());
                 (d, notes) = (nd, nn);
                 ctl.send(Msg::Reconnected).ok();

@@ -52,6 +52,7 @@ Unknown opcodes: status event `error` with code 1.
 | 23 | reserved | 1 byte | 0 |
 
 Error codes: 1 bad opcode, 2 no session, 3 un-uploaded session (repeat `0x03` within 5 s), 4 busy, 5 sleeping (any opcode but `0x09` while sleeping; the pod then goes back to sleep).
+A connection with no host write to `control` and no successful data notify for 30 s is closed by the pod (so a forgotten connection frees the advert); a host that only listens to `status` must write something (reads and status notifies do not count) within 30 s.
 `status` is notified when an event happens and otherwise once per second. The readable value is refreshed every 20 ms.
 
 ## Sync markers (one deviation from the app spec)
