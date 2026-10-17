@@ -25,6 +25,7 @@ Split oso into two separate products that share a renderer.
   (`dist/oso-arena-pi/PROMPT.md`). This repo delivers the contract, the kit and the viewer the Pi agent consumes.
 
 ### Non-goals (v1)
+- doubles (a later phase, new contract version)
 - custom network architectures
 - live in-browser simulation
 - doubles
@@ -108,15 +109,46 @@ height and the freezes are the same for everyone.
   normalised as `(s - 5.5) / 4.5`. Total **37**. `CONTRACT.md` lists every index with meaning and scaling.
 - **Action:** 6 floats at 30 Hz, unchanged from Phase 13: move vx, vz, swing, aim x, aim z, flight time u.
 
-### 3.4 Match rules
-- one 15-point rally-scoring game (win by 2, cap 21), real service rules
-- random first server
-- a rally over 150 shots is a let
-- a game over 60 simulated minutes is void.
+### 3.4 Match rules (BWF singles laws, 15-point games; amended 2026-10-16)
+**Format:**
+- A match is **best of 3 games**.
+- Each game is rally scoring to 15, win by 2, cap 21 (at 20-20 the 21st point wins).
+- The winner of a game serves first in the next. The first server of game 1 is random from the seed.
+
+**Service:** singles courts by the server's score parity: right when even, left when odd.
+
+**Intervals and ends:**
+- A 60 s interval when the leading score first reaches 8.
+- 120 s between games.
+- Change of ends after games 1 and 2, and at 8 in game 3.
+- These are timeline and side effects only; the simulator is mirror-symmetric.
+
+**Laws enforced** (phase 14.2b):
+- server and receiver still until the serve contact
+- serve below 1.15 m, over the net and into the diagonal service court
+- contact on own side
+- net touch
+- double hit
+- ceiling and obstacles
+- net-cord play (the shuttle may clip the tape and go over or fall back)
+- a let only at the 150-shot rally cap.
+
+**Physics** (phase 14.2b): the fitted drag model, a shuttle turnover phase after impact, net-cord contact, and **physical racquet
+contact**:
+- The model gives shot intent (aim x/z, flight time).
+- The outcome's speed limit and accuracy depend on a contact quality computed from the contact point relative to the body
+  (ideal, cramped, late, stretched, backhand). Very poor contact is a mishit.
+- In replays the racquet sweet spot meets the shuttle.
+
+**Void:** a match over 150 simulated minutes of play. A rally over 150 shots is a let.
 
 **Randomness:** only the simulator's execution noise, driven by the match seed, so same models + same builds + same seed give
-the identical match. The kit tests this. The match log records the contract, the kit version, the seed, both builds and both
-model hashes.
+the identical match. The kit tests this.
+
+**MatchLog** records:
+- contract, kit version, seed, both builds, both hashes and names
+- `score` = games won, plus per-game scores
+- per-rally details (game, ends, interval before).
 
 ### 3.5 Validation (kit `check` == Pi upload check, the same code)
 1. The file is at most 1 MB and parses with `safetensors` only. Never use pickle or torch.load.
@@ -128,7 +160,8 @@ model hashes.
 It returns `ok` or a list of human-readable reasons.
 
 ## 4. Base model (our side)
-- **Source:** `out/badsim/init_040.pt`, the Phase 13.2 40.5-min model (obs 29).
+- **Source:** `out/badsim/init_040.pt`, the Phase 13.2 40.5-min model (obs 29), trained under the old physics. It is a warm
+  start only: it must be retrained on the 14.2b simulator (laws, net cord, turnover, contact quality).
 - **Adapting it:** widen the first layer to 37 inputs, with the 8 new columns set to zero. Then continue training with a random
   valid build per player per game, the 13.2 rewards and a constant BASE_REWARD, for about 1-2 h with the speed-ups.
 - **Gates** (200 games each, averaged over random builds):

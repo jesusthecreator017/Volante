@@ -92,6 +92,15 @@ agent.
   - build mapping at 6 equals the 13.2 constants
   - NumpyPolicy matches torch within 1e-5.
 
+### Phase 14.2b: full singles laws, shuttle physics, physical racquet contact
+Spec: `.claude/specs/phase14_2b-laws-physics-contact.md`.
+- **Laws:** server and receiver still until the serve, net touch, ceiling, serve height/over-the-net, own-side contact and double
+  hit tests.
+- **Physics:** net-cord physics, turnover drag, and the shot table regenerated with turnover.
+- **Contact:** contact quality from body-relative contact geometry (speed cap, noise, mishits); animate IK puts the racquet sweet
+  spot on the shuttle (≤ 3 cm).
+- **Interface:** obs/action sizes unchanged.
+
 ### Phase 14.3: trainer with builds + base model
 - **Trainer:** `oso_arena.train` takes `--build`, `--opp-builds random|<p,s,r,a>`, `--init base|<safetensors>` and
   `--reward FILE.py` (the `RewardFn` interface in `oso_arena.rewards`), and saves the full state as safetensors (no pickle).
@@ -131,7 +140,7 @@ agent.
 Zip it like the app handoff.
 
 ## Order and dependencies
-- **Order:** 14.1 → 14.2 → 14.3 → (14.4 can run in parallel with 14.3; it only needs 14.2's log/animate output) → 14.5 →
+- **Order:** 14.1 → 14.2 (incl. best-of-3 match level) → 14.2b → 14.3 → (14.4 can run in parallel with 14.3; it only needs 14.2's log/animate output) → 14.5 →
   14.6.
 - **Pi agent:** it can start now from the draft `dist/oso-arena-pi/PROMPT.md`, building the site against the contract with a
   mock policy until the 14.6 bundle arrives.
