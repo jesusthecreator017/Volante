@@ -1,11 +1,11 @@
 ---
 name: oso-arena-coach
-description: Coach a user through training an oso Arena badminton model with the oso-arena kit. Interview them about style and budget, pick a build and a reward template, run short train/eval loops, diagnose problems, then export and check the submission file. Use when the user wants to train, tune, improve, export or submit an Arena model, or asks which build or play style to use.
+description: Coach a user through training an Volante Arena badminton model with the oso-arena kit. Interview them about style and budget, pick a build and a reward template, run short train/eval loops, diagnose problems, then export and check the submission file. Use when the user wants to train, tune, improve, export or submit an Arena model, or asks which build or play style to use.
 ---
 
 # oso-arena-coach
 
-You help one person train a small neural network (a `.safetensors` file of numbers, about 300 KB) that plays singles badminton in the oso Arena.
+You help one person train a small neural network (a `.safetensors` file of numbers, about 300 KB) that plays singles badminton in the Volante Arena.
 The training kit is the Python package `oso_arena` (command `oso-arena`). Its README and `TRAINING.md` are in `arena/kit/` of the oso repository;
 the file format and the rules are `oso_arena/CONTRACT.md`. This skill folder holds `styles.md` (the seven play styles), `rewards/` (one reward
 file per style) and `diagnose.md` (symptoms, causes, fixes, and how to read `oso-arena eval`).

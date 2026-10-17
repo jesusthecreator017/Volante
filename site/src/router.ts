@@ -63,7 +63,7 @@ export async function render(root: HTMLElement) {
     url = new URL(location.href);
   }
   const m = match(url.pathname);
-  document.title = m ? `${m.route.title} · oso` : "Not found · oso";
+  document.title = m ? `${m.route.title} · Volante` : "Not found · Volante";
   onNavigate(url.pathname);
   cleanup = await (m ? m.route.page(root, m.params, url.searchParams) : notFound(root, {}, url.searchParams));
   // Not on the first load: focusing <main> moves the Tab start point past the skip link and header.

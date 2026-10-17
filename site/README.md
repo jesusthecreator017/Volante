@@ -1,4 +1,6 @@
-# oso website (frontend)
+# Volante website (frontend)
+
+Volante is the product name; command and package names keep the `oso` prefix.
 
 The site is the **racquet pod's** landing page (`/`: hero, features with honest status chips, how it works, an example
 report, an Arena teaser), Settings (`/settings`: pod display names, delete account), Terms and Privacy. The **Arena** (AI
@@ -98,7 +100,7 @@ Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_se
 ```
 `name` is an account display name stored on the server, linked to the pod's id; it never changes the pod's Bluetooth name.
 Validate: trim, 1-40 characters, no control or format characters. `no-store` on the GET. Pairing/linking
-(`POST /api/me/pods`, from the oso app) is future work: until then Settings shows "No pods linked yet: pair one in the oso
+(`POST /api/me/pods`, from the Volante app) is future work: until then Settings shows "No pods linked yet: pair one in the Volante
 app." The same rows are in `arena/handoff/PROMPT.md` (section 6 table and cross-check).
 
 ## Decisions taken (change freely)
@@ -109,5 +111,5 @@ app." The same rows are in `arena/handoff/PROMPT.md` (section 6 table and cross-
   public badges as an open question for the owner).
 - **Delete account** (now in Settings) asks the user to type their GitHub login.
 - Terms and Privacy carry the handoff's points and are marked as draft text for the owner.
-- No branding beyond the name "oso Arena", a shuttle-orange accent and an SVG favicon. Domain and identity are the
+- No branding beyond the name "Volante Arena", a shuttle-orange accent and an SVG favicon. Domain and identity are the
   owner's call.

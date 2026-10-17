@@ -76,8 +76,8 @@ export async function settings(root: HTMLElement) {
       pods,
       items.length
         ? h("ul", { class: "plain pods" }, items.map(podItem))
-        : // Pairing a pod happens in the oso app (POST /api/me/pods is future work): nothing to do on the site.
-          h("p", { class: "empty" }, "No pods linked yet: pair one in the oso app."),
+        : // Pairing a pod happens in the Volante app (POST /api/me/pods is future work): nothing to do on the site.
+          h("p", { class: "empty" }, "No pods linked yet: pair one in the Volante app."),
     );
   } catch (e) {
     replace(pods, h("p", { class: "error" }, e instanceof ApiError ? e.detail : "Couldn't load your pods."));

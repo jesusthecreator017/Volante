@@ -1,4 +1,4 @@
-// oso website: shell (header, nav, account menu, theme, Arena sub-nav). Routes live in routes.ts.
+// Volante website: shell (header, nav, account menu, theme, Arena sub-nav). Routes live in routes.ts.
 
 import "./style.css";
 import { api, loginUrl, me } from "./api";
@@ -79,7 +79,7 @@ function shell(): HTMLElement {
   const header = h(
     "header",
     { class: "site-header" },
-    h("div", { class: "bar" }, link("/", h("span", { class: "brand" }, "oso")), nav, themeBtn, account, menuBtn),
+    h("div", { class: "bar" }, link("/", h("span", { class: "brand" }, "Volante")), nav, themeBtn, account, menuBtn),
     sub,
   );
   setOnNavigate((path) => {
@@ -139,7 +139,7 @@ function footer(): HTMLElement {
     "footer",
     { class: "site-footer" },
     h("nav", { "aria-label": "Footer" }, link("/terms", "Terms"), link("/privacy", "Privacy"), link("/arena", "Arena"), h("a", { href: REPO, rel: "noopener noreferrer" }, "GitHub")),
-    h("p", { class: "muted small" }, "oso · the racquet pod for badminton"),
+    h("p", { class: "muted small" }, "Volante · the racquet pod for badminton"),
   );
 }
 
