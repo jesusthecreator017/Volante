@@ -4,10 +4,10 @@
 //! Without an IMU: `--replay R --no-imu -o out.bin` writes a contact-only `swings` track (no racquet track).
 
 use anyhow::{Context, bail};
+use oso_render::replay::{Container, RACQUET_FIELDS, Replay, STROKE_FIELDS};
 use oso_replay::imu::correct::{self, YawMode};
 use oso_replay::imu::strokes::{self, STROKE_TYPES};
 use oso_replay::imu::{fusion, packet, pose, swings, sync};
-use oso_render::replay::{Container, RACQUET_FIELDS, Replay, STROKE_FIELDS};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
@@ -208,10 +208,12 @@ fn main() -> anyhow::Result<()> {
     };
     anyhow::ensure!(!claps_video.is_empty(), "sync.json has no clap times");
 
+    // A 0 rate is a corrupt header; the pod's 500 Hz is the only sensible guess (as the web app does)
+    let rate_hz = if cap.rate_hz == 0 { 500.0 } else { cap.rate_hz as f64 };
     let params = fusion::Params {
         beta: args.beta,
         two_pass: !args.forward_only,
-        nominal_dt: 1.0 / cap.rate_hz.max(1) as f64,
+        nominal_dt: 1.0 / rate_hz,
     };
     let (track, bias, win) = fusion::calibrate_and_run(&cap.samples, params)
         .context("no stationary window of >= 1 s in the IMU data")?;
@@ -225,8 +227,15 @@ fn main() -> anyhow::Result<()> {
         bias_dps[2]
     );
 
-    let r = sync::sync(&cap.samples, win.end, &claps_video, &replay, args.player)
-        .context("no clap spike (> 6 g) after the stationary window")?;
+    let r = sync::sync(
+        &cap.samples,
+        win.end,
+        &claps_video,
+        &replay,
+        args.player,
+        rate_hz,
+    )
+    .context("no clap spike (> 6 g) after the stationary window")?;
     println!("sync: t_video = t_dev * (1 + a) + b");
     println!("  start-clap-only offset b = {:.4} s", r.b_clap);
     if r.drift_known {
@@ -322,7 +331,7 @@ fn main() -> anyhow::Result<()> {
             if e[7] > 0.0 { e[8] } else { f32::NAN }
         })
         .collect();
-    let sw = swings::detect(&cap.samples, &cap.gaps, bias, r.a, r.b);
+    let sw = swings::detect(&cap.samples, &cap.gaps, bias, r.a, r.b, rate_hz);
     let list = strokes::build(&sw, args.player, &head_speed, &replay);
     print_strokes(&list);
     write_strokes(c, &list, &args.out)?;

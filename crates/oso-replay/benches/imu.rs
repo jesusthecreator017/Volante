@@ -1,8 +1,8 @@
 use criterion::{Criterion, criterion_group, criterion_main};
+use oso_render::replay::Replay;
 use oso_replay::imu::fusion::{self, Params};
 use oso_replay::imu::packet::{self, Sample};
 use oso_replay::imu::swings;
-use oso_render::replay::Replay;
 use std::hint::black_box;
 
 const SAMPLE: &[u8] = include_bytes!("../../../assets/replay/replay.bin");
@@ -89,7 +89,7 @@ fn bench(c: &mut Criterion) {
     });
     let sw = swing_samples();
     c.bench_function("swings::detect 300k samples (10 min, ~300 swings)", |b| {
-        b.iter(|| swings::detect(black_box(&sw), &[], [0.0; 3], 0.0, 0.0))
+        b.iter(|| swings::detect(black_box(&sw), &[], [0.0; 3], 0.0, 0.0, 500.0))
     });
     let mut q = [1.0, 0.0, 0.0, 0.0];
     c.bench_function("madgwick_step", |b| {
