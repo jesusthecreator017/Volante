@@ -1,0 +1,2 @@
+body { margin: 0; height: 100vh; display: grid; place-content: center; text-align: center; background: #0d0e10; color: #d8d8d4; font-family: system-ui, sans-serif; }
+.small { color: #8b8e93; font-size: 13px; }
