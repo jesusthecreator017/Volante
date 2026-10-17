@@ -270,6 +270,13 @@ mod tests {
     }
 
     #[test]
+    fn malformed_json_is_an_error_not_a_panic() {
+        for bad in ["", "[]", "null", "{}", "{\"shaft\": 1, \"normal\": [0,1,0]}", "{\"shaft\": [1,0], \"normal\": [0,1,0]}", "{\"shaft\": [\"a\",0,0], \"normal\": [0,1,0]}"] {
+            assert!(Mount::from_json(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn json_round_trip_and_precedence() {
         let m = truth();
         let back = Mount::from_json(&m.to_json()).unwrap();
