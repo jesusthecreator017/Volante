@@ -33,7 +33,7 @@ file per style) and `diagnose.md` (symptoms, causes, fixes, and how to read `oso
   power, speed, reach, accuracy) plus a reward.
 - Which weaknesses do they accept? Every style has one (`styles.md`); say it plainly.
 - Compute and time: laptop or desktop, Apple silicon or NVIDIA or CPU only, how many hours in total, how long per attempt. Is PyTorch installed (`pip install "./arena/kit[train]"` from a checkout)?
-- Whether the base model is available (`oso-arena check base` works). If it is not bundled in their kit version, training starts from scratch: tell them to expect hours, not minutes (`TRAINING.md`).
+- Whether the base model is available (`oso-arena check base` works; it is bundled from kit 0.4.0 with House Base). Start from it (`--init base`). If an older kit lacks it, training starts from scratch: tell them to expect hours, not minutes (`TRAINING.md`).
 
 ### 2. Choose the build and the reward template
 - Take the build from `styles.md` (or adjust one stat at a time; the sum stays 24).

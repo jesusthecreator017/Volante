@@ -48,9 +48,9 @@ PPO self-play with a small own implementation (PyTorch, two 256-unit tanh layers
 - From scratch, Phase 13 needed about 3.75 hours (four resumed parts) to win 100 % of its games against the scripted bot, but its self-play rallies
   averaged 4.8 shots and the policy only served, smashed and dropped; clears and lifts never appeared. Phase 13.1 (the reach of 1.5 m with a 2.0 m lunge that
   the all-6 build now has, wider initial exploration on the aim and flight-time dimensions, more entropy) raised the rallies to 10.9 shots.
-- Warm-started from a trained model the Phase 13.2 model took 40.5 minutes. The packaged base model (`--init base`) is meant for exactly this; this
-  version of the kit does not bundle it yet, so a run starts from random weights and **a 5-minute run is a smoke test, not a model**. Plan 1-3 hours for a
-  first decent model, and judge by `eval`, not by hope.
+- Warm-started from a trained model the Phase 13.2 model took 40.5 minutes. The packaged base model (`--init base`) is meant for exactly this: start
+  from it and a run begins at a level that beats the scripted bot. Without `--init` a run starts from random weights and **a 5-minute run is a smoke test,
+  not a model**: the House Base itself took about 4 hours from scratch (it crossed 80 % wins against the bot after ~3.5 h). Judge by `eval`, not by hope.
 - Look at `train_log.jsonl` every few minutes: `train_bot_point_wr` (point win rate against the bot while training), `train_selfplay_rally`
   (shots per rally), `eval.*.faults` (the serve fault share must go to ~0 first), `std` (exploration; it should fall slowly).
 - Stop when the checkpoint evaluation stops improving for a long time, not when the clock says; a short run on a good reward beats a long run
