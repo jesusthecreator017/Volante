@@ -243,7 +243,7 @@ def test_cli_every_subcommand():
         assert cli.main(["export", str(D / "ck.pt"), "-o", str(D / "x.safetensors"), "--name", "x", "--build", "9,6,5,5"]) == 1  # sum 25
         assert cli.main(["eval", str(out), "--vs", "bot", "--games", "2"]) == 0
         assert cli.main(["eval", str(out), "--vs", str(D / "f2.safetensors"), "--games", "2"]) == 0
-        assert cli.main(["eval", str(out), "--vs", "base", "--games", "2"]) == 1  # the base model arrives with phase 14.3
+        assert cli.main(["eval", str(out), "--vs", "base", "--games", "2"]) == 0  # House Base ships in oso_arena/data
         assert cli.main(["match", str(out), "bot", "-o", str(D / "m.log.gz"), "--seed", "3"]) == 0
         log.write(D / "small.log.gz", match.play("bot", "bot", 1, target=3, best_of=1))  # animate is slow (~1.5 ms/frame): keep it small
         assert cli.main(["animate", str(D / "small.log.gz"), "-o", str(D / "m.bin")]) == 0 and (D / "m.bin").stat().st_size > 1000
