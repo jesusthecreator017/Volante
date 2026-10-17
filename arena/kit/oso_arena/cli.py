@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from oso_arena import basemodel, bot, builds, check, evaluate, export, log, match, policy
+from oso_arena import basemodel, bot, builds, check, evaluate, export, log, match, policy, style
 
 
 class _Parser(argparse.ArgumentParser):
@@ -72,7 +72,14 @@ def cmd_check(a):
 
 def cmd_export(a):
     state, head = _load_state(a.ckpt)
-    export.export(state, a.out, a.name, a.description, _run_build(a, head))
+    if a.style:  # the profile forces the build (a conflicting --build is refused by export)
+        profile = style.load_profile(a.style)
+        want = style.build_from_profile(profile)
+        if "build" in head and json.loads(head["build"]) != want:
+            print(f"warning: the checkpoint was trained with build {head['build']}, not the profile's {json.dumps(want, separators=(',', ':'))}", file=sys.stderr)
+        export.export(state, a.out, a.name, a.description, builds.parse(a.build) if a.build else None, style_profile=profile)
+    else:
+        export.export(state, a.out, a.name, a.description, _run_build(a, head))
     print(f"wrote {a.out}")
     r = check.check_file(a.out)
     for reason in r.reasons:
@@ -102,6 +109,18 @@ def cmd_eval(a):
     bb = builds.ALL6 if pb is None else pb.meta["build"]
     r = evaluate.play_games(pa.act, fb, a.games, a.seed, builds=(pa.meta["build"], bb))
     evaluate.table(f"{pa.meta['name']} vs {a.vs}", evaluate.summarize(r))
+    if a.style:
+        return _print_fidelity(r, pa)
+    return 0
+
+
+def _print_fidelity(r, pa):
+    """The Twins fidelity report from the games just played (the model is A)."""
+    raw = pa.meta.get("style_profile")
+    if raw is None:
+        raise ValueError("this file has no style_profile (export it with --style): nothing to compare with")
+    print("\n== Twins fidelity ==")
+    print(style.fidelity_from_gaps(style.parse_profile(raw), style.games_gaps(r), pa.meta["build"]).text())
     return 0
 
 
@@ -134,12 +153,14 @@ def main(argv=None):
     p.add_argument("--name", required=True)
     p.add_argument("--description", default="")
     p.add_argument("--build", help="power,speed,reach,accuracy (integers 1-10, sum 24); default: the build recorded in the checkpoint")
+    p.add_argument("--style", metavar="FILE", help="Volante Twins: embed this style profile (header key style_profile) and use the build it maps to (a different --build is refused)")
     p.set_defaults(fn=cmd_export)
     p = sub.add_parser("eval", help="play games against the bot, the base model or another file")
     p.add_argument("file")
     p.add_argument("--vs", default="bot", help="bot | base | FILE")
     p.add_argument("--games", type=int, default=100)
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--style", action="store_true", help="also print the Twins fidelity report (needs a style_profile in the file), measured from these games")
     p.set_defaults(fn=cmd_eval)
     p = sub.add_parser("match", help="play one game and write the match log")
     p.add_argument("a", help="FILE | bot | base")

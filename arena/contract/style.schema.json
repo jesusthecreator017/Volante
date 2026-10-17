@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oso.invalid/arena/volante-style-1/style.schema.json",
+  "title": "volante-style/1 player style profile",
+  "description": "Rules that JSON Schema cannot say (STYLE_PROFILE.md): p50_kmh <= p90_kmh; p25_gap_s <= median_gap_s <= p75_gap_s; mixes sum to 1 +- 1e-3; the file is at most 8192 bytes.",
+  "type": "object",
+  "required": ["schema", "created_at", "source", "speed", "tempo"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "volante-style/1"},
+    "created_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "source": {
+      "type": "object",
+      "required": ["sessions", "swings", "minutes", "pod_fw", "tool"],
+      "additionalProperties": false,
+      "properties": {
+        "sessions": {"type": "integer", "minimum": 1, "maximum": 10000000},
+        "swings": {"type": "integer", "minimum": 1, "maximum": 10000000},
+        "minutes": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000000},
+        "pod_fw": {"type": "string", "pattern": "^[A-Za-z0-9._ -]{1,64}$"},
+        "tool": {"type": "string", "pattern": "^[A-Za-z0-9._ -]{1,64}$"}
+      }
+    },
+    "speed": {
+      "type": "object",
+      "required": ["p50_kmh", "p90_kmh", "cv", "clipped_frac"],
+      "additionalProperties": false,
+      "properties": {
+        "p50_kmh": {"type": "number", "minimum": 0, "maximum": 400},
+        "p90_kmh": {"type": "number", "minimum": 0, "maximum": 400},
+        "cv": {"type": "number", "minimum": 0, "maximum": 2, "description": "population std / mean of the speeds of the power swings (swings at or above the unrounded p50 speed)"},
+        "clipped_frac": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "tempo": {
+      "type": "object",
+      "required": ["median_gap_s", "p25_gap_s", "p75_gap_s"],
+      "additionalProperties": false,
+      "properties": {
+        "median_gap_s": {"type": "number", "minimum": 0.2, "maximum": 10},
+        "p25_gap_s": {"type": "number", "minimum": 0.2, "maximum": 10},
+        "p75_gap_s": {"type": "number", "minimum": 0.2, "maximum": 10}
+      }
+    },
+    "stroke_mix": {
+      "type": ["object", "null"],
+      "minProperties": 1,
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-z_]{1,24}$"},
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "side_mix": {
+      "type": ["object", "null"],
+      "required": ["fh", "bh"],
+      "additionalProperties": false,
+      "properties": {
+        "fh": {"type": "number", "minimum": 0, "maximum": 1},
+        "bh": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "notes": {"type": ["string", "null"], "maxLength": 280, "pattern": "^[ -~]*$"}
+  }
+}

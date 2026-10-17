@@ -31,6 +31,7 @@ Header metadata (the safetensors `__metadata__` map, string to string). Unknown 
 | `name` | 1-40 characters, all printable (no control, format or surrogate characters; a newline is rejected), and not only whitespace |
 | `description` | optional, 0-280 characters; control characters other than newline and tab are rejected |
 | `build` | a JSON object `{"power":p,"speed":s,"reach":r,"accuracy":a}` as a string. Exactly these 4 keys; each value a JSON **integer** 1-10 (not `6.0`, not `"6"`, not `true`); the sum is exactly **24** |
+| `style_profile` | optional (Volante Twins, additive: `oso-arena/1` is unchanged). Compact JSON text of a `volante-style/1` profile, at most **8192 bytes**, valid by `STYLE_PROFILE.md` / `style.schema.json`. When present and invalid the check rejects the file (reason `header style_profile: ...`); when absent nothing changes. `oso-arena export --style FILE` writes it and forces the build to the profile's |
 
 Security: a submission is untrusted input. It is parsed by hand (8-byte little-endian header length, a JSON header of at most 64 KiB,
 offsets) and then by the `safetensors` library only. Nothing on this path may use pickle, `torch.load` or `numpy.load(allow_pickle=True)`.

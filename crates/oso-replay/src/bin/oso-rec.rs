@@ -1,6 +1,7 @@
 //! Racquet-pod recorder (BLE central): talks to the firmware in firmware/ (profile: docs/ble-profile.md).
 //!   oso-rec collect --player P07 [...] (guided stroke-dataset session, docs/strokes/collection.md) | scan | status | mark | record start [--force] [--no-view]|stop | live | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin
 //! `record start` and `live` open the live racquet window (keys: R re-centre, M sync marker, Esc stop streaming).
+//!   oso-rec profile SESSION_DIR|imu.bin ... -o my_style.json [--mount identity|flat|FILE]: the Volante Twins style profile (offline, no pod; docs/twins-app.md)
 //! Writes imu.bin (docs/data-format.md) and, when the device reported sync markers, imu.markers.json beside it.
 
 use anyhow::{Context, bail};
@@ -22,13 +23,14 @@ use oso_replay::imu::live::LiveFusion;
 use oso_replay::imu::swingdet::{SwingCounter, THRESHOLD_DPS};
 use oso_replay::imu::mount::{Calibration, Mount};
 use oso_replay::imu::packet;
+use oso_replay::imu::profile;
 use oso_proto::uuid as gatt;
 use oso_proto::{PACKET_LEN, Status, event, op, state, state_ext};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-const USAGE: &str = "usage: oso-rec scan | status | mark | record start [--force] [--no-view]|stop | calibrate | live [--mount identity|flat|FILE] [--secs N] [--replay-file imu.bin [--time S] [--screenshot out.png]] | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin | collect --player P07 (see `oso-rec collect` flags in docs/strokes/collection.md)";
+const USAGE: &str = "usage: oso-rec scan | status | mark | record start [--force] [--no-view]|stop | calibrate | live [--mount identity|flat|FILE] [--secs N] [--replay-file imu.bin [--time S] [--screenshot out.png]] | sleep | wake | stream -o imu.bin [--secs N] | upload -o imu.bin | profile SESSION_DIR|imu.bin... -o my_style.json [--mount identity|flat|FILE] | collect --player P07 (see `oso-rec collect` flags in docs/strokes/collection.md)";
 
 fn u(v: u128) -> Uuid {
     Uuid::from_u128(v)
@@ -1551,6 +1553,33 @@ async fn collect(a: CollectArgs) -> anyhow::Result<()> {
     task.await?
 }
 
+/// `profile SESSION_DIR|imu.bin ... -o my_style.json [--mount identity|flat|FILE]`: the Volante Twins style profile (docs/twins-app.md).
+/// A session folder uses its own mount; the flag applies to bare imu.bin files only.
+fn profile(args: &[String]) -> anyhow::Result<()> {
+    let (mut paths, mut out, mut mount) = (Vec::new(), None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" => out = it.next(),
+            "--mount" => mount = it.next(),
+            f if f.starts_with('-') => bail!("unknown flag {f}\n{USAGE}"),
+            p => paths.push(Path::new(p)),
+        }
+    }
+    let out = out.context(USAGE)?;
+    anyhow::ensure!(!paths.is_empty(), USAGE);
+    let mount = Mount::resolve(mount.map(String::as_str))?;
+    let inputs = paths.iter().map(|p| profile::load(p, &mount)).collect::<anyhow::Result<Vec<_>>>()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let p = profile::compute(&inputs, &session::iso_utc(now), concat!("oso-rec ", env!("CARGO_PKG_VERSION")))?;
+    std::fs::write(out, p.to_json()).with_context(|| format!("writing {out}"))?;
+    println!(
+        "wrote {out}: {} swings in {} sessions ({} min), head speed p50 {} p90 {} km/h, median gap {} s",
+        p.source.swings, p.source.sessions, p.source.minutes, p.speed.p50_kmh, p.speed.p90_kmh, p.tempo.median_gap_s
+    );
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1590,6 +1619,7 @@ async fn main() -> anyhow::Result<()> {
         Some("wake") => wake().await,
         Some("stream") => stream(out()?, flag("--secs").map(|s| s.parse()).transpose()?).await,
         Some("upload") => upload(out()?).await.map(|_| ()),
+        Some("profile") => profile(&args[1..]),
         _ => bail!(USAGE),
     }
 }
