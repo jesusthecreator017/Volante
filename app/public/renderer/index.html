@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>oso</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
+    /* winit follows the canvas CSS size, so this is what makes resize work */
+    #canvas { width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; -webkit-user-select: none; user-select: none; }
+    body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+    #status { position: fixed; top: 8px; left: 8px; color: #ddd; font: 12px monospace; pointer-events: none; }
+
+    #timeline {
+      position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+      padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+      background: rgba(10, 10, 10, 0.72); color: #eee; font: 14px system-ui, sans-serif;
+    }
+    #timeline[hidden] { display: none; }
+    /* Empty for now: swing markers land here in a later phase */
+    #hint { font-size: 12px; opacity: 0.7; }
+    #markers { height: 10px; position: relative; }
+    #scrub { width: 100%; margin: 4px 0; box-sizing: border-box; }
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    #timeline button, #timeline select {
+      min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
+      background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
+    }
+    #timeline button[aria-pressed="true"] { background: #2d5fa8; border-color: #8ab4f8; }
+    #timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+    #readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    @media (max-width: 600px) {
+      #timeline { padding-left: 12px; padding-right: 12px; }
+      #readout { order: -1; flex-basis: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" aria-label="3D court view"></canvas>
+  <div id="status">loading...</div>
+  <section id="timeline" aria-label="Playback timeline" hidden>
+    <div id="hint" title="Camera and playback controls">WASD/arrows move &middot; Q/E down/up &middot; Shift fast &middot; drag orbit &middot; right-drag look &middot; , . step &middot; Space play</div>
+    <div id="markers" aria-hidden="true"></div>
+    <input id="scrub" type="range" min="0" max="1" step="any" value="0" aria-label="Seek">
+    <div class="row">
+      <div class="group">
+        <button id="step-back" type="button" aria-label="Step back one frame">&#9664;&#9664;</button>
+        <button id="play" type="button" aria-label="Pause">&#10074;&#10074;</button>
+        <button id="step-fwd" type="button" aria-label="Step forward one frame">&#9654;&#9654;</button>
+      </div>
+      <span id="readout" role="timer" aria-live="off"></span>
+      <label class="group">Speed
+        <select id="speed" aria-label="Playback speed">
+          <option value="0.1">0.1x</option><option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option><option value="2">2x</option>
+        </select>
+      </label>
+      <div class="group" role="group" aria-label="Camera presets">
+        <button type="button" data-preset="1">Baseline</button>
+        <button type="button" data-preset="2">Side</button>
+        <button type="button" data-preset="3">Top</button>
+        <button type="button" data-preset="4" disabled>Cam A</button>
+        <button type="button" data-preset="5" disabled>Cam B</button>
+      </div>
+      <button id="skeleton" type="button" aria-pressed="false">Skeleton</button>
+      <button id="big-shuttle" type="button" aria-pressed="false" hidden>Big shuttle</button>
+    </div>
+  </section>
+  <script>
+    // Right-drag looks around; don't pop the browser menu
+    document.getElementById("canvas").addEventListener("contextmenu", (e) => e.preventDefault());
+  </script>
+  <script src="./session-shim.js"></script>
+  <script type="module">
+    import init, * as oso from "./pkg/oso.js";
+    import { setupTimeline } from "./timeline.js";
+    // oso app: wait for session-shim.js to install the per-session replay before the renderer fetches it
+    await window.__osoReplayReady;
+    // oso_status() needs the wasm module, so the timeline starts only once init has finished
+    init().then(() => setupTimeline(oso)).catch((e) => {
+      console.error(e);
+      document.getElementById("status").textContent = "error: " + e;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+# oso app: racquet IMU over Bluetooth, insights out (web + iOS + Android)
+
+A first, deliberately bare-bones version of the oso app. It connects to the racquet-mounted motion sensor over
+Bluetooth Low Energy, receives its 500 Hz IMU stream, computes every metric the data supports, and shows them on
+plain pages. It also embeds the existing 3D replay renderer (wasm) for sessions that have a replay from the video
+pipeline. There's a mock device, so everything works without hardware.
+
+- **Pages:** Device · Live · Session · Swing detail · History · Replay · Export · Settings · Debug. They work at
+  phone width (no horizontal scrolling) and on desktop.
+- **Docs:** [`docs/ble-profile.md`](docs/ble-profile.md) is the BLE contract the firmware must implement.
+  [`docs/metrics.md`](docs/metrics.md) covers every metric, its formula, units and source.
+  [`docs/data-format.md`](docs/data-format.md) covers the file formats, and [`docs/reference/`](docs/reference) holds
+  the Rust reference implementation the algorithms were ported from.
+
+## Stack, and why
+
+| Choice | Why |
+|---|---|
+| **TypeScript + Vite**, no UI framework | One codebase for all three targets. Plain DOM is enough for bare-bones pages and keeps the bundle small (~37 KB gzip) |
+| **Capacitor 8** | Wraps the same web build as native iOS and Android apps. Its WebView serves bundled files from `https://localhost` / `capacitor://localhost`, which the wasm renderer needs (MOBILE.md: no `file://`) |
+| **@capacitor-community/bluetooth-le** | One BLE API. On the web it runs on **Web Bluetooth** (Chrome/Edge, desktop + Android); in the apps it uses native CoreBluetooth / Android BLE. That's the only way to reach iOS, which has no Web Bluetooth |
+| **IndexedDB** | Sessions stay on the device (no accounts, no cloud sync), in browsers and in the app WebViews alike |
+| **Algorithms ported to TypeScript** | Packet decode, bias, Madgwick forward + backward fusion and spike/clap detection are ported line by line from `docs/reference/*.rs`, and the Rust unit tests are ported too. A wasm build of the Rust would have meant a Rust toolchain in this repo for about 600 lines of math; the port is checked against the same tests and acceptance numbers |
+| **Vitest** | Unit tests in Node against `sample-data/imu.bin` |
+| **Tiny Node server** (`server/server.mjs`, zero dependencies) for the Pi 5 | Serves the static build (gzip, `application/wasm`) and acts as a drop folder between the app and the video pipeline. Justified because the pipeline needs each session's `imu.bin` and has to hand `replay.bin` back to the phones. The app works without it |
+
+Platform rules the code follows:
+- **No Web Bluetooth in Safari/iOS/Firefox.** The web app detects this, says why, and falls back to the mock device
+  and to `imu.bin` import.
+- **Web Bluetooth needs HTTPS (or localhost) and a click.** The connect button calls `requestDevice` directly from
+  the click handler.
+- **500 Hz:** notifications are processed in batches, and charts redraw at ≤ 30 fps from the latest state, never
+  per sample.
+- **Background BLE is restricted on phones**, so streaming happens in the foreground. For long sessions, record on
+  the device (0x03/0x04) and upload later (0x05). Both are on the Device page.
+
+## Run the web app locally
+
+```bash
+npm install
+npm run dev          # http://localhost:5173 (localhost counts as secure: Web Bluetooth works in Chrome/Edge)
+npm test             # 45 unit tests, incl. the sample-session acceptance numbers
+npm run build        # -> dist/
+```
+
+### Mock device (no hardware)
+
+1. Device page → **Connect mock device**. It replays `public/sample/imu.bin` (the synthetic 10 s session) at real
+   time in 13-packet notifications. Packets are paced by their own timestamps, so the file's lost, duplicated and
+   reordered packets, its seq wrap and its saturation all reproduce. The file loops, with seq/time continuing.
+2. **Start session**, then watch the **Live** page. The sample starts with 3 s of stillness, so calibration
+   finishes and swings are detected. **Stop & save** opens the session.
+3. Settings → **Packet-loss injection (%)** adds random losses (some in 5–20 packet bursts) live, and
+   **Notification latency jitter** randomizes delivery. "Mock device available" hides it.
+4. The mock implements the whole control contract: record (0x03/0x04), upload (0x05) and the sync marker (0x06).
+
+Or skip streaming: **Load sample session** (Device, Session or History page) imports the sample `imu.bin` together
+with its `replay.bin`, so the Replay page works right away.
+
+### Sanity numbers (sample session)
+
+The Session page prints them, and `test/session.test.ts` checks them:
+**4 swings, 3 impacts, max |ω| 2056.6 dps, 12 saturated gyro samples.** Packet accounting matches the handoff
+exactly: 6547 read, 6534 unique, 66 lost, 13 duplicate, 99 reordered, 44 gaps. The gyro bias comes out at
+(−1.820, −2.075, −1.108) dps.
+
+## iOS and Android
+
+The native projects are in `ios/` and `android/` (generated by Capacitor and committed).
+
+- BLE permissions are already configured:
+  - Android 12+ `BLUETOOTH_SCAN` with `neverForLocation` (no location prompt), with location permissions only on API ≤ 30.
+  - iOS `NSBluetoothAlwaysUsageDescription` and `NSAllowsLocalNetworking` (to reach the Pi over http on the LAN).
+- Generated files and downloads go through the share sheet (`@capacitor/filesystem` + `@capacitor/share`).
+- The renderer ships inside the app bundle (`public/renderer/`) and is served by Capacitor's local scheme.
+
+```bash
+# Android: Android Studio (SDK 36, JDK 21)
+npm run cap:android        # build web, sync into android/, open Android Studio → Run on a device
+# iOS: macOS + a current Xcode (Capacitor 8 uses Swift Package Manager, no CocoaPods)
+npm run cap:ios            # build web, sync into ios/, open Xcode → pick your team under Signing → Run on an iPhone
+```
+
+BLE needs a **real phone**: simulators and emulators have no Bluetooth (the mock device still works there).
+Distribution is local dev builds only for now (no store setup).
+
+## Host on the Raspberry Pi 5
+
+```bash
+npm ci && npm run build
+node server/server.mjs --port 8443 --cert cert.pem --key key.pem    # or without --cert for http
+```
+
+- **Use HTTPS on the Pi** if phones/laptops should connect to the sensor from the *website*. Web Bluetooth refuses
+  plain `http://<pi-ip>`. Options: a certificate for a real hostname, Tailscale HTTPS, or a self-signed certificate
+  you trust on your devices. Over plain http the site still works with the mock and with file import.
+- Sessions uploaded from the Export page land in `server/data/sessions/<id>/{imu.bin, meta.json}`. Run the video
+  pipeline on them and write `replay.bin` into the same folder; the app's Replay page → **Fetch replay from Pi
+  server** pulls it down.
+- API: `GET /api/health`, `GET /api/sessions`, `GET|PUT /api/sessions/<id>/{imu.bin|meta.json|replay.bin}`.
+  Uploads are validated (`OSOI` / `OSOR` magic, whole packets) and written atomically. No auth, so keep it on your
+  LAN.
+- In the apps, set Settings → **Pi server URL** (e.g. `https://oso.local:8443`). Pages served by the Pi find it on
+  their own.
+- Example systemd unit: `ExecStart=/usr/bin/node /home/pi/oso-app/server/server.mjs --port 8443 --cert … --key …`.
+
+## Replay renderer
+
+`public/renderer/` is `renderer-mobile/` from the handoff, unchanged except for one small addition:
+`session-shim.js`. The renderer always fetches `assets/replay/replay.bin` and has no API to load other bytes. With
+`?session=<id>`, the shim answers that one fetch from the app's IndexedDB, so each session shows its own replay
+without writing into the (read-only) app bundle. The Replay page embeds it in an iframe, which keeps it to one
+renderer per page and stops it from capturing app keyboard input. On phones, use the timeline's camera preset
+buttons, since the renderer has no touch camera yet.
+
+## Export formats
+
+- `imu.bin`: the exact device format (data-format.md), packets in arrival order, so `oso-imu` reads it. Sync
+  markers are left out (see the BLE profile).
+- `swings.csv`: one row per swing with every per-swing metric and your label.
+- `summary.json`: summary, calibration, clock, sync events and swings.
+- `labeled-swings.json`: for each swing you labeled on its detail page, the raw 6-axis window (−300…+200 ms around
+  the impact) plus its features. This is the training-data slot for the future stroke classifier that replaces the
+  heuristic (`classifyStroke` in `src/core/swings.ts`).
+
+## Layout
+
+```
+src/core/       pure processing (no DOM): packet, quat, fusion, spikes, swings, analysis, live, export
+src/ble/        BLE profile constants, transport interface, Capacitor/Web Bluetooth transport, mock device
+src/pages/      one file per page;  src/ui/  charts, orientation widget, formatting, file save/share
+src/app.ts      connection + session controller;  src/store.ts  IndexedDB;  src/settings.ts
+server/         Pi server;  public/renderer/  wasm renderer;  public/sample/  synthetic session
+test/           vitest suites (packet, fusion, spikes, swings, session, live/mock)
+```
+
+## Known limits
+
+The UI states these next to the values they affect.
+
+- The gyro saturates at 2000 dps, so peak |ω| and head speed on hard smashes are lower bounds (flagged).
+- Head speed is rotation-only (|ω| × 0.53 m): it ignores arm translation and underestimates.
+- Yaw drifts (6-axis IMU); only tilt is absolute.
+- Stroke type, forehand/backhand and timing are heuristics. The forehand sign convention was set from synthetic
+  data and must be checked on real recordings.
+- Phase split: the backswing/forward split uses the |ω| valley before the forward-swing peak rather than the overall
+  |ω| peak, because the overall peak falls in the backswing (see docs/metrics.md).
+- Live orientation is forward-only; saved sessions are re-analysed with forward + backward fusion, so live and saved
+  numbers can differ slightly.
+- Web Bluetooth exposes neither RSSI nor MTU; those show "—" with the reason in the browser.
