@@ -157,6 +157,7 @@ jobs:
           python -I tools/test_strokes.py
           python tools/strokes/test_collect_tools.py # also fails if session data or video is tracked
           python tools/strokes/test_dataset.py # Phase 16.2 dataset pipeline (synthetic sessions)
+          python tools/strokes/test_review.py # Phase 16.4a label policy and review server
 
   site:
     name: site (vitest, build)

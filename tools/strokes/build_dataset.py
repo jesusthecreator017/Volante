@@ -125,14 +125,17 @@ def part_swings(session_id, session, part, rec, labels):
         b = next((b for b in reversed(blocks) if b["t_start_us"] <= t_us <= b["t_end_us"]), None)
         sid = swing_id(session_id, part, t_us)
         sw = dict(swing_id=sid, session=session_id, part=part, t_peak_us=t_us, x=win, feat=F.summary(win),
-                  block=b["index"] if b else -1, label="", side="", status="unlabelled", reasons=[], source="")
+                  block=b["index"] if b else -1, label="", side="", status="unlabelled", reasons=[], notes=[], source="")
         if b is not None and b.get("status") == "discarded":
             sw.update(status="discarded", reasons=[f"in block {b['index']}, discarded during collection"])
         elif b is not None and b["label"] not in F.UNLABELLED_BLOCKS:
             sw.update(label=b["label"], side="" if b["label"] in F.SIDELESS else (b.get("side") or ""), status="labelled",
                       source="block")
-            if mismatch[b["index"]]:
-                sw["status"], sw["reasons"] = "review", [mismatch[b["index"]]]
+            note, large = mismatch[b["index"]]
+            if note:
+                sw["notes"].append(note)
+                if large:
+                    sw["status"], sw["reasons"] = "review", [note]
         for f in flags:
             sw["reasons"].append({"edge": "window runs past the recording", "hole": "lost packets inside the window"}[f])
             if sw["status"] == "labelled":
@@ -185,6 +188,7 @@ def build(root, version=1, out_dir=None):
     for m in sessions_meta:
         mine = [s for s in swings if s["session"] == m["id"]]
         m["swings"] = {k: sum(s["status"] == k for s in mine) for k in ("labelled", "review", "unlabelled", "discarded")}
+        m["notes"] = sorted({n for s in mine for n in s["notes"]})  # informational, not review (qc.count_mismatch)
         m["ok"] = all(p["ok"] for p in m["parts"])
 
     out = Path(out_dir) if out_dir else root / "processed"
@@ -196,7 +200,7 @@ def build(root, version=1, out_dir=None):
         pipeline=PIPELINE, version=version, classes=F.CLASSES, sides=F.SIDES, to_replay=F.TO_REPLAY, channels=F.CHANNELS,
         window=dict(pre_s=F.PRE_S, post_s=F.POST_S, rate_hz=F.RATE_HZ, n=F.WINDOW_N),
         sessions=sessions_meta, players=[{"id": k, "handed": v} for k, v in sorted(players.items())],
-        counts=dict(swings=len(swings), **{k: sum(s["status"] == k for s in swings) for k in ("labelled", "review", "unlabelled", "discarded")}),
+        counts=dict(swings=len(swings), noted=sum(bool(s["notes"]) for s in swings), **{k: sum(s["status"] == k for s in swings) for k in ("labelled", "review", "unlabelled", "discarded")}),
         processed={npz.name: hashlib.sha256(npz.read_bytes()).hexdigest()},
     )
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -219,6 +223,7 @@ def arrays_of(swings):
         "side": np.array([sid.get(s["side"], -1) for s in swings], np.int8),
         "status": u("status"), "source": u("source"),
         "reasons": np.array(["; ".join(s["reasons"]) for s in swings], dtype=str) if n else np.zeros(0, "<U1"),
+        "notes": np.array(["; ".join(s["notes"]) for s in swings], dtype=str) if n else np.zeros(0, "<U1"),
     }
 
 
@@ -260,6 +265,11 @@ def report(manifest, swings):
         grid.append(f"<tr><td>{e(c)}</td><td>{e(sd)}</td>" + "".join(f"<td>{n}</td>" for n in cnt) + f"<td>{sum(cnt)}</td></tr>")
     review = [f"<tr><td>{e(s['swing_id'])}</td><td>{e(s['label'])}</td><td>{e(s['side'])}</td><td>{e('; '.join(s['reasons']))}</td></tr>"
               for s in swings if s["status"] == "review"]
+    notes = {}
+    for s in swings:
+        for n in s["notes"]:
+            notes[(s["session"], n)] = notes.get((s["session"], n), 0) + 1
+    note_rows = [f"<tr><td>{e(k[0])}</td><td>{e(k[1])}</td><td>{v}</td></tr>" for k, v in sorted(notes.items())]
     clip = [s["feat"][7] for s in swings if s["status"] == "labelled"]
     c = manifest["counts"]
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>oso strokes QC v{manifest['version']}</title>
@@ -267,11 +277,13 @@ def report(manifest, swings):
 td,th{{border:1px solid #ccc;padding:3px 8px;text-align:left}}th{{background:#f3f3f3}}</style></head><body>
 <h1>Stroke dataset v{manifest['version']} ({e(manifest['pipeline'])})</h1>
 <p>{c['swings']} swings: {c['labelled']} labelled, {c['review']} to review, {c['unlabelled']} unlabelled, {c['discarded']} discarded.
+{c['noted']} swings carry a count note (kept labelled).
 Labelled swings with gyro clipping: {sum(1 for x in clip if x > 0)} of {len(clip)}.</p>
 <h2>Sessions</h2><table><tr><th>session</th><th>player</th><th>part</th><th>QC</th><th>rate Hz</th><th>loss %</th><th>clip %</th><th>reasons</th></tr>
 {''.join(rows)}</table>
 <h2>Labelled swings per player, class and side</h2><table>{''.join(grid)}</table>
 <h2>Review queue ({len(review)})</h2><table><tr><th>swing</th><th>block label</th><th>side</th><th>why</th></tr>{''.join(review)}</table>
+<h2>Count notes, informational ({len(note_rows)} blocks; these swings stay labelled)</h2><table><tr><th>session</th><th>note</th><th>swings</th></tr>{''.join(note_rows)}</table>
 </body></html>
 """
 
@@ -288,6 +300,7 @@ def main(argv=None):
           f"{c['unlabelled']} unlabelled, {c['discarded']} discarded")
     for r in rejected:
         print("REJECTED", r)
+    print(f"{c['noted']} swings carry a count note (kept labelled)")
     print(f"wrote {a.root.expanduser() / 'processed' / f'swings_v{a.version}.npz'}, qc_v{a.version}.html, manifest.json")
 
 

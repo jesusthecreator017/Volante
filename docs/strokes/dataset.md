@@ -34,9 +34,13 @@ tools/.venv/bin/python tools/strokes/test_dataset.py                            
 6. **Labels**: the block a peak falls in gives class and side (`warmup` and `free` blocks, and anything outside blocks, stay
    unlabelled; a discarded block's swings are `discarded`). A `labels/<session>.csv` row with the swing's `swing_id` overrides it
    (`class` = `discard` removes the swing).
-7. **Review queue** (status `review`, with the reasons): a block whose detected count differs from the live count, or whose live
-   count differs from its target; a window with lost packets or past the recording's edge; a swing far from its class and side
-   (robust z > 4 on the summary features, groups of 8+).
+7. **Review queue** (status `review`, with the reasons). The drill blocks are trusted: a count mismatch (detected vs live, or live vs
+   target) keeps the swings `labelled` (`source=block`) and is kept as an informational **note** (`notes` in the npz, listed apart in
+   the QC report). Only a *large* mismatch sends the block to review (`qc.LARGE_OVER`/`LARGE_UNDER`): detected > 1.3 x
+   max(target, live) (extra detections may be resets or shadow moves) or detected < 0.5 x min(target, live) (a failed block); timed
+   blocks (target 0) are never large. Also in review: a window with lost packets or past the recording's edge, and a swing far from
+   its class and side (robust z > 4 on the summary features, groups of 8+). Files in a session folder that `session.json` does not
+   list (e.g. an `orphan.partN.bin`) are ignored. Review them with `tools/strokes/review/` (`docs/strokes/review.md`).
 
 Side is relative to the racquet face, never mirrored by handedness (`README.md`). `features.TO_REPLAY` maps our 11 classes to
 Replay's `STROKE_TYPES` names.
@@ -45,7 +49,7 @@ Replay's `STROKE_TYPES` names.
 No pickle (`np.load(path, allow_pickle=False)`). One row per swing, sorted by session, part and peak time:
 `x` float32 [n, 500, 10] (channels in `manifest.json`), `feat` float32 [n, 8] (`features.summary`), `swing_id`, `session`,
 `player`, `handed`, `part`, `t_peak_us`, `block` (-1 outside blocks), `label`, `class_id` (-1 unlabelled), `side` (0 FH, 1 BH, -1),
-`status` (`labelled` / `review` / `unlabelled` / `discarded`), `source` (`block` / `review` / `video`), `reasons`.
+`status` (`labelled` / `review` / `unlabelled` / `discarded`), `source` (`block` / `review` / `video`), `reasons` (why in review), `notes` (count mismatch, informational).
 
 ## Withdrawal
 `withdraw.py P07` deletes the player's sessions, their label files, their row in `private/participants.csv` and every processed

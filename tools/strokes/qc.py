@@ -52,13 +52,26 @@ def session_qc(rec, nominal_hz=500):
                 rest_g=round(rest, 3))
 
 
+# A block's count mismatch is only a review matter when it is large (owner decision 2026-10-17: trust the drill blocks). More than
+# LARGE_OVER x max(target, live) detections suggests non-hits (resets, shadow moves) among them; fewer than LARGE_UNDER x
+# min(target, live) suggests a failed block. A timed block (target 0, e.g. not_a_hit) has no rep count to compare, so never "large".
+LARGE_OVER = 1.3
+LARGE_UNDER = 0.5
+
+
 def count_mismatch(block, detected):
-    """A reason string when a block's swings can't be trusted to carry its label, else None (review focus 2)."""
-    if detected != block["counted"]:
-        return f"block {block['index']} ({block['label']} {block.get('side') or ''}): {detected} swings detected, {block['counted']} counted live"
-    if block["counted"] != block["target"]:
-        return f"block {block['index']} ({block['label']} {block.get('side') or ''}): {block['counted']} of {block['target']} reps"
-    return None
+    """-> (note, large). `note` describes a count disagreement (detected vs live, or live vs target), else None; `large` says it
+    is big enough to send the block's swings to review rather than just annotate them."""
+    name = f"block {block['index']} ({block['label']} {block.get('side') or ''})"
+    target, live = block["target"], block["counted"]
+    if detected != live:
+        note = f"{name}: {detected} swings detected, {live} counted live"
+    elif live != target:
+        note = f"{name}: {live} of {target} reps" if target else f"{name}: {live} counted live"
+    else:
+        return None, False
+    large = bool(target) and (detected > LARGE_OVER * max(target, live) or detected < LARGE_UNDER * min(target, live))
+    return note, large
 
 
 def outliers(feats, groups):

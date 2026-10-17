@@ -1,0 +1,22 @@
+body { margin: 0; display: flex; font: 14px system-ui, sans-serif; color: #111; height: 100vh; }
+aside { width: 300px; overflow-y: auto; border-right: 1px solid #ccc; padding: 8px 12px; }
+main { flex: 1; overflow-y: auto; padding: 8px 20px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { padding: 3px 6px; cursor: pointer; font-size: 12px; border-left: 4px solid transparent; }
+li.cur { background: #e8f0ff; }
+li.done { color: #888; border-left-color: #2a9d4a; }
+li.disc { border-left-color: #c33; }
+.plot { width: 100%; max-width: 760px; background: #fafafa; border: 1px solid #ddd; }
+.small { width: 240px; max-width: 240px; display: inline-block; margin: 2px; }
+.ax { stroke-width: 1; fill: none; }
+.cur-w { stroke: #d62728; stroke-width: 1.5; fill: none; }
+.cur-a { stroke: #1f77b4; stroke-width: 1.5; fill: none; }
+.mean { stroke-dasharray: 4 3; stroke-width: 1.5; fill: none; opacity: 0.8; }
+.mean-w { stroke: #7a1010; }
+.mean-a { stroke: #0a3a66; }
+.sat { fill: #ffd54a; opacity: 0.5; }
+.zero { stroke: #999; stroke-width: 0.5; }
+.lbl { font-size: 10px; fill: #444; }
+kbd { background: #eee; border: 1px solid #bbb; border-radius: 3px; padding: 0 4px; }
+#status { font-weight: 600; }
+#hint { color: #555; font-size: 12px; }
