@@ -68,10 +68,19 @@ def _inflate(raw):
     out = d.decompress(raw, MAX_RAW)
     if d.unconsumed_tail:
         raise ValueError("match log is too large once decompressed")
+    if not d.eof:
+        raise ValueError("match log is truncated")
     return out
 
 
 def read(path):
+    try:
+        return _read(path)
+    except (zlib.error, KeyError, TypeError, RecursionError) as e:  # a damaged or foreign file is a ValueError, never a crash
+        raise ValueError(f"not a match log ({type(e).__name__})") from None
+
+
+def _read(path):
     data = _inflate(Path(path).read_bytes())
     if data[:4] != MAGIC or len(data) < 8:
         raise ValueError("not a match log")

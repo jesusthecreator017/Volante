@@ -41,6 +41,13 @@ def sha256_of(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _no_duplicates(pairs):
+    d = dict(pairs)
+    if len(d) != len(pairs):  # last-wins would let this parser and the safetensors loader disagree
+        raise ValueError("duplicate key")
+    return d
+
+
 def parse_header(data):
     """(entries, metadata, data_start) of a safetensors byte string, parsed by hand with a size cap. Raises NotSafetensors."""
     if len(data) < 8:
@@ -51,7 +58,7 @@ def parse_header(data):
     if 8 + n > len(data):
         raise NotSafetensors(f"truncated: the header declares {n} bytes but only {len(data) - 8} follow the length prefix")
     try:
-        header = json.loads(data[8:8 + n].decode("utf-8"))
+        header = json.loads(data[8:8 + n].decode("utf-8"), object_pairs_hook=_no_duplicates)
     except (UnicodeDecodeError, ValueError, RecursionError):
         raise NotSafetensors("the header is not valid UTF-8 JSON") from None
     if not isinstance(header, dict):
@@ -123,6 +130,9 @@ def check_meta(meta):
     if not isinstance(name, str) or not 1 <= len(name) <= NAME_MAX:
         out.append(f"header name must be 1-{NAME_MAX} characters")
         name = None
+    elif not name.strip():
+        out.append("header name is only whitespace")
+        name = None
     elif not _printable(name):
         out.append("header name has non-printable or control characters")
         name = None
@@ -181,6 +191,7 @@ def read_submission(path):
             sub.reasons.append(arrays)
             sub.fatal = True
             return sub
+        sub.reasons += check_layout({k: (_DTYPES.get(a.dtype.name, a.dtype.name.upper()), a.shape) for k, a in arrays.items()})
         sub.reasons += check_values(arrays)
         sub.arrays = arrays
     return sub

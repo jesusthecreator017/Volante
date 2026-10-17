@@ -28,7 +28,7 @@ Header metadata (the safetensors `__metadata__` map, string to string). Unknown 
 | key | rule |
 |---|---|
 | `contract` | exactly `oso-arena/1` |
-| `name` | 1-40 characters, all printable (no control, format or surrogate characters; a newline is rejected) |
+| `name` | 1-40 characters, all printable (no control, format or surrogate characters; a newline is rejected), and not only whitespace |
 | `description` | optional, 0-280 characters; control characters other than newline and tab are rejected |
 | `build` | a JSON object `{"power":p,"speed":s,"reach":r,"accuracy":a}` as a string. Exactly these 4 keys; each value a JSON **integer** 1-10 (not `6.0`, not `"6"`, not `true`); the sum is exactly **24** |
 
@@ -155,7 +155,7 @@ In order; reasons are collected up to the first fatal one, and a broken file nev
 2. It is a safetensors file: 8-byte header length at most 64 KiB, a JSON header, then the `safetensors` loader. Never pickle.
 3. Exactly the six tensors of section 1, all F32, with the listed shapes.
 4. All values finite, `|w| <= 1000`.
-5. Header: `contract == oso-arena/1`; name 1-40 printable characters; description at most 280 characters; build valid (section 1).
+5. Header: `contract == oso-arena/1`; name 1-40 printable characters, not only whitespace; description at most 280 characters; build valid (section 1).
 6. Smoke test.
 
 Result: `ok`, or the list of human-readable reasons; `meta` = name, description, build, sha256 of the file bytes.

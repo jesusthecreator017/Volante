@@ -31,7 +31,10 @@ def _load_state(path):
         from safetensors.numpy import load_file
 
         return load_file(path)
-    import torch
+    try:
+        import torch
+    except ImportError:
+        raise ValueError("exporting a .pt checkpoint needs torch (pip install torch); a .safetensors training state does not") from None
 
     # weights_only=True: tensors and plain containers only, so this cannot execute code from the file (our own .pt checkpoints load)
     ck = torch.load(path, map_location="cpu", weights_only=True)
