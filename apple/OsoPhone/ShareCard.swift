@@ -21,7 +21,7 @@ struct ShareCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("oso").font(.system(size: 120, weight: .black, design: .rounded)).foregroundStyle(ink)
+                Text("Volante").font(.system(size: 120, weight: .black, design: .rounded)).foregroundStyle(ink)
                 Spacer()
                 if personalBest {
                     Label("Personal best", systemImage: "trophy.fill")
@@ -172,6 +172,6 @@ struct SessionCardImage: Transferable, Sendable {
             }
             return data
         }
-        .suggestedFileName("oso-session.png")
+        .suggestedFileName("volante-session.png")
     }
 }

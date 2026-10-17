@@ -25,42 +25,24 @@ struct SessionsView: View {
         List {
             ForEach(store.sessions) { m in
                 NavigationLink(value: m) { SessionRow(meta: m) }
-                    .listRowBackground(Theme.card)
             }
             .onDelete { idx in for i in idx { store.delete(store.sessions[i].id) } }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.canvas.ignoresSafeArea())
+        .listStyle(.insetGrouped)
         .canvasNavigationBar()
     }
 
     private var empty: some View {
-        Screen {
-            Banner {
-                Image(systemName: "chart.xyaxis.line").font(.system(size: 44, weight: .semibold)).accessibilityHidden(true)
-                Text("No sessions yet").font(.system(.title, design: .rounded, weight: .heavy))
-                Text("A session is one visit to the court: every swing, speed and rally. There are three ways to get one.")
-                    .font(.subheadline).foregroundStyle(.white.opacity(0.85))
-            }
-            Card {
-                way("sensor.tag.radiowaves.forward", "Racquet pod", "Connect the pod on the Pod tab and record or stream a session.")
-                way("applewatch", "Apple Watch", "Start a badminton workout in oso on the watch; it sends the session here when you end it.")
-                way("testtube.2", "Sample session", "Explore the app with a built-in synthetic session.")
-                Button { try? store.importSample() } label: { Label("Load sample session", systemImage: "play.circle") }
-                    .buttonStyle(.primary)
-            }
+        ContentUnavailableView {
+            Label("No sessions yet", systemImage: "figure.badminton")
+        } description: {
+            Text("Play with the pod on your racquet or start a workout on Apple Watch. Your sessions show up here.")
+        } actions: {
+            Button { router.tab = .pod } label: { Text("Connect pod").padding(.horizontal, 8) }
+                .buttonStyle(.glassProminent)
+            Button { try? store.importSample() } label: { Text("Load sample session") }
+                .buttonStyle(.glass)
         }
-    }
-
-    private func way(_ icon: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.title3).foregroundStyle(.tint).frame(width: 30).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(text).font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -72,9 +54,9 @@ private struct SessionRow: View {
         let row = store.rowSummaries[meta.id]
         HStack(spacing: 12) {
             Image(systemName: meta.source.icon)
-                .font(.title3).foregroundStyle(Theme.courtInk)
+                .font(.title3).foregroundStyle(.tint)
                 .frame(width: 42, height: 42)
-                .background(Theme.courtInk.opacity(0.12), in: Circle())
+                .background(Color.accentColor.opacity(0.14), in: Circle())
                 .layoutPriority(1)
                 .dynamicTypeSize(...DynamicTypeSize.xLarge)
                 .accessibilityLabel(meta.source.label)
@@ -120,8 +102,10 @@ struct SessionDetailView: View {
             } else {
                 Card { Text("This file could not be read.") }
             }
-            heartRateCard(a)
-            piCard
+            if let message {
+                Label(message, systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
         }
         .navigationTitle(meta.createdAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
         .navigationBarTitleDisplayMode(.inline)
@@ -130,10 +114,11 @@ struct SessionDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(
                         item: SessionCardImage(analysis: a, date: meta.createdAt, personalBest: !store.bests.kinds(for: meta.id).isEmpty),
-                        preview: SharePreview("oso session, \(meta.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                        preview: SharePreview("Volante session, \(meta.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     ) { Label("Share session image", systemImage: "square.and.arrow.up") }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) { actionsMenu(a) }
         }
         .task { await store.loadAllSummaries() }
         #if DEBUG
@@ -300,6 +285,7 @@ struct SessionDetailView: View {
                 if let p = s.peakDps { LabeledContent("Peak |ω|", value: String(format: "%.0f dps%@", p, s.saturatedGyro > 0 ? " (saturated)" : "")) }
                 if s.lossPct > 0 { LabeledContent("Packet loss", value: String(format: "%.2f %%", s.lossPct)) }
                 if let kcal = meta.activeEnergyKcal { LabeledContent("Active energy", value: String(format: "%.0f kcal", kcal)) }
+                if let src = meta.heartRateSource, !meta.heartRate.isEmpty { LabeledContent("Heart rate", value: src) }
             }
             .font(.subheadline)
         }
@@ -307,37 +293,27 @@ struct SessionDetailView: View {
 
     // MARK: heart rate source, Pi, sharing
 
-    private func heartRateCard(_ a: SessionAnalysis?) -> some View {
-        Card("Heart rate source", systemImage: "heart") {
-            if meta.heartRate.isEmpty {
-                Text(meta.anchor == nil ? "No clock anchor for this session (connect before recording)." : "No heart rate attached.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                LabeledContent("Source", value: meta.heartRateSource ?? "—").font(.subheadline)
+    private func actionsMenu(_ a: SessionAnalysis?) -> some View {
+        Menu {
+            Section(meta.uploadedToPi.map { "On your Pi since \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Raspberry Pi") {
+                Button { Task { await uploadToPi() } } label: {
+                    Label(meta.uploadedToPi == nil ? "Upload to Pi" : "Upload again", systemImage: "icloud.and.arrow.up")
+                }
+                .disabled(pi.busy)
+                Button { Task { await fetchReplay() } } label: { Label("Get 3D replay", systemImage: "cube") }
             }
             if fitbit.connected == true, meta.anchor != nil, let a {
-                Button { Task { await fetchFitbit(a) } } label: { Label("Fetch from Fitbit", systemImage: "arrow.down.heart") }
-                    .buttonStyle(.secondary).disabled(fitbit.busy)
+                Button { Task { await fetchFitbit(a) } } label: { Label("Add Fitbit heart rate", systemImage: "heart.text.square") }
+                    .disabled(fitbit.busy)
             }
-            if let message { Text(message).font(.footnote) }
-        }
-    }
-
-    private var piCard: some View {
-        Card("Raspberry Pi and sharing", systemImage: "externaldrive.connected.to.line.below") {
-            Button { Task { await uploadToPi() } } label: {
-                Label(meta.uploadedToPi == nil ? "Upload to Pi" : "Upload to Pi again", systemImage: "icloud.and.arrow.up")
+            Section("Files") {
+                if store.hasReplay(meta.id) {
+                    ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }
+                }
+                ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "doc") }
             }
-            .buttonStyle(.primary).disabled(pi.busy)
-            Button { Task { await fetchReplay() } } label: { Label("Fetch replay from Pi", systemImage: "icloud.and.arrow.down") }
-                .buttonStyle(.secondary)
-            if store.hasReplay(meta.id) {
-                ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }.buttonStyle(.secondary)
-            }
-            ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "square.and.arrow.up") }.buttonStyle(.secondary)
-            Text((meta.uploadedToPi.map { "Uploaded \($0.formatted(date: .abbreviated, time: .shortened)). " } ?? "")
-                 + "The video pipeline on the Pi turns imu.bin + the two camera videos into replay.bin; open it in the web app's Replay page.")
-                .font(.footnote).foregroundStyle(.secondary)
+        } label: {
+            Label("More", systemImage: "ellipsis")
         }
     }
 

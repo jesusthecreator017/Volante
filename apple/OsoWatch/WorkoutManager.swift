@@ -89,7 +89,11 @@ final class WorkoutManager: NSObject {
             startDate = Date() // the simulator may refuse a workout session: the demo runs without one
         }
         phase = .running
+        #if targetEnvironment(simulator)
         if simulated { startSimulatedMotion() } else { startMotion() }
+        #else
+        startMotion()
+        #endif
         // Once a second on the main actor: elapsed time and the live swing count to the phone
         ticker = Task { @MainActor [weak self] in
             while !Task.isCancelled {
