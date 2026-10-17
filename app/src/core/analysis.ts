@@ -1,6 +1,6 @@
 // Offline session analysis: capture -> bias -> two-pass fusion -> spikes/claps -> swings -> summary + health.
 
-import { type Capture, type Marker, type Sample } from "./packet";
+import { WRIST_MOUNT, type Capture, type Header, type Marker, type Sample } from "./packet";
 import { calibrateAndRun, type Params, type Track, type Window, findStationary, gyroBias, meanAcc } from "./fusion";
 import { G, DEG, type Vec3 } from "./quat";
 import { spikeStrength, spikes, findClaps, IMPACT_G, type Spike, fitClaps } from "./spikes";
@@ -192,7 +192,7 @@ export function fitClock(arrivals: [number, number][]): ClockFit | null {
 }
 
 export function analyzeSession(
-  cap: Capture & { markers?: Marker[] },
+  cap: Capture & { markers?: Marker[]; header?: Header },
   settings: AnalysisSettings = DEFAULT_ANALYSIS,
   arrivals: [number, number][] = [],
 ): SessionAnalysis {
@@ -200,7 +200,10 @@ export function analyzeSession(
   const t0 = samples.length ? samples[0].t : 0;
   const t1 = samples.length ? samples[samples.length - 1].t : 0;
   const params: Params = { beta: settings.beta, twoPass: true, nominalDt: 1 / (cap.rateHz || 500) };
-  const fused = samples.length ? calibrateAndRun(samples, params) : null;
+  const rate = cap.rateHz || 500;
+  // mount_id 1 = Apple Watch on the wrist (apple/README.md): CoreMotion already removed the gyro bias
+  const wrist = cap.header?.mountId === WRIST_MOUNT;
+  const fused = samples.length ? calibrateAndRun(samples, params, wrist) : null;
   const calibration = calibrationFrom(samples, fused?.window ?? null, fused?.bias ?? null);
   const bias = fused?.bias ?? [0, 0, 0];
   const wDps = new Float64Array(samples.length);
@@ -208,9 +211,9 @@ export function analyzeSession(
     const g = samples[i].gyro;
     wDps[i] = Math.hypot(g[0] - bias[0], g[1] - bias[1], g[2] - bias[2]) / DEG;
   }
-  const strength = spikeStrength(samples);
-  const allSpikes = spikes(samples, strength, 0, IMPACT_G);
-  const claps = findClaps(samples, strength, 0);
+  const strength = spikeStrength(samples, rate);
+  const allSpikes = spikes(samples, strength, 0, IMPACT_G, rate);
+  const claps = findClaps(samples, strength, 0, rate);
   const markers = cap.markers ?? [];
   const syncEvents: SyncEvent[] = [
     ...claps.map((c) => ({ kind: "clap" as const, t: c.t, rel: c.t - t0, peakG: c.peakG })),
@@ -228,9 +231,11 @@ export function analyzeSession(
             track: fused.track,
             impacts,
             gaps: cap.gaps,
-            geometry: settings.geometry,
+            // wrist: forearm length as the lever, a hand-speed proxy
+            geometry: wrist ? { ...settings.geometry, headCenterM: 0.3 } : settings.geometry,
             handedness: settings.handedness,
             t0,
+            racquetFrame: !wrist,
           },
           w,
           k + 1,
@@ -320,7 +325,7 @@ export function summarize(
     const top = Math.ceil(sorted[sorted.length - 1] + 1e-9);
     for (let lo = 0; lo < top; lo++) hist.push({ lo, hi: lo + 1, n: speeds.filter((v) => v >= lo && v < lo + 1).length });
   }
-  const strokes = { smash: 0, clear: 0, drop: 0, drive: 0, lift: 0, net: 0, "no contact": 0 } as Record<StrokeType, number>;
+  const strokes = { smash: 0, clear: 0, drop: 0, drive: 0, lift: 0, net: 0, "no contact": 0, unclassified: 0 } as Record<StrokeType, number>;
   for (const s of swings) strokes[s.stroke]++;
   const fatigue = swings.map((s) => [s.start, s.headSpeed] as [number, number]);
   let fatigueSlope: number | null = null;

@@ -88,23 +88,13 @@ Distribution is local dev builds only for now (no store setup).
 
 ## Host on the Raspberry Pi 5
 
-```bash
-npm ci && npm run build
-node server/server.mjs --port 8443 --cert cert.pem --key key.pem    # or without --cert for http
-```
-
-- **Use HTTPS on the Pi** if phones/laptops should connect to the sensor from the *website*. Web Bluetooth refuses
-  plain `http://<pi-ip>`. Options: a certificate for a real hostname, Tailscale HTTPS, or a self-signed certificate
-  you trust on your devices. Over plain http the site still works with the mock and with file import.
-- Sessions uploaded from the Export page land in `server/data/sessions/<id>/{imu.bin, meta.json}`. Run the video
-  pipeline on them and write `replay.bin` into the same folder; the app's Replay page → **Fetch replay from Pi
-  server** pulls it down.
-- API: `GET /api/health`, `GET /api/sessions`, `GET|PUT /api/sessions/<id>/{imu.bin|meta.json|replay.bin}`.
-  Uploads are validated (`OSOI` / `OSOR` magic, whole packets) and written atomically. No auth, so keep it on your
-  LAN.
-- In the apps, set Settings → **Pi server URL** (e.g. `https://oso.local:8443`). Pages served by the Pi find it on
-  their own.
-- Example systemd unit: `ExecStart=/usr/bin/node /home/pi/oso-app/server/server.mjs --port 8443 --cert … --key …`.
+`deploy/pi/deploy.sh pi@raspberrypi.local` builds and ships the app with `server/server.mjs` and installs it as a
+systemd service: https on 8443 (Web Bluetooth needs it), http on 8080 for the sideloaded iPhone/Watch apps. Details,
+certificates, the API (sessions + the Fitbit heart-rate proxy) and how it coexists with the Arena server:
+[`../deploy/pi/README.md`](../deploy/pi/README.md). Run the video pipeline on the uploaded `imu.bin` and write
+`replay.bin` into the same session folder; the app's Replay page → **Fetch replay from Pi server** pulls it down.
+In the apps, set Settings → **Pi server URL** (e.g. `https://raspberrypi.local:8443`); pages served by the Pi find it
+on their own.
 
 ## Replay renderer
 

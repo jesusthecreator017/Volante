@@ -222,7 +222,7 @@ function deviceTable(): string {
       sinceLast !== null ? `${sinceLast.toFixed(0)} ms since last notification; last hole ${s!.lastGapPackets} packets (${s!.gaps} holes)` : na("not streaming"),
     ],
     ["Link latency (arrival jitter)", jitter],
-    ["Stored on device", st ? `${st.bufferedPackets} packets (${bytes(st.bufferedPackets * 18)}, ${(st.bufferedPackets / (st.rateHz || 500)).toFixed(0)} s)` : na("not connected")],
+    ["Stored on device", st?.sleeping ? na("sleeping: the stored session is kept, wake the pod to see it") : st ? `${st.bufferedPackets} packets (${bytes(st.bufferedPackets * 18)}, ${(st.bufferedPackets / (st.rateHz || 500)).toFixed(0)} s)` : na("not connected")],
     [
       "Upload progress",
       app.upload

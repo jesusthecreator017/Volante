@@ -105,7 +105,7 @@ describe("fusion (port of fusion.rs tests)", () => {
   test("sample session gyro bias ≈ (-1.820, -2.075, -1.108) dps from the stationary start", () => {
     const c = parse(sampleBytes());
     const r = calibrateAndRun(c.samples, defaultParams())!;
-    expect(r.window.start).toBe(0);
+    expect(r.window!.start).toBe(0);
     const dps = r.bias.map((b) => b / DEG);
     expect(dps[0]).toBeCloseTo(-1.82, 3);
     expect(dps[1]).toBeCloseTo(-2.075, 3);
@@ -117,7 +117,7 @@ describe("fusion (port of fusion.rs tests)", () => {
     const r = calibrateAndRun(c.samples, fwdOnly())!;
     const lf = new LiveFusion(r.bias, fwdOnly());
     const acc = r.track.q; // offline track
-    lf.reset([0, 0, 0].map((_, a) => c.samples.slice(r.window.start, r.window.end).reduce((s, x) => s + x.acc[a], 0) / (r.window.end - r.window.start)) as [number, number, number]);
+    lf.reset([0, 0, 0].map((_, a) => c.samples.slice(r.window!.start, r.window!.end).reduce((s, x) => s + x.acc[a], 0) / (r.window!.end - r.window!.start)) as [number, number, number]);
     let worst = 0;
     c.samples.forEach((s, i) => {
       const q = lf.push(s).q;

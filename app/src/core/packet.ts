@@ -5,6 +5,8 @@
 import { G } from "./quat";
 
 export const HEADER_LEN = 16;
+/** header mount_id: 0 racquet pod, 1 Apple Watch on the wrist (apple/README.md) */
+export const WRIST_MOUNT = 1;
 export const PACKET_LEN = 18;
 export const ACC_LSB_PER_G = 2048;
 export const GYRO_LSB_PER_DPS = 16.4;
@@ -208,12 +210,13 @@ export function parse(bytes: Uint8Array): Capture & { markers: Marker[]; header:
 }
 
 /** Writes an imu.bin file: header + packets in the given (arrival) order. */
-export function encode(rateHz: number, packets: RawPacket[]): Uint8Array {
+export function encode(rateHz: number, packets: RawPacket[], mountId = 0): Uint8Array {
   const out = new Uint8Array(HEADER_LEN + packets.length * PACKET_LEN);
   out.set([0x4f, 0x53, 0x4f, 0x49]);
   const dv = new DataView(out.buffer);
   dv.setUint16(4, 1, true);
   dv.setUint16(6, rateHz, true);
+  dv.setUint32(8, mountId, true);
   packets.forEach((p, i) => encodePacket(p, dv, HEADER_LEN + i * PACKET_LEN));
   return out;
 }

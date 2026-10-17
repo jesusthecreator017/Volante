@@ -14,7 +14,9 @@ const LOW_CONF_WINDOW_S = 0.5;
 const BLEND_TAU_S = 1.0;
 const FAR_S = 30.0;
 
+/** Stillness block: 0.1 s of samples (50 at the pod's 500 Hz). */
 export const BLOCK = 50;
+export const blockSize = (rateHz: number) => Math.max(2, Math.round(rateHz / 10));
 const MIN_BLOCKS = 10;
 const STILL_GYRO_STD_RAD = (2 * Math.PI) / 180;
 const STILL_GYRO_MEAN_RAD = (6 * Math.PI) / 180;
@@ -27,14 +29,15 @@ export interface Window {
 }
 
 /** First run of >= 1 s held still. The final block of the run is dropped (may contain the first motion). */
-export function findStationary(samples: Sample[]): Window | null {
+export function findStationary(samples: Sample[], rateHz = 500): Window | null {
+  const block = blockSize(rateHz);
   let runStart: number | null = null;
-  const nBlocks = Math.floor(samples.length / BLOCK);
+  const nBlocks = Math.floor(samples.length / block);
   for (let b = 0; b <= nBlocks; b++) {
-    const still = b < nBlocks && blockIsStill(samples, b * BLOCK, (b + 1) * BLOCK);
+    const still = b < nBlocks && blockIsStill(samples, b * block, (b + 1) * block);
     if (still && runStart === null) runStart = b;
     else if (!still && runStart !== null) {
-      if (b - runStart >= MIN_BLOCKS) return { start: runStart * BLOCK, end: (b - 1) * BLOCK };
+      if (b - runStart >= MIN_BLOCKS) return { start: runStart * block, end: (b - 1) * block };
       runStart = null;
     }
   }
@@ -294,10 +297,21 @@ export function run(samples: Sample[], bias: Vec3, initAcc: Vec3, p: Params): Tr
   return track;
 }
 
-/** Stationary window -> bias -> fusion. null when no stationary window exists. */
-export function calibrateAndRun(samples: Sample[], p: Params): { track: Track; bias: Vec3; window: Window } | null {
-  const w = findStationary(samples);
-  if (!w) return null;
+/**
+ * Stationary window -> bias -> fusion. null when no stationary window exists, unless `assumeZeroBias` (sources that
+ * correct their own gyro bias, like Apple Watch device motion): then fused with zero bias and window null.
+ */
+export function calibrateAndRun(
+  samples: Sample[],
+  p: Params,
+  assumeZeroBias = false,
+): { track: Track; bias: Vec3; window: Window | null } | null {
+  const w = findStationary(samples, 1 / p.nominalDt);
+  if (!w) {
+    if (!assumeZeroBias || !samples.length) return null;
+    const zero: Vec3 = [0, 0, 0];
+    return { track: run(samples, zero, samples[0].acc, p), bias: zero, window: null };
+  }
   const bias = gyroBias(samples, w);
   const acc = meanAcc(samples, w.start, w.end);
   return { track: run(samples, bias, acc, p), bias, window: w };
