@@ -114,7 +114,7 @@ Spec: `.claude/specs/phase14_2b-laws-physics-contact.md`.
 ### Phase 14.4: Arena viewer
 - **Loading:** `crates/oso-arena` + `web/arena` open a match from `?match=URL` (fetch, 202 → retry with backoff and a
   "preparing match" state) and by drag-and-drop of a local `match.bin`. Nothing is uploaded.
-- **Display:** shows the scoreboard and both players' name and build (from new optional header fields in the replay or a JSON
+- **Display:** colour players by model (A/B), not by court slot, so colours stay with a player through change of ends (QA 14.2 note); shows the scoreboard and both players' name and build (from new optional header fields in the replay or a JSON
   sidecar; pick the smallest format change and document it in `docs/data-format.md`).
 - **Racquet:** a procedural racquet mesh (frame ellipse + handle) replaces the OBJ in Arena builds, because the OBJ licence is
   unknown.
