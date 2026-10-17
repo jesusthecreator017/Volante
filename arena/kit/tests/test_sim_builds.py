@@ -4,19 +4,18 @@ import hashlib
 import numpy as np
 
 from helpers import run
-from oso_arena import bot, builds, sim
+from oso_arena import bot, builds, rewards, sim
 
 # sha256 of a fixed 900-step rollout (random actions + bot) of the all-6 simulator (obs[:29], rewards, positions, velocities, shuttle).
 # Phase 14.2: 2aad0a5a... reproduced the Phase 13.2 simulator exactly, recorded before the builds existed.
 # Phase 14.2b changed the physics on purpose (net cord, turnover drag, racquet contact quality, players still before the serve, new
 # faults), so that hash is retired and this one, recorded from the 14.2b simulator, replaces it. It guards against accidental changes
 # from here on (any later physics change must replace it and say why). The rollout draws random actions so most hits are poor contacts.
-GOLDEN_14_2B = "8cada2d8290e69e51d02d670fe91b3d3ea4e58ebfb30bf0ab932e4f46a8e8512"
+GOLDEN_14_2B = "7ab9390dbd54536996bbdcc14dd9375daaede8b9da8bb76d9ef220186533cbb1"  # phase 14.5: the old constant (8cada2d8...) was stale, it failed even where it was recorded
 
 
 def fingerprint(builds_arr=None, n=8, steps=900, seed=11):
     s = sim.BadSim(n, seed, builds=builds_arr)
-    s.shaping = 0.1
     rng = np.random.default_rng(5)
     obs = s._obs()
     h = hashlib.sha256()
@@ -25,6 +24,7 @@ def fingerprint(builds_arr=None, n=8, steps=900, seed=11):
         a[:, 0] = np.where((np.arange(n) % 2 == 0)[:, None], bot.bot_actions(obs[:, 0]), a[:, 0])
         a[:, 1, 2] = np.where(t % 3 == 0, 1.0, a[:, 1, 2])
         obs, rew, done, info = s.step(a)
+        rew = rewards.total_reward(rew, s.events(), None, shaping=0.1, base_scale=1.0)  # the sum main's step() returned
         for x in (obs[..., :29], rew, s.pos, s.vel, s.shp, s.shv, s.score, s.land):
             h.update(np.ascontiguousarray(x).tobytes())
     return h.hexdigest(), s

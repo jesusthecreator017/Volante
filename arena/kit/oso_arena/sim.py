@@ -5,6 +5,9 @@ Net height is the centre value (1.524 m) everywhere. Shuttle: oso_arena/physics.
 integrated with midpoint RK2 at 1/120 s (error vs the RK4 truth < 2 mm over a 2 s clear; test_badsim.py checks 2 cm).
 The policy acts at 30 Hz: `step` holds the action for 4 sim steps.
 
+Phase 14.5: the simulator only records what happens (`events()` -> `oso_arena.events.StepEvents`) and pays win / loss and the serve-fault
+penalty; every other reward term lives in `oso_arena.rewards` (a pluggable function), so the simulator carries no training reward.
+
 Phase 14.2b: singles laws (see CONTRACT.md section 6), a net-cord model, a shuttle turnover phase after every hit and physical racquet
 contact (contact quality from the shuttle's position in the hitter's body frame scales the launch cap and the aim noise).
 
@@ -23,6 +26,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # the kit root, so `python sim.py` finds oso_arena
 from oso_arena import builds as B  # noqa: E402
 from oso_arena import court as C  # noqa: E402
+from oso_arena import events as E  # noqa: E402
 from oso_arena import physics as sp  # noqa: E402
 
 DT = 1 / 120
@@ -45,24 +49,11 @@ X_MIN_P, X_MAX_P, Z_MAX_P = 0.4, 7.5, 3.6  # a player's allowed |x| range (never
 SERVER_X, RECEIVER_X, SERVICE_Z = 2.6, 3.6, 1.3
 TOSS_AHEAD, TOSS_Y = 0.9, 1.1
 WIN_POINTS, WIN_BY, CAP_POINTS = 15, 2, 21
-# Amendment 2026-10-16 (longer rallies): a small per-shot reward kept for the whole run (not annealed, always less than a point) and an
-# extra aim noise that grows with the square of the launch speed, so fast smashes miss more often than drops and clears.
-SHOT_REWARD, SHOT_REWARD_MAX_SHOTS = 0.0, 10  # Phase 13.2: off (it paid both sides for a cooperative rally); code path kept. Cap: first 10 shots
+# Amendment 2026-10-16 (longer rallies): extra aim noise that grows with the square of the launch speed, so fast smashes miss more often than
+# drops and clears.
 SMASH_NOISE = 0.35  # m, sigma += SMASH_NOISE * (|v0| / 90)^2
-# Phase 13.1: depth reward, paid at the legal net crossing (so a net fault earns nothing) from the hit's predicted landing
-# point (self.land): DEPTH_REWARD * clip((|x| - SHORT_X) / (HL - SHORT_X), 0, 1), 0 when that point is out. Same first-10-shots
-# cap as SHOT_REWARD (10 rally shots = 5 per player), so (SHOT + DEPTH) * 5 = 0.9 < 1 point per player.
-DEPTH_REWARD = 0.05  # Phase 13.2: 0.15 -> 0.05 (displacement is now the main term)
-# Phase 13.2: displacement reward at the same point and under the same cap: DISP_REWARD * clip(d / DISP_NORM, 0, 1), d = horizontal
-# distance from the opponent's position at the moment of the hit to the shot's predicted landing point. Not annealed.
-# Per player <= 5 counted shots: 5 * (DISP_REWARD + DEPTH_REWARD) = 0.75 < 1.
-DISP_REWARD, DISP_NORM = 0.10, 4.0
 REACTION_S = 0.20  # after the opponent's hit a player keeps their velocity (commands ignored) for this long
 SERVE_FAULT_PENALTY = 0.5  # extra loss for the server on a serve fault (on top of the lost point)
-# Base-position reward: while the opponent is the next hitter (the player was the last hitter), each decision step pays
-# BASE_REWARD * exp(-d^2 / (2 * 0.8^2)), d = distance to (|x| = BASE_X, z = 0) on the own half. ~0.001 x ~70 steps (a 5-shot rally
-# is ~2.5 s of waiting per player at 30 Hz) = ~0.07 per rally. Annealed to 0 by train.py (BadSim.base_scale).
-BASE_REWARD, BASE_X, BASE_SIGMA = 0.001, 3.8, 0.8
 RALLY_CAP_SHOTS = 150  # a longer rally is replayed (a "let"), nobody scores
 
 # Phase 14.2b shuttle physics. Drag: sim steps use physics.py's model (terminal velocity 6.8 m/s, fitted to video, tools/shuttle_physics.py).
@@ -92,8 +83,8 @@ Q_NOISE = 1.5  # aim sigma x (1 + 1.5 (1 - q))
 MISHIT_Q, MISHIT_SPEED, MISHIT_SIGMA = 0.15, 0.4, np.radians(25.0)  # frame hit: 40 % of the intended speed, direction error sigma 25 deg
 
 # fault reasons (indices into stats["faults"]; the Pi and the match log use the names)
-NET, OUT, MISSED, SERVE, NET_TOUCH, CEILING, LET = range(7)
-REASONS = ["net", "out", "missed", "serve", "net_touch", "ceiling", "let"]
+NET, OUT, MISSED, SERVE, NET_TOUCH, CEILING, LET = E.NET, E.OUT, E.MISSED, E.SERVE, E.NET_TOUCH, E.CEILING, E.LET
+REASONS = E.REASONS
 ACT_DIM, OBS_DIM = 6, 37  # 29 Phase 13.2 floats + own build (4) + opponent build (4)
 OBS_BASE = 29
 
@@ -225,7 +216,8 @@ class ShotTable:
             except (OSError, ValueError, KeyError):
                 raw = None
         if raw is None:
-            raw = _build_table()
+            with np.errstate(all="ignore"):  # the Newton solve probes infeasible flights (overflow / NaN there is expected and masked)
+                raw = _build_table()
             if cache:
                 try:
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -360,8 +352,6 @@ class BadSim:
         self.table = shot_table()
         self.noise_scale = 1.0  # curriculum knobs
         self.reach_scale = 1.0
-        self.base_scale = 1.0  # annealed multiplier of BASE_REWARD
-        self.shaping = 0.1  # reward for a legal crossing of the net
         self.serve_court_aim = True
         self.log_game = log_game
         self.log_shots = False  # fill self.shot_log (one row per hit) for the evaluation's shot mix
@@ -388,6 +378,8 @@ class BadSim:
         self.tsh = np.ones(n)  # time since the shuttle was last hit (drives the turnover drag)
         self._hit_fault = np.full(n, -1)  # fault reason set by a hit itself (net touch, high serve), -1 none
         self._act = np.zeros((n, 2, ACT_DIM))
+        self._k = 0
+        self._ev = E.empty_buffers(n)  # what happened in the latest decision step (see events())
         self._pend = np.full(n, -1)  # index in shot_log of each game's latest shot (its x_end is not known yet)
         self.t = 0.0
         self.nsub = 0  # sim steps (1/120 s) taken since construction / reset
@@ -512,17 +504,15 @@ class BadSim:
         self._act = a
         self._tv = a[..., 0:2] * self._p["v_max"][..., None] * MIRROR[None, :, None]
         self._swing = a[..., 2] > 0
-        reward = np.zeros((self.n, 2))
+        reward = np.zeros((self.n, 2))  # win / loss and the serve-fault penalty only; other terms: oso_arena.rewards
         done = np.zeros(self.n, bool)
+        self._ev = E.empty_buffers(self.n)
         self.rally_end[:] = False
         self.dstep += 1
-        for _ in range(DECISION):
+        assert DECISION == E.SUBSTEPS
+        for k in range(DECISION):
+            self._k = k  # this sim step's slot in the step's events
             self._substep(reward, done)
-        if BASE_REWARD and self.base_scale:
-            wait = self.shots > 0
-            for p in (0, 1):
-                d2 = (self.pos[:, p, 0] - SIGN[p] * BASE_X) ** 2 + self.pos[:, p, 1] ** 2
-                reward[:, p] += self.base_scale * BASE_REWARD * np.exp(-d2 / (2 * BASE_SIGMA**2)) * (wait & (self.last_hitter == p))
         info = dict(stats=self.stats, rally_end=self.rally_end, winner=self.winner, reason=self.end_reason,
                     shots=self.end_shots, final_score=self.final_score)
         return self._obs(), reward, done, info
@@ -570,17 +560,10 @@ class BadSim:
             zc = old[:, 2] + f * (self.shp[:, 2] - old[:, 2])
         net_fault = cross & (yc < tape_height(zc)) & (self.shots > 0)
         legal = cross & ~net_fault & (self.shots > 0)
-        if self.shaping:
-            reward[legal, hitter[legal]] += self.shaping
-        counted = legal & (self.shots <= SHOT_REWARD_MAX_SHOTS)
-        if SHOT_REWARD:
-            reward[counted, hitter[counted]] += SHOT_REWARD
-        if DEPTH_REWARD:
-            lx_, lz_ = self.land[:, 0], self.land[:, 1]
-            depth = np.clip((np.abs(lx_) - SHORT_X) / (HL - SHORT_X), 0.0, 1.0) * in_bounds(lx_, lz_)
-            reward[counted, hitter[counted]] += DEPTH_REWARD * depth[counted]
-        if DISP_REWARD:
-            reward[counted, hitter[counted]] += DISP_REWARD * np.clip(self.disp[counted] / DISP_NORM, 0.0, 1.0)
+        if legal.any():  # a legal crossing, with the hit's data as it is now (before a hit later in this step can change it)
+            b, k = self._ev, self._k
+            b["cross"][legal, k], b["cross_player"][legal, k] = True, hitter[legal]
+            b["cross_land"][legal, k], b["cross_disp"][legal, k], b["cross_shots"][legal, k] = self.land[legal], self.disp[legal], self.shots[legal]
         landed = self.shp[:, 1] <= 0
         with np.errstate(all="ignore"):
             fl = old[:, 1] / (old[:, 1] - self.shp[:, 1])
@@ -729,6 +712,13 @@ class BadSim:
         self.freeze[idx, p] = np.where(jump, FREEZE_JUMP, np.where(lunge, FREEZE_LUNGE, 0.0))
         self.shots[idx] += 1
         self.stats["hits"] += k
+        b, kk = self._ev, self._k
+        b["hit"][idx, kk], b["hit_player"][idx, kk], b["hit_contact"][idx, kk] = True, p, sh
+        b["hit_speed"][idx, kk], b["hit_angle"][idx, kk] = np.hypot(vh, vy), np.degrees(np.arctan2(vy, vh))
+        b["hit_land"][idx, kk] = np.stack([tx2, tz2], -1)
+        b["hit_time"][idx, kk] = T
+        b["hit_q"][idx, kk], b["hit_disp"][idx, kk], b["hit_shot"][idx, kk] = q, self.disp[idx], self.shots[idx]
+        b["hit_ext"][idx, kk], b["hit_mis"][idx, kk] = extended, mis
         if self.log_shots:
             self._log_shots(idx, p, first, h0, sh[:, 0], vh, vy, apex, tx2, tz2, extended, q)
         if self.log_game is not None and self.log_game in idx:
@@ -773,6 +763,11 @@ class BadSim:
             st["rally_shots"] += shots
             st["faults"][r] += 1
             self.rally_end[g], self.winner[g], self.end_reason[g], self.end_shots[g] = True, -1, r, shots
+            b = self._ev
+            b["end"][g], b["end_winner"][g], b["end_reason"][g], b["end_shots"][g] = True, -1, r, shots
+            if landed[g] and not let:
+                b["land"][g], b["land_xz"][g], b["land_hitter"][g] = True, (lx[g], lz[g]), self.last_hitter[g]
+                b["land_in"][g] = bool(in_bounds(lx[g], lz[g]))
             if self.log_shots and self._pend[g] >= 0 and not let:
                 self.shot_log[self._pend[g]][8] = abs(float(lx[g])) if landed[g] else 0.0
                 self._close_run(g, 1 - self.last_hitter[g])
@@ -790,6 +785,7 @@ class BadSim:
             st["points"][win] += 1
             self.server[g] = win
             self.winner[g] = win
+            b["end_winner"][g] = win
             if self.log_game == g:
                 self._event("point", winner=win, reason=REASONS[r], score=self.score[g].tolist(), shots=shots)
             if is_over(self.score[g, win], self.score[g, lo], self.win_points):
@@ -804,6 +800,11 @@ class BadSim:
             if self.log_game == g:
                 self._event("game_over")
         self._start_rally(idx)
+
+    def events(self):
+        """What happened in the latest `step` as a read-only `oso_arena.events.StepEvents` (hits, legal net crossings, floor landings,
+        rally ends, positions, builds, last hitter, shots). Built on demand."""
+        return E.freeze(self._ev, self.pos, self.builds, self.last_hitter, self.shots, self.server)
 
     def set_first_server(self, server):
         """Games with log_game: restart the first rally with this server (0 / 1) instead of the seeded random one."""

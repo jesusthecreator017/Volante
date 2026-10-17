@@ -10,3 +10,8 @@ __pycache__/
 /dist/
 /web/dist
 .DS_Store
+# oso-arena kit: wheel / sdist outputs, build trees and training runs
+/arena/kit/dist/
+/arena/kit/build/
+/arena/kit/*.egg-info/
+runs/

@@ -63,7 +63,6 @@ def play_games(fa, fb, n, seed=0, max_steps=60000, sim_kw=None, builds=None):
     s = sim.BadSim(n, seed, builds=bl)
     for k, v in (sim_kw or {}).items():
         setattr(s, k, v)
-    s.shaping = 0.0
     s.log_shots = True
     is_a = np.zeros((n, 2), bool)
     is_a[np.arange(n), a_slot] = True

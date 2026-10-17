@@ -73,7 +73,6 @@ def play(a, b, seed, first_server=None, target=None, max_sim_s=VOID_S, best_of=3
     pa, pb = _player(a), _player(b)
     bl = np.array([[B.to_array(pa.meta["build"]), B.to_array(pb.meta["build"])]])
     s = sim.BadSim(1, seed, builds=bl, log_game=0)
-    s.shaping = s.base_scale = 0.0  # rewards are not used here
     s.random_server_after_game = False
     if target is not None:
         s.win_points = target

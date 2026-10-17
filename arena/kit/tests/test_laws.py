@@ -9,7 +9,6 @@ NOSWING = np.full((1, 2, sim.ACT_DIM), -1.0)
 
 def fresh(seed=0, **kw):
     s = sim.BadSim(1, seed)
-    s.shaping = s.base_scale = 0.0
     for k, v in kw.items():
         setattr(s, k, v)
     return s
@@ -188,7 +187,6 @@ def test_net_cord_slow_graze_falls_back_and_fast_clip_goes_over():
 def test_net_cord_is_deterministic_with_the_seed():
     def once(seed):
         s = sim.BadSim(1, seed, log_game=0)
-        s.shaping = s.base_scale = 0.0
         rally(s, 0, 2, [-0.3, 1.56, 0.0], [9.0, 0.0, 0.0])
         run_until_end(s)
         cords = [e for e in s.log["events"] if e["kind"] == "cord"]
@@ -342,7 +340,6 @@ def test_mishit_is_slow_and_scattered():
 
 def test_hit_event_and_log_carry_the_contact():
     s = sim.BadSim(1, 0, log_game=0)
-    s.shaping = 0.0
     obs = s._obs()
     from oso_arena import bot
 

@@ -1,19 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "oso-arena"
-version = "0.3.0"
-description = "oso Arena kit: contract oso-arena/1, the badminton simulator with stat builds, scripted bot, check/export/match tools and trainer (packaging is finished in phase 14.5)"
+version = "0.4.0"
+description = "oso Arena kit: train, check and play badminton AI models for contract oso-arena/1 (simulator, scripted bot, PPO trainer, export, local matches, replay export)"
+readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["numpy", "safetensors"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "oso contributors" }]
+keywords = ["badminton", "reinforcement-learning", "simulator", "ppo", "oso"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Games/Entertainment :: Simulation",
+]
+dependencies = ["numpy>=1.26", "safetensors>=0.4"]
+
+[project.optional-dependencies]
+train = ["torch>=2.2"]
 
 [project.scripts]
 oso-arena = "oso_arena.cli:main"
 
-[project.optional-dependencies]
-train = ["torch"]
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [tool.setuptools]
 packages = ["oso_arena"]
+
+[tool.setuptools.package-data]
+# data/*.safetensors: the base model (included when present in the build); CONTRACT.md: a copy of arena/contract/CONTRACT.md (tests/test_package.py)
+oso_arena = ["data/*.safetensors", "CONTRACT.md"]

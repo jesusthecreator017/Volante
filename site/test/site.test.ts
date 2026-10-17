@@ -3,6 +3,7 @@ import { ApiError, api, me } from "../src/api";
 import { PLAY_STYLES, checkUploadFile, suggestStyle } from "../src/arena";
 import { buildBars, ratingChart } from "../src/components";
 import { h } from "../src/dom";
+import { getStarted } from "../src/pages/content";
 import { match, route } from "../src/router";
 
 describe("arena rules", () => {
@@ -40,6 +41,20 @@ describe("DOM safety", () => {
     const chart = ratingChart([{ t: "2026-10-01T00:00:00Z", rating: 1200 }, { t: "2026-10-02T00:00:00Z", rating: 1250 }]);
     for (const el of [bars, chart]) expect(el.querySelectorAll("[style]").length).toBe(0);
     expect(bars.querySelector(".v9")).not.toBeNull();
+  });
+});
+
+describe("get started copy", () => {
+  test("tells the truth about installing the kit and the coach skill", () => {
+    const root = document.createElement("div");
+    getStarted(root);
+    const text = root.textContent ?? "";
+    expect(text).not.toMatch(/pip install oso-arena(\s|$)/); // the name is not registered on PyPI
+    expect(text).toContain('pip install "./arena/kit[train]"');
+    expect(text).toContain("oso-arena train");
+    expect(text).toContain("skills/oso-arena-coach");
+    expect(text).toContain("not bundled in this version of the kit");
+    expect(root.querySelectorAll("[style], script").length).toBe(0);
   });
 });
 
