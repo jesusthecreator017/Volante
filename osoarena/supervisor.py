@@ -57,8 +57,11 @@ def run_child(job_id, payload):
     jd = cfg.jobs_dir / str(job_id)
     if jd.exists():
         shutil.rmtree(jd)
-    jd.mkdir()
-    os.chmod(jd, 0o2770)  # group oso-arena-sandbox (inherited from jobs/, setgid): the child may write here and nowhere else
+    old_umask = os.umask(0o007)  # group + setgid come from jobs/ (2750); chmod with S_ISGID is EPERM under RestrictSUIDSGID
+    try:
+        jd.mkdir(mode=0o770)
+    finally:
+        os.umask(old_umask)  # group oso-arena-sandbox (inherited from jobs/, setgid): the child may write here and nowhere else
     (jd / "job.json").write_text(json.dumps(payload))
     os.chmod(jd / "job.json", 0o640)
     wall = LIMITS[payload["kind"]][1]
