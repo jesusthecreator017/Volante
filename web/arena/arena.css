@@ -1,0 +1,24 @@
+/* Arena-only rules; the viewer styles live in viewer.css */
+/* The overlay shows the same information as the corner text Rust writes */
+#status { display: none; }
+[hidden] { display: none !important; }
+
+#overlay {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;
+  box-sizing: border-box; width: min(420px, calc(100vw - 32px)); padding: 16px 20px;
+  background: rgba(10, 10, 10, 0.88); color: #eee; border: 1px solid #555; border-radius: 8px;
+  font: 15px/1.4 system-ui, sans-serif; text-align: center; overflow-wrap: anywhere;
+  pointer-events: none;
+}
+#overlay[hidden] { display: none; }
+#ov-status:empty, #ov-error:empty { display: none; }
+#ov-progress { display: block; width: 100%; height: 10px; margin-top: 10px; }
+#ov-error { color: #ff9a8a; font-weight: 600; }
+#ov-status + #ov-error, #ov-progress + #ov-error { margin-top: 10px; }
+#ov-drop { font-size: 18px; padding: 12px 0; }
+
+/* Drop highlight while a file is dragged over the page */
+body.dragging::after {
+  content: ""; position: fixed; inset: 8px; z-index: 20; pointer-events: none;
+  border: 3px dashed #8ab4f8; border-radius: 12px; background: rgba(138, 180, 248, 0.12);
+}

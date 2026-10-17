@@ -229,13 +229,15 @@ impl State {
         }
 
         // Optional like the calibration: without a replay the scene is unchanged
-        let replay = match load_bytes("replay/replay.bin")
+        let replay = match crate::assets::load_replay()
             .await
             .and_then(|b| Replay::parse(&b))
         {
             Ok(r) => Some(r),
             Err(e) => {
                 log::warn!("no replay: {e:#}");
+                #[cfg(target_arch = "wasm32")]
+                crate::web_api::set_replay_error(format!("{e:#}"));
                 None
             }
         };

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>oso replay</title>
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="arena.css">
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" aria-label="3D court view"></canvas>
+  <div id="status">loading...</div>
+  <section id="timeline" aria-label="Playback timeline" hidden>
+    <div id="hint" title="Camera and playback controls">WASD/arrows move &middot; Q/E down/up &middot; Shift fast &middot; drag orbit &middot; right-drag look &middot; , . step &middot; Space play &middot; N/P next/prev stroke</div>
+    <div id="credit"><a href="https://sketchfab.com/3d-models/basic-humanoid-block-rig-0b7834d927d545b497e9bfbb80765c08" target="_blank" rel="noopener">"Basic Humanoid Block Rig"</a> by <a href="https://sketchfab.com/trogan305" target="_blank" rel="noopener">Trogan305</a>, <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC-BY-4.0</a></div>
+    <div id="spark-wrap" hidden>
+      <canvas id="spark" role="img" aria-label="Player 1 racquet head speed over the clip"></canvas>
+      <canvas id="spark-head" aria-hidden="true"></canvas>
+    </div>
+    <div id="markers" role="group" aria-label="Strokes" hidden></div>
+    <input id="scrub" type="range" min="0" max="1" step="any" value="0" aria-label="Seek">
+    <div class="row">
+      <div class="group">
+        <button id="step-back" type="button" aria-label="Step back one frame">&#9664;&#9664;</button>
+        <button id="play" type="button" aria-label="Pause">&#10074;&#10074;</button>
+        <button id="step-fwd" type="button" aria-label="Step forward one frame">&#9654;&#9654;</button>
+      </div>
+      <span id="readout" role="timer" aria-live="off"></span>
+      <div class="group" id="stroke-nav" role="group" aria-label="Strokes" hidden>
+        <button id="prev-stroke" type="button" aria-label="Previous stroke">&#9198;</button>
+        <button id="next-stroke" type="button" aria-label="Next stroke">&#9197;</button>
+        <span id="head-readout" aria-live="off"></span>
+      </div>
+      <label class="group">Speed
+        <select id="speed" aria-label="Playback speed">
+          <option value="0.1">0.1x</option><option value="0.25">0.25x</option>
+          <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option><option value="2">2x</option>
+        </select>
+      </label>
+      <div class="group" role="group" aria-label="Camera presets">
+        <button type="button" data-preset="1">Baseline</button>
+        <button type="button" data-preset="2">Side</button>
+        <button type="button" data-preset="3">Top</button>
+        <button type="button" data-preset="4" disabled>Cam A</button>
+        <button type="button" data-preset="5" disabled>Cam B</button>
+      </div>
+      <button id="skeleton" type="button" aria-pressed="false">Skeleton</button>
+      <button id="stats-btn" type="button" aria-expanded="false" aria-controls="stats" hidden>Stats</button>
+      <button id="big-shuttle" type="button" aria-pressed="false" hidden>Big shuttle</button>
+    </div>
+  </section>
+  <section id="stats" aria-label="Match stats" hidden></section>
+  <div id="overlay">
+    <div id="ov-status" role="status" aria-live="polite"></div>
+    <progress id="ov-progress" max="1" hidden></progress>
+    <div id="ov-error" role="alert"></div>
+    <div id="ov-drop" hidden>Drop a match.bin here</div>
+  </div>
+  <script type="module" src="arena.js"></script>
+</body>
+</html>

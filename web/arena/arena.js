@@ -1,0 +1,313 @@
+// Arena entry point: window.oso_* API for the same-origin parent, replay download / drop handling, wasm start.
+// Runs under a strict CSP: no inline script or style, text goes in via textContent only.
+import init, * as oso from "./pkg/oso.js";
+import { setupTimeline } from "./timeline.js";
+import { setupStats } from "./stats.js";
+
+const STATUS_FIELDS = ["loaded", "time", "duration", "playing", "speed", "fps", "frame", "frame_count",
+  "skeleton", "big_shuttle", "has_shuttle", "cameras", "stroke_count"];
+const STATUS_DEFAULTS = { loaded: false, time: 0, duration: 0, playing: false, speed: 1, fps: 60, frame: 0,
+  frame_count: 0, skeleton: false, big_shuttle: false, has_shuttle: false, cameras: 0, stroke_count: 0 };
+const COMMANDS = ["oso_seek", "oso_set_playing", "oso_toggle_play", "oso_step", "oso_set_speed", "oso_preset",
+  "oso_toggle_skeleton", "oso_toggle_big_shuttle", "oso_next_stroke", "oso_prev_stroke"];
+
+const state = { phase: "waiting", error: "", received: 0, total: null };
+let wasmReady = false;
+const queue = [];
+
+// 1. window API, synchronously
+for (const name of COMMANDS) {
+  window[name] = (...args) => {
+    if (wasmReady) oso[name](...args);
+    else queue.push([name, args]);
+  };
+}
+window.oso_score = (t) => (wasmReady ? oso.oso_score(t) : new Uint32Array(0));
+window.oso_stats = () => (wasmReady ? oso.oso_stats() : "");
+window.oso_strokes = () => (wasmReady ? oso.oso_strokes() : new Float32Array(0));
+window.oso_stroke_types = () => (wasmReady ? oso.oso_stroke_types() : []);
+window.oso_head_speed = (p) => (wasmReady ? oso.oso_head_speed(p) : new Float32Array(0));
+window.oso_replay_error = () => (wasmReady ? oso.oso_replay_error() : state.error);
+window.oso_status = () => {
+  const out = { ...STATUS_DEFAULTS };
+  if (wasmReady) {
+    const s = oso.oso_status();
+    for (const k of STATUS_FIELDS) out[k] = s[k];
+    s.free();
+  }
+  out.phase = state.phase;
+  out.error = state.error;
+  out.received = state.received;
+  out.total = state.total;
+  return out;
+};
+let readyResolve, readyReject;
+window.oso_ready = new Promise((res, rej) => { readyResolve = res; readyReject = rej; });
+window.oso_ready.catch(() => {});
+
+const $ = (id) => document.getElementById(id);
+const el = { status: $("ov-status"), progress: $("ov-progress"), error: $("ov-error"), drop: $("ov-drop"),
+  overlay: $("overlay"), canvas: $("canvas"), corner: $("status") };
+
+// 2. right-drag looks around; no browser menu
+el.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Overlay helpers
+function show(statusText, { progress = false, value = null, drop = false } = {}) {
+  if (state.phase === "error") return; // error is sticky for the life of the page
+  el.overlay.hidden = false;
+  el.status.textContent = statusText;
+  el.progress.hidden = !progress;
+  if (value === null) el.progress.removeAttribute("value");
+  else el.progress.value = value;
+  el.drop.hidden = !drop;
+}
+function setPhase(phase) {
+  if (state.phase === "ready" || state.phase === "error") return;
+  state.phase = phase;
+  if (phase === "waiting") show("", { drop: true });
+  else if (phase === "preparing") show("Preparing match...", { progress: true });
+  else if (phase === "downloading") showProgress();
+  else if (phase === "loading") show("Loading replay...", { progress: true });
+  else if (phase === "ready") { el.overlay.hidden = true; readyResolve(); }
+}
+function fail(message) {
+  if (state.phase === "ready" || state.phase === "error") return;
+  state.phase = "error";
+  state.error = message;
+  abort.abort(); // stop any download or 202 wait
+  el.overlay.hidden = false;
+  el.status.textContent = "";
+  el.progress.hidden = true;
+  el.drop.hidden = true;
+  el.error.textContent = message;
+  readyReject(message);
+}
+function showProgress() {
+  const mb = (state.received / 1048576).toFixed(1);
+  if (state.total) {
+    const pct = Math.min(100, Math.floor((state.received / state.total) * 100));
+    show(`Downloading ${mb} MB (${pct}%)`, { progress: true, value: state.received / state.total });
+  } else {
+    show(`Downloading ${mb} MB`, { progress: true });
+  }
+}
+
+// 3. replay promise, handed to wasm via globalThis.oso_replay before init()
+const abort = new AbortController();
+let settled = false;
+let resolveReplay, rejectReplay;
+const replay = new Promise((res, rej) => { resolveReplay = res; rejectReplay = rej; });
+replay.catch(() => {});
+globalThis.oso_replay = replay;
+
+function deliver(bytes) {
+  if (settled) return;
+  settled = true;
+  setPhase("loading");
+  resolveReplay(bytes);
+}
+function reject(message) {
+  if (settled) return;
+  settled = true;
+  fail(message);
+  rejectReplay(new Error(message));
+}
+
+function openDb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open("oso-viewer", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("drop");
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+    req.onblocked = () => rej(new Error("IndexedDB blocked"));
+  });
+}
+async function takeStash() {
+  const db = await openDb();
+  try {
+    return await new Promise((res, rej) => {
+      const tx = db.transaction("drop", "readwrite");
+      const store = tx.objectStore("drop");
+      const get = store.get("replay");
+      store.delete("replay");
+      tx.oncomplete = () => res(get.result || null);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+async function putStash(file) {
+  const db = await openDb();
+  try {
+    await new Promise((res, rej) => {
+      const tx = db.transaction("drop", "readwrite");
+      tx.objectStore("drop").put(file, "replay");
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+// Resolves false when aborted
+function sleep(ms, signal) {
+  return new Promise((res) => {
+    if (signal.aborted) return res(false);
+    const done = () => { clearTimeout(timer); res(false); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", done); res(true); }, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+function retryDelay(resp) {
+  const raw = (resp.headers.get("retry-after") || "").trim();
+  const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : 3;
+  return Math.min(30, Math.max(1, n)) * 1000;
+}
+async function errorText(resp) {
+  try {
+    const j = JSON.parse(await resp.text());
+    if (j && typeof j.detail === "string" && j.detail) return j.detail;
+    if (j && typeof j.error === "string" && j.error) return j.error;
+  } catch (_) { /* not JSON */ }
+  return `HTTP ${resp.status}`;
+}
+
+// Returns the bytes, or null when aborted by a drop. Throws Error(message) on a fatal problem.
+async function fetchMatch(url, signal) {
+  for (;;) {
+    let resp;
+    try {
+      resp = await fetch(url, { signal, credentials: "same-origin" });
+    } catch (_) {
+      if (signal.aborted) return null;
+      throw new Error("Network error");
+    }
+    if (resp.status === 202) {
+      setPhase("preparing");
+      resp.body?.cancel().catch(() => {});
+      if (!(await sleep(retryDelay(resp), signal))) return null;
+      continue;
+    }
+    if (!resp.ok) throw new Error(await errorText(resp));
+
+    const enc = (resp.headers.get("content-encoding") || "").trim().toLowerCase();
+    const len = parseInt(resp.headers.get("content-length") || "", 10);
+    state.received = 0;
+    state.total = (!enc || enc === "identity") && len > 0 ? len : null;
+    setPhase("downloading");
+    const chunks = [];
+    try {
+      const reader = resp.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        state.received += value.length;
+        showProgress();
+      }
+    } catch (_) {
+      if (signal.aborted) return null;
+      throw new Error("Network error");
+    }
+    const bytes = new Uint8Array(state.received);
+    let at = 0;
+    for (const c of chunks) { bytes.set(c, at); at += c.length; }
+    return bytes;
+  }
+}
+
+async function acquire() {
+  let stashed = null;
+  try { stashed = await takeStash(); } catch (_) { /* no IndexedDB: carry on */ }
+  if (settled) return;
+  if (stashed) {
+    deliver(new Uint8Array(await stashed.arrayBuffer()));
+    return;
+  }
+  const param = new URLSearchParams(location.search).get("match");
+  if (!param) { setPhase("waiting"); return; }
+  let url;
+  try {
+    url = new URL(param, location.href);
+  } catch (_) {
+    return reject("Invalid match URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return reject("Invalid match URL");
+  try {
+    const bytes = await fetchMatch(url.href, abort.signal);
+    if (bytes) deliver(bytes);
+  } catch (e) {
+    reject(e.message);
+  }
+}
+setPhase("waiting");
+acquire();
+
+// 5. drag and drop (registered before init so an early drop works)
+let dragDepth = 0;
+const hasFiles = (e) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+document.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  if (!hasFiles(e)) return;
+  dragDepth++;
+  document.body.classList.add("dragging");
+});
+document.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) document.body.classList.remove("dragging");
+});
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove("dragging");
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  if (!settled) {
+    abort.abort();
+    try {
+      deliver(new Uint8Array(await file.arrayBuffer()));
+    } catch (_) {
+      reject("Could not read the dropped file");
+    }
+    return;
+  }
+  try {
+    await putStash(file);
+  } catch (_) {
+    el.overlay.hidden = false;
+    el.progress.hidden = true;
+    el.drop.hidden = true;
+    el.error.textContent = "Reload the page and drop the file again";
+    return;
+  }
+  location.reload();
+});
+
+// 4. start wasm, then poll for the loaded / error state
+function poll() {
+  if (state.phase === "ready" || state.phase === "error") return;
+  const s = window.oso_status();
+  const wasmError = oso.oso_replay_error();
+  const cornerText = el.corner.textContent;
+  if (s.loaded) setPhase("ready");
+  else if (wasmError) fail("Not a valid replay: " + wasmError);
+  else if (cornerText.startsWith("error:")) fail(cornerText);
+  if (state.phase !== "ready" && state.phase !== "error") requestAnimationFrame(poll);
+}
+init().then(() => {
+  wasmReady = true;
+  for (const [name, args] of queue.splice(0)) oso[name](...args);
+  setupTimeline(oso);
+  setupStats(oso);
+  requestAnimationFrame(poll);
+}).catch((e) => {
+  console.error(e);
+  fail(String(e));
+});

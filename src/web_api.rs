@@ -15,6 +15,7 @@ thread_local! {
     static STROKES: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
     static STATS: RefCell<String> = const { RefCell::new(String::new()) };
     static POINTS: RefCell<Vec<[f32; EVENT_FIELDS]>> = const { RefCell::new(Vec::new()) };
+    static REPLAY_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
     static HEAD_SPEED: RefCell<Vec<Vec<f32>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -84,6 +85,17 @@ pub fn set_replay_data(
 
 pub fn set_status(s: Status) {
     STATUS.with(|c| c.set(s));
+}
+
+/// Called by `State::new` (wasm only) with the replay load/parse error; read back by `oso_replay_error`.
+pub fn set_replay_error(e: String) {
+    REPLAY_ERROR.with(|c| *c.borrow_mut() = e);
+}
+
+/// Empty when the replay loaded or none was attempted, otherwise the load/parse error.
+#[wasm_bindgen]
+pub fn oso_replay_error() -> String {
+    REPLAY_ERROR.with(|c| c.borrow().clone())
 }
 
 #[wasm_bindgen]
