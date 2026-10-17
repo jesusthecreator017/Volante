@@ -1,5 +1,5 @@
 """Phase 16.2 tests on synthetic sessions (no real data in the repo): the imu.bin reader, the counter port, session QC
-(a byte-shifted recording is rejected), block/count mismatch -> review, the duplicate-peak rule, labels from review CSVs,
+(a byte-shifted recording is rejected), block/count mismatch -> note (policy in test_review.py), the duplicate-peak rule, labels from review CSVs,
 withdrawal, and byte-identical rebuilds.
 Run from anywhere: tools/.venv/bin/python tools/strokes/test_dataset.py"""
 import csv
@@ -33,10 +33,11 @@ def synth(swing_times, seconds, peak_dps=900.0, seed=0, t0_us=1_000_000, seq0=0,
     t = np.arange(n) / RATE
     gyro = rng.normal(0, 0.06 if quiet else 0.5, (n, 3))  # dps
     acc = np.tile([0.0, 1.0, 0.0], (n, 1)) + rng.normal(0, 0.0005 if quiet else 0.005, (n, 3))  # g
-    for ts in swing_times:
+    for k, ts in enumerate(swing_times):
+        pk = peak_dps[k] if isinstance(peak_dps, (list, tuple)) else peak_dps  # one amplitude, or one per swing
         bump = np.exp(-0.5 * ((t - ts) / 0.04) ** 2)
-        gyro[:, roll_axis] += -peak_dps * bump
-        gyro[:, 0] += 0.3 * peak_dps * bump
+        gyro[:, roll_axis] += -pk * bump
+        gyro[:, 0] += 0.3 * pk * bump
         acc[:, 1] += 2.0 * bump
     gc = np.clip(np.round(gyro / math.degrees(GYRO_K)), -32768, 32767).astype(int)
     ac = np.clip(np.round(acc * 9.80665 / ACC_K), -32768, 32767).astype(int)
@@ -173,22 +174,24 @@ def test_rejected_session_is_in_the_manifest_not_the_swings():
     assert "S002" not in set(d["session"].tolist())
 
 
-def test_count_mismatch_sends_the_block_to_review_and_left_handed_sides_stay():
+def test_small_count_mismatch_keeps_the_block_label_with_a_note_and_left_handed_sides_stay():
+    # Policy 2026-10-17 (trust the drill blocks): 4 of 5 reps and 5 detected vs 6 counted are small mismatches, so the swings stay
+    # labelled (source=block) and carry the mismatch as a note. Large ones go to review (test_review.py).
     with tempfile.TemporaryDirectory() as tmp:
         root = standard_root(tmp)
         m = B.build(root)
         d = B.load(root / "processed" / "swings_v1.npz")
     st = {(s, l): [] for s, l in zip(d["session"].tolist(), d["label"].tolist())}
-    for s, l, status, why in zip(d["session"].tolist(), d["label"].tolist(), d["status"].tolist(), d["reasons"].tolist()):
-        st[(s, l)].append((status, why))
-    assert [x[0] for x in st[("S001", "clear")]] == ["labelled"] * 6
-    assert len(st[("S001", "drop")]) == 4 and all(x[0] == "review" and "4 of 5 reps" in x[1] for x in st[("S001", "drop")])
+    for s, l, status, why, note in zip(d["session"].tolist(), d["label"].tolist(), d["status"].tolist(), d["reasons"].tolist(), d["notes"].tolist()):
+        st[(s, l)].append((status, why, note))
+    assert [x[0] for x in st[("S001", "clear")]] == ["labelled"] * 6 and not any(x[2] for x in st[("S001", "clear")])
+    assert len(st[("S001", "drop")]) == 4 and all(x == ("labelled", "", x[2]) and "4 of 5 reps" in x[2] for x in st[("S001", "drop")])
     smash = st[("S002", "smash")]
-    assert len(smash) == 5 and all(x[0] == "review" and "5 swings detected, 6 counted live" in x[1] for x in smash)
+    assert len(smash) == 5 and all(x[0] == "labelled" and not x[1] and "5 swings detected, 6 counted live" in x[2] for x in smash)
     # P02 is left-handed: the FH label is kept as recorded (side is relative to the racquet face, never mirrored)
     lefty = d["side"][d["session"] == "S002"]
     assert set(lefty.tolist()) == {F.SIDES.index("FH")}
-    assert m["counts"] == dict(swings=15, labelled=6, review=9, unlabelled=0, discarded=0), m["counts"]
+    assert m["counts"] == dict(swings=15, noted=9, labelled=15, review=0, unlabelled=0, discarded=0), m["counts"]
 
 
 def test_duplicate_peaks_merge():
@@ -226,7 +229,7 @@ def test_review_labels_override_and_discard():
     row = {s: (l, st, src) for s, l, st, src in zip(d["swing_id"].tolist(), d["label"].tolist(), d["status"].tolist(), d["source"].tolist())}
     assert row[drops[0]] == ("net_shot", "labelled", "review")
     assert row[drops[1]][1] == "discarded"
-    assert row[drops[2]][1] == "review"
+    assert row[drops[2]][1] == "labelled"  # the block label stands for the swings nobody touched
 
 
 def test_withdrawal_removes_every_trace():
