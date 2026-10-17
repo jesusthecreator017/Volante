@@ -8,6 +8,7 @@ import OsoKit
 @MainActor
 @Observable
 final class PiServer {
+    static let defaultURL = "http://pi5server-1.tail05420e.ts.net:8090"
     var baseURL: String {
         didSet { UserDefaults.standard.set(baseURL, forKey: "oso.pi.url"); reachable = nil }
     }
@@ -16,7 +17,9 @@ final class PiServer {
     private(set) var checking = false
 
     init() {
-        baseURL = UserDefaults.standard.string(forKey: "oso.pi.url") ?? "http://raspberrypi.local:8080"
+        // The team Pi over Tailscale (works anywhere Tailscale is on); the old LAN default is replaced.
+        let saved = UserDefaults.standard.string(forKey: "oso.pi.url")
+        baseURL = saved == nil || saved == "http://raspberrypi.local:8080" ? Self.defaultURL : saved!
     }
 
     private func url(_ path: String) throws -> URL {

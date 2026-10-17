@@ -22,14 +22,14 @@ struct SettingsView: View {
                             Text(piStatus).foregroundStyle(pi.reachable == true ? Theme.good : pi.reachable == false ? Theme.bad : .secondary)
                         }
                     }
-                    TextField("http://raspberrypi.local:8080", text: $pi.baseURL)
+                    TextField(PiServer.defaultURL, text: $pi.baseURL)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .onSubmit(check)
                     Button("Check connection", action: check).disabled(pi.checking || checking)
                 } header: {
                     Text("Volante server")
                 } footer: {
-                    Text("Optional. A Raspberry Pi running the Volante server backs up your sessions, builds 3D replays and brings in Fitbit heart rate. Use its address on the same Wi-Fi, or its IP if .local doesn't resolve.")
+                    Text("Optional. A Raspberry Pi running the Volante server backs up your sessions, builds 3D replays and brings in Fitbit heart rate. The team Pi is reached over Tailscale: keep the Tailscale app connected on this iPhone.")
                 }
 
                 Section {
