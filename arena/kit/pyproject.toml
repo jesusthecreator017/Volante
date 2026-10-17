@@ -37,4 +37,4 @@ packages = ["oso_arena"]
 
 [tool.setuptools.package-data]
 # data/*.safetensors: the base model (included when present in the build); CONTRACT.md: a copy of arena/contract/CONTRACT.md (tests/test_package.py)
-oso_arena = ["data/*.safetensors", "CONTRACT.md"]
+oso_arena = ["data/*.safetensors", "CONTRACT.md", "STYLE_PROFILE.md", "style.schema.json"]

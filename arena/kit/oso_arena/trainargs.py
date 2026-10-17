@@ -13,6 +13,8 @@ def parse_args(argv=None):
     ap.add_argument("--build", help="the learner's build power,speed,reach,accuracy (integers 1-10, sum 24); default 6,6,6,6; with --resume: the run's")
     ap.add_argument("--opp-builds", default=None, help="random (default; a uniformly random valid build per game, re-drawn at game reset) or P,S,R,A")
     ap.add_argument("--reward", type=Path, metavar="FILE.py", help="a file defining reward(ev) -> array [n_games, 2] (see oso_arena.rewards); default: the default reward; with --resume: the run's")
+    ap.add_argument("--style", type=Path, metavar="FILE", help="Volante Twins: a style profile (oso-rec profile): sets the build from it (a different --build is refused) and adds the tempo reward")
+    ap.add_argument("--style-weight", type=float, default=None, help="with --style: the tempo reward per paying shot, 0-0.1 (default 0.05)")
     ap.add_argument("--init", help="start from 'base' (the packaged base model) or a .safetensors file")
     ap.add_argument("--init-elapsed", type=float, default=0.0, help="with --init: begin the schedules (lr, entropy, reach) at this many minutes")
     ap.add_argument("--out", type=Path, help="run folder (default runs/<timestamp>)")

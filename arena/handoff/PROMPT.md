@@ -39,6 +39,7 @@ PROMPT.md                 this brief
 SHA256SUMS                checksums of every file here (`sha256sum -c SHA256SUMS`, or `shasum -a 256 -c SHA256SUMS` on macOS)
 contract/CONTRACT.md      the contract oso-arena/1 (file format, network, rules, check list in section 8)
 contract/header.schema.json   JSON Schema of the safetensors header metadata
+contract/STYLE_PROFILE.md, contract/style.schema.json   the Volante Twins style profile `volante-style/1` (section 14)
 kit/{{WHEEL}}   the oso-arena kit: simulator, NumpyPolicy, check, match, animate. Needs only numpy + safetensors. NO torch on the Pi.
 base_40min.safetensors    the base model (a normal submission file, all-6 build). May be absent: see "Base model" above and MISSING_BASE_MODEL.txt
 viewer/                   the built 3D viewer; serve at /viewer/
@@ -497,6 +498,7 @@ You can build everything with the neutral defaults. Do not decide these yourself
 | D11 | Public play-style badges ("Smasher?") | none beyond what the site already shows |
 | D12 | Whether `House Base` should be public-facing before the base model is final | if the file is missing, only House Bot |
 | D13 | Do house players enter tournaments? Are same-owner pairings forbidden? Avoid repeating the same pair? | no (the site's Get started page says house players don't enter); yes; yes |
+| D14 | Volante Twins (section 14): who twins are paired with, and the Twins tournament slot | twins and house players only; Sunday 15:00 server time |
 
 ## 13. How to work and what to report
 
@@ -507,3 +509,51 @@ You can build everything with the neutral defaults. Do not decide these yourself
 3. Keep a short design note and a `README` in your repo. Commit often; do not commit secrets.
 4. Final report: what you built and where it runs; the commands to start, stop, deploy and restore a backup; the test results for
    section 11; the timings; any place you deviated from this brief or found it wrong; and the list of owner decisions you used a default for.
+
+## 14. Volante Twins: "play like me" (additive; build it after sections 1-13 work)
+
+A player's pod sessions are turned (on their own computer or phone, never on the Pi) into a **style profile**, a few numbers; they train
+a model with the kit (`oso-arena train --style my_style.json`) and upload it. Such a model is a **twin**. Twins compete on a **separate
+Twins ladder** with their own Elo and weekly tournament, and the Pi admits a twin only if it really plays like its profile. Read
+`contract/STYLE_PROFILE.md` first: it is the source of truth for the file, the rules, the build mapping and the fidelity checks. Nothing
+in `oso-arena/1` changes: the profile is the optional header key `style_profile`.
+
+### Upload
+- `check_file` (the kit's) already validates `style_profile` when present (JSON, schema, at most 8192 bytes) and rejects the file with
+  a reason starting `header style_profile:`. Do not reimplement it. A file without the key is a normal model.
+- For an accepted file, store the profile next to the model: `sub.meta["style_profile"]` is the JSON text; parse it once with
+  `oso_arena.style.parse_profile(text)`. It is **trusted** (self-reported, shown publicly with its data volume); only its fidelity is verified.
+- The profile holds no names or IDs by construction (the validator rejects unknown keys). Show and serve it as is; never add the uploader's
+  identity to it.
+
+### Fidelity gate and the Twins ladder
+- A model with a profile is a **candidate twin**. It plays like any new model (placement and ladder games on the open ladder, `ladder: "open"`).
+- After it has **at least 10 ladder matches** (placement included, finished, not void), compute
+  `rep = oso_arena.style.fidelity(profile, logs, build)` where `logs` = its finished match logs, each as `(MatchLog, side)` with `side` 0 when the
+  model was player A and 1 when it was B, and `build` = the model's build from the header. `rep.fidelity_ok` true admits it to the Twins
+  ladder (`ladder: "twins"`, a new rating of 1200 and its own placement games; the same Elo rules as section 6, a separate table);
+  false leaves it on the open ladder with `twin.fidelity.ok = false` and the reasons from `rep.reasons` (shown on its page). Store
+  `rep.to_dict()` and the check time.
+- **Re-check weekly** (before the Twins tournament) with the model's most recent 20 finished matches or all of them if fewer, using the same call.
+  A twin that fails is moved back to `ladder: "open"` (its twins rating is kept, frozen, and returns with it if it passes a later re-check).
+- 18a checks are `build_ok` and `tempo_ratio` in 0.75-1.33. 18b adds `mix_js` (it is `null` until then): handle a report with that key
+  absent or `null` as "not applicable".
+- Twins are paired with other twins and the house players only (a twin's profile is about how it plays against a similar opponent;
+  **OWNER DECISION** D14: confirm, default as written). The open ladder never lists `twins` models and vice versa.
+- **Weekly Twins tournament:** the same rules as section 6 (top 8 by twins rating with at least 20 games, house players excluded, single
+  elimination, best of 3, no Elo change), a separate series (`GET /api/tournaments?ladder=twins`), scheduled a few hours away from
+  the open one (default Sunday 15:00 server time, **D14**), run after the weekly fidelity re-check.
+
+### API additions (additive; existing responses and the types in section 7 keep working)
+- `ModelSummary` gains `ladder: "open" | "twins"` (always present) and
+  `twin: {"profile": StyleProfile, "fidelity": {"ok": bool, "tempo_ratio": number | null, "mix_js": number | null, "checked_at": str | null}} | null`
+  (`null` for a model without a profile; `fidelity.ok` is `false` and `checked_at` `null` before the first check; `StyleProfile` is the JSON object of the file).
+- `GET /api/ladder?season=&ladder=twins` (default `open`; the same `Ladder` shape, `total` counts that ladder's ranked models).
+- `GET /api/tournaments?ladder=twins` (and `/api/tournaments/current?ladder=twins`); `Tournament` and `TournamentSummary` gain `ladder: "open" | "twins"`.
+- Upload (`POST /api/models`) is unchanged. A rejected file's `reject_reasons` may include the `header style_profile:` reasons.
+- The site's presentation is in `docs/twins-site.md` (for the site owner), the phone app's in `docs/twins-app.md`.
+
+### Acceptance (in addition to section 11)
+- A file with a valid `style_profile` is accepted and `twin.profile` equals the header's profile; with an invalid or oversize one it is rejected with a `header style_profile:` reason; without one nothing changes.
+- A candidate with fewer than 10 matches is never on the twins ladder; with a failing report it stays on the open ladder with `twin.fidelity.ok = false`.
+- The weekly re-check moves a failing twin back to the open ladder. `GET /api/ladder?ladder=twins` never lists open models.

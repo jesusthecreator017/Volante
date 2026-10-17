@@ -84,11 +84,12 @@ def check_output(r, n_games):
     return r
 
 
-def total_reward(terminal, ev, fn=None, **default_kw):
+def total_reward(terminal, ev, fn=None, extra=None, **default_kw):
     """What the trainer feeds PPO: the simulator's win / loss / serve-fault reward `terminal` plus the reward function (`fn(ev)`, or
-    `default_reward(ev, **default_kw)` when fn is None)."""
-    extra = default_reward(ev, **default_kw) if fn is None else check_output(fn(ev), ev.n_games)
-    return terminal + extra
+    `default_reward(ev, **default_kw)` when fn is None), plus `extra(ev)` when given (a small term on top of either, e.g. the Twins
+    tempo reward `style.TempoReward`)."""
+    shaped = default_reward(ev, **default_kw) if fn is None else check_output(fn(ev), ev.n_games)
+    return terminal + shaped + (0.0 if extra is None else check_output(extra(ev), ev.n_games))
 
 
 def load_reward_file(path):
@@ -108,10 +109,10 @@ def load_reward_file(path):
     return fn
 
 
-def shaping_guard(fn, build, opp_build=None, policy="bot", n=64, steps=600, seed=0):
+def shaping_guard(fn, build, opp_build=None, policy="bot", n=64, steps=600, seed=0, extra=None):
     """Estimates what reward function `fn` (None = the default) pays per rally and player, on a short rollout (n games x steps
     decision steps) of `policy` against itself: "bot" (the scripted bot, long cooperative rallies), "random" (random actions), or a
-    callable obs [m, 37] -> actions [m, 6]. Finished rallies only. Returns dict(rallies, mean, p95, max, per_rally) with the
+    callable obs [m, 37] -> actions [m, 6]. `extra`: a stateful term added on top (reset first, see total_reward). Finished rallies only. Returns dict(rallies, mean, p95, max, per_rally) with the
     per-rally per-player totals of the reward (win / loss excluded)."""
     from oso_arena import bot, builds as B, sim
 
@@ -123,6 +124,8 @@ def shaping_guard(fn, build, opp_build=None, policy="bot", n=64, steps=600, seed
         policy = bot.bot_actions
     elif policy == "random":
         policy = None
+    if extra is not None and hasattr(extra, "reset"):
+        extra.reset()
     obs = s._obs()
     acc = np.zeros((n, 2))
     tot = []
@@ -135,6 +138,8 @@ def shaping_guard(fn, build, opp_build=None, policy="bot", n=64, steps=600, seed
         obs, _, _, info = s.step(act)
         ev = s.events()
         acc += (default_reward(ev) if fn is None else check_output(fn(ev), n))
+        if extra is not None:
+            acc += check_output(extra(ev), n)
         end = ev.rally_end.mask
         if end.any():
             tot.append(acc[end].ravel())

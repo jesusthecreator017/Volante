@@ -37,7 +37,7 @@ except ImportError:  # the kit's other commands never import this module
     raise ImportError("training needs PyTorch: install the kit with the train extra (pip install 'oso_arena-*.whl[train]') or pip install torch") from None
 
 from oso_arena import trainargs
-from oso_arena import CONTRACT, KIT_VERSION, basemodel, bot, evaluate, export, rewards, sim
+from oso_arena import CONTRACT, KIT_VERSION, basemodel, bot, evaluate, export, rewards, sim, style
 from oso_arena import builds as B
 
 N_GAMES, HORIZON = trainargs.N_GAMES, trainargs.HORIZON  # Phase 13.2: 256 -> 1024 (profiled: the PPO update dominated; it runs on MPS)
@@ -263,11 +263,11 @@ def parse_opp_builds(spec):
 parse_args = trainargs.parse_args  # argparse lives in trainargs.py so `train --help` works without torch
 
 
-def run_guard(fn, build, opp_build, args):
+def run_guard(fn, build, opp_build, args, extra=None):
     """Estimates what the reward pays per rally and player (bot vs bot and random play) and warns above the limit."""
     out = {}
     for pol in ("bot", "random"):
-        r = rewards.shaping_guard(fn, build, opp_build, policy=pol, n=args.guard_games, steps=args.guard_steps, seed=args.seed)
+        r = rewards.shaping_guard(fn, build, opp_build, policy=pol, n=args.guard_games, steps=args.guard_steps, seed=args.seed, extra=extra)
         out[pol] = r
         print(f"shaping guard ({pol}): {r['rallies']} rallies, shaping per rally and player: mean {r['mean']:.3f}, 95th pct {r['p95']:.3f}, max {r['max']:.3f} "
               f"(limit {rewards.SHAPING_LIMIT:g})", flush=True)
@@ -277,6 +277,22 @@ def run_guard(fn, build, opp_build, args):
               "the model can learn to keep rallies going together (cooperation) instead of winning them. Cap how many shots pay "
               "(like the default's first 10) or scale the terms down.", flush=True)
     return out
+
+
+def style_setup(args, prev):
+    """(profile, tempo reward, build) of --style (or the resumed run's), else (None, None, None). A --build that differs from the profile's
+    is refused."""
+    path = args.style or (Path(prev["style"]) if prev.get("style") else None)
+    if path is None:
+        if args.style_weight is not None:
+            raise ValueError("--style-weight needs --style")
+        return None, None, None
+    profile = style.load_profile(path)
+    build = style.build_from_profile(profile)
+    if args.build and B.parse(args.build) != build:
+        raise ValueError(f"--build {args.build} conflicts with --style: the profile maps to {json.dumps(build, separators=(',', ':'))}")
+    weight = next(w for w in (args.style_weight, prev.get("style_weight"), style.TEMPO_WEIGHT) if w is not None)
+    return profile, style.TempoReward(profile, weight), build
 
 
 def run(args):
@@ -296,6 +312,8 @@ def run(args):
             print(f"warning: {flag} {given} differs from the resumed run's {old}; using {given}", flush=True)
     opp_fixed = parse_opp_builds(opp_spec)
     reward_fn = rewards.load_reward_file(reward_path) if reward_path else None
+    _, tempo, style_build = style_setup(args, prev)
+    build = style_build or build
     if args.resume and not resuming:
         print(f"nothing to resume in {out_dir}: starting a new run")
     ck = None
@@ -313,9 +331,10 @@ def run(args):
     bstr = json.dumps(build, separators=(",", ":"))
     (out_dir / "run.json").write_text(json.dumps(dict(
         build=build, opp_builds=opp_spec, reward=str(reward_path) if reward_path else None, init=args.init or prev.get("init"), seed=args.seed,
-        minutes=args.minutes, kit_version=KIT_VERSION, games=args.games, horizon=args.horizon), indent=1))
+        minutes=args.minutes, kit_version=KIT_VERSION, games=args.games, horizon=args.horizon,
+        style=str(args.style or prev.get("style") or "") or None, style_weight=tempo.weight if tempo else None), indent=1))
     if args.guard_games > 0:
-        run_guard(reward_fn, build, opp_fixed, args)
+        run_guard(reward_fn, build, opp_fixed, args, tempo)
     dev = pick_device(args.device)
     torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
@@ -422,7 +441,7 @@ def run(args):
                 with torch.no_grad():
                     act[sel, oslot] = snap_nets[k].act(torch.as_tensor(obs[sel, oslot]))[0].numpy()
             obs, rew, done, info = game.step(act)
-            B_rew[t] = rewards.total_reward(rew, game.events(), reward_fn, shaping=shaping, base_scale=base_scale)
+            B_rew[t] = rewards.total_reward(rew, game.events(), reward_fn, tempo, shaping=shaping, base_scale=base_scale)
             B_done[t] = done
             for g in np.nonzero(info["rally_end"])[0]:
                 if info["reason"][g] == sim.LET:

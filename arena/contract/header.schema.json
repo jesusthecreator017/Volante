@@ -8,6 +8,12 @@
     "contract": {"const": "oso-arena/1"},
     "name": {"type": "string", "minLength": 1, "maxLength": 40, "description": "printable characters only"},
     "description": {"type": "string", "maxLength": 280},
+    "style_profile": {
+      "type": "string",
+      "maxLength": 8192,
+      "description": "optional Volante Twins profile: JSON text of a volante-style/1 profile (style.schema.json)",
+      "contentMediaType": "application/json"
+    },
     "build": {
       "type": "string",
       "maxLength": 200,
