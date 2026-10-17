@@ -312,7 +312,9 @@ async fn simple(opcode: u8, twice: bool) -> anyhow::Result<()> {
 enum Msg {
     /// `state_bits` of the latest status
     State(u8),
-    Disconnected,
+    /// The link dropped; the BLE thread is re-establishing it
+    Reconnecting,
+    Reconnected,
 }
 
 /// Window -> BLE thread
@@ -325,26 +327,71 @@ enum Cmd {
 /// dropped (counted), which the sequence gap then shows as loss.
 const DATA_BATCHES: usize = 256;
 
-/// Forwards the stream to the window and the window's keys to the pod; ends on Stop (0x02 + disconnect). A lost link
-/// leaves the window open ("disconnected") until it is closed.
-// ponytail: no auto-reconnect; closing the window and rerunning `oso-rec live` re-attaches
-async fn stream_task(
-    d: Dev,
-    mut notes: Notes,
-    data: SyncSender<Vec<[u8; PACKET_LEN]>>,
-    ctl: Sender<Msg>,
-    dropped: Arc<AtomicU64>,
-    mut cmds: UnboundedReceiver<Cmd>,
-) {
-    let mut connected = true;
+/// No stream data for this long while streaming: the link is treated as lost (a hung link may never report it)
+const STALL: Duration = Duration::from_secs(3);
+/// Wait between reconnect attempts (each attempt itself scans up to `SCAN_SECS`)
+const RETRY_WAIT: Duration = Duration::from_secs(5);
+
+/// HH:MM:SS UTC, for the reconnect log
+fn stamp() -> String {
+    let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) % 86_400;
+    format!("{:02}:{:02}:{:02}Z", s / 3600, s / 60 % 60, s % 60)
+}
+
+/// Runs `attempt` until it succeeds, logging each failure and waiting `wait` between tries
+async fn retry<T, F: AsyncFnMut() -> anyhow::Result<T>>(mut attempt: F, wait: Duration) -> T {
+    loop {
+        match attempt().await {
+            Ok(v) => return v,
+            Err(e) => {
+                eprintln!("[{}] reconnect failed: {e:#}; retrying in {} s", stamp(), wait.as_secs());
+                tokio::time::sleep(wait).await;
+            }
+        }
+    }
+}
+
+/// A fresh connection that is streaming (0x01) with both characteristics subscribed
+async fn open() -> anyhow::Result<(Dev, Notes)> {
+    let d = connect().await?;
+    // A half-open link left connected would keep the pod from advertising, so close it on any failure
+    let setup = async {
+        d.p.subscribe(&d.stream).await?;
+        d.p.subscribe(&d.status).await?;
+        let notes: Notes = d.p.notifications().await?;
+        d.cmd(op::START_STREAM).await?;
+        anyhow::Ok(notes)
+    };
+    match setup.await {
+        Ok(notes) => Ok((d, notes)),
+        Err(e) => {
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            Err(e)
+        }
+    }
+}
+
+enum End {
+    Stop,
+    Lost,
+}
+
+/// One connection's worth of forwarding: ends on a window Stop, or when the link closes or goes quiet
+async fn session(
+    d: &Dev,
+    notes: &mut Notes,
+    data: &SyncSender<Vec<[u8; PACKET_LEN]>>,
+    ctl: &Sender<Msg>,
+    dropped: &AtomicU64,
+    cmds: &mut UnboundedReceiver<Cmd>,
+) -> End {
+    let (mut last_data, mut tick) = (Instant::now(), tokio::time::interval(Duration::from_secs(1)));
     loop {
         tokio::select! {
-            n = notes.next(), if connected => match n {
-                None => {
-                    connected = false;
-                    ctl.send(Msg::Disconnected).ok();
-                }
+            n = notes.next() => match n {
+                None => return End::Lost,
                 Some(n) if n.uuid == u(gatt::IMU_STREAM) => {
+                    last_data = Instant::now();
                     let batch = n.value.as_chunks::<PACKET_LEN>().0.to_vec();
                     if let Err(TrySendError::Full(b)) = data.try_send(batch) {
                         dropped.fetch_add(b.len() as u64, Ordering::Relaxed);
@@ -359,19 +406,61 @@ async fn stream_task(
                     }
                 }
             },
+            _ = tick.tick() => if last_data.elapsed() > STALL {
+                eprintln!("[{}] no stream data for {} s", stamp(), STALL.as_secs());
+                return End::Lost;
+            },
             c = cmds.next() => match c {
                 Some(Cmd::Marker) => {
-                    if connected && let Err(e) = d.cmd(op::MARK).await {
-                        eprintln!("marker: {e}");
+                    // Hangs on a dead link
+                    match tokio::time::timeout(Duration::from_secs(3), d.cmd(op::MARK)).await {
+                        Ok(Err(e)) => eprintln!("marker: {e}"),
+                        Err(_) => eprintln!("marker: timed out"),
+                        Ok(Ok(())) => {}
                     }
                 }
-                Some(Cmd::Stop) | None => {
-                    // Both hang on a dead link
-                    tokio::time::timeout(Duration::from_secs(3), d.cmd(op::STOP_STREAM)).await.ok();
-                    tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
-                    return;
-                }
+                Some(Cmd::Stop) | None => return End::Stop,
             },
+        }
+    }
+}
+
+/// Forwards the stream to the window and the window's keys to the pod. Ends on Stop (0x02 + disconnect). A lost link
+/// shows "reconnecting" and is re-established (scan, connect, 0x01) until it works or the window closes; the window's
+/// fusion, mount and re-centre are untouched.
+async fn stream_task(
+    d: Dev,
+    notes: Notes,
+    data: SyncSender<Vec<[u8; PACKET_LEN]>>,
+    ctl: Sender<Msg>,
+    dropped: Arc<AtomicU64>,
+    mut cmds: UnboundedReceiver<Cmd>,
+) {
+    let (mut d, mut notes) = (d, notes);
+    loop {
+        if let End::Stop = session(&d, &mut notes, &data, &ctl, &dropped, &mut cmds).await {
+            // Both hang on a dead link
+            tokio::time::timeout(Duration::from_secs(3), d.cmd(op::STOP_STREAM)).await.ok();
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            return;
+        }
+        eprintln!("[{}] link lost, reconnecting", stamp());
+        ctl.send(Msg::Reconnecting).ok();
+        // Marker presses while away are dropped; Stop (or the window closing) ends the task, even mid-disconnect
+        let stopped = async {
+            while let Some(Cmd::Marker) = cmds.next().await {}
+        };
+        let reopen = async {
+            tokio::time::timeout(Duration::from_secs(3), d.p.disconnect()).await.ok();
+            retry(open, RETRY_WAIT).await
+        };
+        tokio::select! {
+            (nd, nn) = reopen => {
+                eprintln!("[{}] reconnected", stamp());
+                (d, notes) = (nd, nn);
+                ctl.send(Msg::Reconnected).ok();
+            }
+            () = stopped => return,
         }
     }
 }
@@ -462,7 +551,11 @@ impl LiveSource for PodView {
         while let Ok(m) = self.ctl.try_recv() {
             match m {
                 Msg::State(b) => self.state_bits = b,
-                Msg::Disconnected => self.connected = false,
+                Msg::Reconnecting => self.connected = false,
+                Msg::Reconnected => {
+                    self.connected = true;
+                    self.state_bits = state::STREAMING;
+                }
             }
             self.dirty = true;
         }
@@ -532,7 +625,7 @@ struct TitleInfo<'a> {
 
 fn title(i: &TitleInfo) -> String {
     let mode = if !i.connected {
-        "DISCONNECTED".to_string()
+        "reconnecting…".to_string()
     } else {
         let mut v = Vec::new();
         if i.state_bits & state::RECORDING != 0 {
@@ -780,12 +873,27 @@ mod tests {
         assert_eq!(record_start_flags(&args("record start --no-view --force")), (true, false));
     }
 
+    #[tokio::test]
+    async fn retry_keeps_trying_until_it_connects() {
+        let mut tries = 0;
+        let v = retry(
+            async || {
+                tries += 1;
+                if tries < 3 { Err(anyhow::anyhow!("no device")) } else { Ok(tries) }
+            },
+            Duration::from_millis(1),
+        )
+        .await;
+        assert_eq!(v, 3);
+        assert_eq!(stamp().len(), 9);
+    }
+
     #[test]
     fn title_shows_state_rate_and_loss() {
         let info = |connected, bits, calibrating, hz, loss_pct, dropped, prompt| TitleInfo { connected, state_bits: bits, calibrating, hz, loss_pct, dropped, prompt };
         let t = title(&info(true, state::RECORDING | state::STREAMING, false, 498.7, 0.25, 0, ""));
         assert!(t.contains("recording + streaming") && t.contains("499 Hz") && t.contains("loss 0.2 %") && t.contains("R re-centre"));
-        assert!(title(&info(false, 0, false, 0.0, 0.0, 0, "")).contains("DISCONNECTED"));
+        assert!(title(&info(false, 0, false, 0.0, 0.0, 0, "")).contains("reconnecting…"));
         assert!(title(&info(true, 1, true, 0.0, 0.0, 7, "C: go")).starts_with("C: go | "));
         assert!(title(&info(true, 1, true, 0.0, 0.0, 7, "")).contains("hold still") && title(&info(true, 1, true, 0.0, 0.0, 7, "")).contains("7 dropped"));
     }

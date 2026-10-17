@@ -22,6 +22,14 @@ pub enum Cmd {
 
 pub static STATE: AtomicU8 = AtomicU8::new(0);
 pub static OVERFLOWS: AtomicU16 = AtomicU16::new(0);
+/// Live-stream packets dropped on notify errors since the last connect (status bytes 21..23)
+pub static STREAM_DROPS: AtomicU16 = AtomicU16::new(0);
+/// Notify errors since boot (diagnostics)
+pub static NOTIFY_ERRS: AtomicU32 = AtomicU32::new(0);
+/// A host is connected (heartbeat)
+pub static CONNECTED: AtomicBool = AtomicBool::new(false);
+/// Last host write or successful data notify, ms since boot (idle-link watchdog)
+pub static LAST_ACT_MS: AtomicU32 = AtomicU32::new(0);
 /// Packets in the stored session (durably written)
 pub static STORED: AtomicU32 = AtomicU32::new(0);
 pub static BATTERY: AtomicU8 = AtomicU8::new(255);
@@ -49,6 +57,11 @@ pub fn set(bit: u8, on: bool) {
 
 pub fn has(bit: u8) -> bool {
     STATE.load(Relaxed) & bit != 0
+}
+
+/// Milliseconds since boot, low 32 bits
+pub fn now_ms() -> u32 {
+    esp_hal::time::Instant::now().duration_since_epoch().as_millis() as u32
 }
 
 /// Device clock in us, low 32 bits (the packet `t_us`)
