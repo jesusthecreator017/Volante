@@ -36,8 +36,9 @@ tools/.venv/bin/python tools/strokes/test_dataset.py                            
    (`class` = `discard` removes the swing).
 7. **Review queue** (status `review`, with the reasons). The drill blocks are trusted: a count mismatch (detected vs live, or live vs
    target) keeps the swings `labelled` (`source=block`) and is kept as an informational **note** (`notes` in the npz, listed apart in
-   the QC report). Only a *large* mismatch sends the block to review (`qc.LARGE_OVER`/`LARGE_UNDER`): detected > 1.3 x
-   max(target, live) (extra detections may be resets or shadow moves) or detected < 0.5 x min(target, live) (a failed block); timed
+   the QC report). Only a *large* mismatch sends the block to review (`qc.LARGE_OVER_TARGET`/`LARGE_UNDER`): detected > 1.5 x
+   target (extra detections may be resets or shadow moves; the live counter is the same algorithm, so only the target is an
+   independent reference) or detected < 0.5 x target (a failed block); timed
    blocks (target 0) are never large. Also in review: a window with lost packets or past the recording's edge, and a swing far from
    its class and side (robust z > 4 on the summary features, groups of 8+). Files in a session folder that `session.json` does not
    list (e.g. an `orphan.partN.bin`) are ignored. Review them with `tools/strokes/review/` (`docs/strokes/review.md`).

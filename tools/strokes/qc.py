@@ -52,10 +52,11 @@ def session_qc(rec, nominal_hz=500):
                 rest_g=round(rest, 3))
 
 
-# A block's count mismatch is only a review matter when it is large (owner decision 2026-10-17: trust the drill blocks). More than
-# LARGE_OVER x max(target, live) detections suggests non-hits (resets, shadow moves) among them; fewer than LARGE_UNDER x
-# min(target, live) suggests a failed block. A timed block (target 0, e.g. not_a_hit) has no rep count to compare, so never "large".
-LARGE_OVER = 1.3
+# A block's count mismatch is only a review matter when it is large (owner decision 2026-10-17: trust the drill blocks). The live
+# counter and the offline detector are the same algorithm, so detected == live and only the protocol TARGET is an independent
+# reference: more than LARGE_OVER_TARGET x target detections suggests non-hits (resets, shadow moves) among them; fewer than
+# LARGE_UNDER x target suggests a failed block. A timed block (target 0, e.g. not_a_hit) has no rep count, so is never "large".
+LARGE_OVER_TARGET = 1.5
 LARGE_UNDER = 0.5
 
 
@@ -70,7 +71,7 @@ def count_mismatch(block, detected):
         note = f"{name}: {live} of {target} reps" if target else f"{name}: {live} counted live"
     else:
         return None, False
-    large = bool(target) and (detected > LARGE_OVER * max(target, live) or detected < LARGE_UNDER * min(target, live))
+    large = bool(target) and (detected > LARGE_OVER_TARGET * target or detected < LARGE_UNDER * target)
     return note, large
 
 

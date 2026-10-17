@@ -29,7 +29,7 @@ def blk(index, label, side, target, counted, start, end):
 def policy_root(tmp):
     """One session, four blocks (2.5 s per rep):
     0 clear FH   target 5 live 5, 6 detected  -> small mismatch: labelled + note
-    1 drop BH    target 5 live 5, 8 detected  -> 8 > 1.3 x 5: review
+    1 drop BH    target 5 live 5, 8 detected  -> 8 > 1.5 x 5: review
     2 lift FH    target 10 live 10, 4 detected -> 4 < 0.5 x 10: review
     3 drive FH   target 10 live 10, 10 detected, the 6th one far stronger -> labelled, the outlier goes to review"""
     root = Path(tmp) / "ds"
@@ -55,8 +55,8 @@ def test_count_mismatch_policy_unit():
     assert qc.count_mismatch(b(25, 25), 25) == (None, False)
     note, large = qc.count_mismatch(b(25, 25), 27)
     assert note and not large
-    assert qc.count_mismatch(b(25, 25), 32)[1] is False and qc.count_mismatch(b(25, 25), 33)[1] is True  # 1.3 x 25 = 32.5
-    assert qc.count_mismatch(b(25, 69), 69) == ("block 1 (clear FH): 69 of 25 reps", False)  # live agrees with detection
+    assert qc.count_mismatch(b(25, 37), 37)[1] is False and qc.count_mismatch(b(25, 38), 38)[1] is True  # 1.5 x 25 = 37.5, live agrees
+    assert qc.count_mismatch(b(25, 69), 69) == ("block 1 (clear FH): 69 of 25 reps", True)
     assert qc.count_mismatch(b(25, 25), 12)[1] is True and qc.count_mismatch(b(25, 25), 13)[1] is False  # 0.5 x 25 = 12.5
     assert qc.count_mismatch(b(0, 0), 5) == ("block 1 (clear FH): 5 swings detected, 0 counted live", False)  # timed block: never large
 
