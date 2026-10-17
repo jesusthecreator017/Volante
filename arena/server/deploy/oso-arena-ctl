@@ -1,0 +1,9 @@
+#!/bin/bash
+# oso-arena-ctl start|stop|restart|status|logs   (all Arena units; never touches oso.service)
+U="oso-arena-web.service oso-arena-supervisor@1.service oso-arena-supervisor@2.service oso-arena-scheduler.service"
+case "${1:-status}" in
+  start|stop|restart) sudo systemctl "$1" $U ;;
+  status) systemctl --no-pager status $U oso-arena-backup.timer | grep -E "^(●|○|×)|Active:" ;;
+  logs) sudo journalctl -u 'oso-arena-*' -n "${2:-100}" --no-pager ;;
+  *) echo "usage: oso-arena-ctl start|stop|restart|status|logs [n]"; exit 1 ;;
+esac

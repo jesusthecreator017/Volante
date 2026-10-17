@@ -1,0 +1,42 @@
+[Unit]
+Description=oso Arena sandboxed job %i (untrusted model file; no network, no DB, no secrets)
+
+[Service]
+Type=oneshot
+User=oso-arena-sandbox
+Group=oso-arena-sandbox
+WorkingDirectory=/var/lib/oso-arena/jobs/%i
+ExecStart=/opt/oso-arena/venv/bin/python -I -m osoarena.child /var/lib/oso-arena/jobs/%i
+Environment=PATH=/usr/bin:/bin LANG=C.UTF-8 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1
+TimeoutStartSec=1900
+Nice=10
+UMask=0007
+LimitCORE=0
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/oso-arena/jobs/%i
+InaccessiblePaths=/var/lib/oso-arena/db /var/lib/oso-arena/replays /var/lib/oso-arena/quarantine /etc/oso-arena -/var/backups/oso-arena -/var/lib/oso -/etc/oso
+PrivateUsers=no
+MemoryMax=1536M
+MemorySwapMax=0
+TasksMax=16
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
