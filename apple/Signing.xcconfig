@@ -1,0 +1,5 @@
+// Signing for both apps. Copy Signing.local.xcconfig.example to Signing.local.xcconfig (gitignored) and set your
+// Apple team and a bundle-id prefix you own (a free Apple ID can't use com.oso.*), then rerun `xcodegen`.
+OSO_BUNDLE_PREFIX = com.oso
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"

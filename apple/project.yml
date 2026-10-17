@@ -13,7 +13,6 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: "" # set your team in Xcode (Signing & Capabilities) for both targets
 targets:
   OsoPhone:
     type: application
@@ -46,7 +45,7 @@ targets:
           - CFBundleURLSchemes: [$(GOOGLE_REDIRECT_SCHEME)]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.oso.phone
+        PRODUCT_BUNDLE_IDENTIFIER: $(OSO_BUNDLE_PREFIX).phone
   OsoWatch:
     type: application
     platform: watchOS
@@ -55,6 +54,9 @@ targets:
       - Shared
     dependencies:
       - package: OsoKit
+    configFiles:
+      Debug: OsoWatch/Config.xcconfig
+      Release: OsoWatch/Config.xcconfig
     entitlements:
       path: OsoWatch/OsoWatch.entitlements
       properties:
@@ -64,11 +66,11 @@ targets:
       properties:
         CFBundleDisplayName: oso
         WKApplication: true
-        WKCompanionAppBundleIdentifier: com.oso.phone
+        WKCompanionAppBundleIdentifier: $(OSO_BUNDLE_PREFIX).phone
         WKBackgroundModes: [workout-processing]
         NSHealthShareUsageDescription: oso reads your heart rate and energy during badminton workouts.
         NSHealthUpdateUsageDescription: oso saves your badminton workouts to Health.
         NSMotionUsageDescription: oso records your wrist motion during badminton to count and measure swings.
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.oso.phone.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: $(OSO_BUNDLE_PREFIX).phone.watchkitapp

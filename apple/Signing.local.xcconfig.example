@@ -1,0 +1,4 @@
+// Your signing settings (copy to Signing.local.xcconfig, which git ignores).
+// DEVELOPMENT_TEAM: the 10-character team id, e.g. from `security find-identity -v -p codesigning` ("Apple Development: you (TEAMID)")
+DEVELOPMENT_TEAM = ABCDE12345
+OSO_BUNDLE_PREFIX = com.yourname.oso
