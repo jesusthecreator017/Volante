@@ -1,5 +1,6 @@
 """Training state -> submission file: exactly the 6 actor tensors as float32 plus the contract header."""
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -10,6 +11,13 @@ def _np32(v):
     if hasattr(v, "detach"):  # torch tensor, without importing torch
         v = v.detach().cpu().numpy()
     return np.ascontiguousarray(v, dtype=np.float32)
+
+
+def state_path(p):
+    """runs/x/best -> runs/x/best.safetensors when only that file exists; any other path is returned as given."""
+    p = Path(p)
+    q = p.with_name(p.name + ".safetensors")
+    return q if not p.exists() and q.exists() else p
 
 
 def export(actor_state, out_path, name, description, build):

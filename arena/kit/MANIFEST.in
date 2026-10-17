@@ -1,0 +1,2 @@
+recursive-include tests *.py *.json *.npz
+include LICENSE README.md TRAINING.md
