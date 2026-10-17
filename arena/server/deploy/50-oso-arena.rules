@@ -1,0 +1,10 @@
+// oso Arena: the supervisors (user oso-arena) may start/stop/reset only the sandboxed per-job units oso-arena-child@<job>.service.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "oso-arena") {
+        var unit = action.lookup("unit") || "";
+        var verb = action.lookup("verb") || "";
+        if (/^oso-arena-child@[0-9]+\.service$/.test(unit) && (verb == "start" || verb == "stop" || verb == "reset-failed")) {
+            return polkit.Result.YES;
+        }
+    }
+});
