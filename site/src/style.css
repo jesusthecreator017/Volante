@@ -1097,6 +1097,10 @@ th[aria-sort="descending"] .sort::after {
 .rally-game {
   margin: 0 0 20px;
 }
+.rg-score {
+  margin-left: 0.6em;
+  color: var(--muted);
+}
 .rally-list {
   list-style: none;
   padding: 0;
