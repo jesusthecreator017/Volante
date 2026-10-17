@@ -89,6 +89,15 @@ step "site (npm run build -> site/dist)"
 if grep -rl "mock API installed" site/dist >/dev/null 2>&1; then die "site/dist contains the mock API: run a normal 'npm run build', not --mode mock"; fi
 cp -R site/dist "$OUT/site"
 
+step "server (arena/server, when it is in the tree)"
+if [ -d arena/server ]; then
+  mkdir "$OUT/server"
+  tar -C arena/server --exclude='__pycache__' --exclude='.dev' --exclude='*.env' --exclude='.pytest_cache' --exclude='*.egg-info' -cf - . | tar -C "$OUT/server" -xf -
+  echo "server/: $(find "$OUT/server" -type f | wc -l | tr -d ' ') files"
+else
+  echo "arena/server not in this tree: no server/ in the bundle (the Pi deploy skips it)"
+fi
+
 step "docs the brief points to"
 cp site/README.md "$OUT/docs/site-README.md"
 cp web/arena/README.md "$OUT/docs/viewer-README.md"

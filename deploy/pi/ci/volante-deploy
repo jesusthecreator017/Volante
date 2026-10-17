@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# volante-deploy: the only thing the CI runner (user volante-ci) may run as root, via sudo (see /etc/sudoers.d/volante-ci).
+# Installed root-owned 0755 at /usr/local/sbin/volante-deploy by setup-runner.sh.
+#
+#   volante-deploy [--dry-run [--installed-kit X]] arena <bundle.zip> [--allow-kit-bump]
+#   volante-deploy [--dry-run] lan <app.tar>
+#
+# Exit codes: 0 ok (or skipped), 1 deploy failed (rolled back where possible), 2 refused (bad arguments or input, checksum),
+# 3 refused: the bundle's kit version differs from the installed one and --allow-kit-bump was not given.
+# Settings come from /etc/volante-deploy/deploy.conf (below are the defaults). The VD_* variables exist for the tests and are
+# only honoured with --dry-run (anything else with VD_* set is refused).
+set -euo pipefail
+umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# ---- settings (deploy.conf overrides) ----
+LAN_USER=itsfrosty
+LAN_APP_DIR=/home/itsfrosty/oso-b/app
+LAN_UNIT=oso-replay.service
+LAN_HEALTH_URL=http://127.0.0.1:8090/health
+ARENA_VENV=/opt/oso-arena/venv
+ARENA_HEALTH_URL=http://127.0.0.1:8701/healthz
+ARENA_SITE_URL=http://127.0.0.1:8700/
+INPUT_ROOT=/var/lib/volante-ci          # inputs must be regular files under here (the runner's home, where its _temp lives)
+STAGING_ROOT=/var/lib/volante-deploy/releases
+LOG_FILE=/var/log/volante-deploy.log
+KEEP=3
+CONF=/etc/volante-deploy/deploy.conf
+
+die() { echo "volante-deploy: $*" >&2; exit "${2:-2}"; }
+
+# ---- arguments: exactly the documented forms ----
+DRY=0 ALLOW_BUMP=0 INSTALLED_KIT="" HAVE_KIT=0 CMD="" INPUT=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --dry-run) DRY=1; shift ;;
+    --installed-kit) [ $# -ge 2 ] || die "--installed-kit needs a value"
+                     [[ $2 =~ ^[0-9A-Za-z.+_]+$ ]] || die "bad --installed-kit value"
+                     INSTALLED_KIT=$2; HAVE_KIT=1; shift 2 ;;
+    arena|lan) CMD=$1; shift; break ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+[ -n "$CMD" ] || die "usage: volante-deploy [--dry-run] arena <zip> [--allow-kit-bump] | lan <tar>"
+[ $# -ge 1 ] || die "$CMD needs an input file"
+INPUT=$1; shift
+if [ "$CMD" = arena ] && [ $# -gt 0 ]; then
+  [ "$1" = --allow-kit-bump ] || die "unknown argument: $1"
+  ALLOW_BUMP=1; shift
+fi
+[ $# -eq 0 ] || die "unexpected argument: $1"
+[ "$HAVE_KIT" = 0 ] || [ "$DRY" = 1 ] || die "--installed-kit is only valid with --dry-run"
+[ "$HAVE_KIT" = 0 ] || [ "$CMD" = arena ] || die "--installed-kit is only valid for arena"
+
+if [ "$DRY" = 1 ]; then
+  [ -z "${VD_CONF:-}" ] || CONF=$VD_CONF
+else
+  env | grep -q '^VD_' && die "VD_* overrides are only honoured with --dry-run"
+  [ "$(id -u)" = 0 ] || die "must run as root (through sudo)"
+fi
+if [ -f "$CONF" ]; then
+  [ "$DRY" = 1 ] || [ "$(stat -c %u "$CONF")" = 0 ] || die "$CONF is not owned by root"
+  [ "$DRY" = 1 ] || [[ $(stat -c %A "$CONF") != ????w???w* ]] || die "$CONF is group/world writable"
+  # shellcheck disable=SC1090
+  . "$CONF"
+fi
+if [ "$DRY" = 1 ]; then
+  INPUT_ROOT=${VD_INPUT_ROOT:-$INPUT_ROOT}
+  if [ -n "${VD_STAGING_ROOT:-}" ]; then STAGING_ROOT=$VD_STAGING_ROOT; else STAGING_ROOT=$(mktemp -d); trap 'rm -rf "$STAGING_ROOT"' EXIT; fi
+  LOG_FILE=${VD_LOG:-/dev/null}
+fi
+
+# ---- logging: stdout (the Actions log) and the log file ----
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+exec > >(tee -a "$LOG_FILE") 2>&1
+log() { echo "[$(date -u +%FT%TZ)] $*"; }
+fail() { log "FAILED: $*"; exit "${2:-1}"; }
+
+# ---- the input: a regular file under INPUT_ROOT, no symlinks anywhere in the path ----
+[[ $INPUT == /* ]] || die "input must be an absolute path"
+if ! { [ ! -L "$INPUT" ] && [ -f "$INPUT" ]; }; then die "input is not a regular file (or is a symlink): $INPUT"; fi
+REAL=$(realpath -e -- "$INPUT")
+[ "$REAL" = "$INPUT" ] || die "input path has symlinks or '..' in it: $INPUT"
+ROOT_REAL=$(realpath -e -- "$INPUT_ROOT") || die "input root missing: $INPUT_ROOT"
+case $INPUT in "$ROOT_REAL"/*) ;; *) die "input must be under $ROOT_REAL: $INPUT" ;; esac
+
+# ---- staging: copy first, then work only on the copy ----
+mkdir -p "$STAGING_ROOT"   # umask 077: root-only
+exec 9>"$STAGING_ROOT/.lock"
+flock -n 9 || die "another volante-deploy is running" 1
+SHA=$(sha256sum -- "$INPUT" | cut -c1-12)
+REL="$STAGING_ROOT/$(date -u +%Y%m%dT%H%M%S.%NZ)-$CMD-$SHA"
+mkdir -m 0700 "$REL"
+cp -- "$INPUT" "$REL/input"
+[ "$(sha256sum "$REL/input" | cut -c1-12)" = "$SHA" ] || die "input changed while copying"
+log "$CMD deploy of $(basename "$INPUT") (sha256 $SHA...), staged in $REL$([ "$DRY" = 1 ] && echo " [dry-run]")"
+
+http_ok() { # url: retry until 200 (also while the port still refuses connections)
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 2 --retry-connrefused --max-time 10 "$1") || return 1
+  [ "$code" = 200 ]
+}
+
+releases() { find "$STAGING_ROOT" -mindepth 1 -maxdepth 1 -type d -name "*-$1-*" | sort -r; }
+
+# Keep the newest $KEEP successful releases of this kind; drop failed ones from earlier runs.
+prune() {
+  local d n=0
+  while read -r d; do
+    [ "$d" = "$REL" ] && continue
+    if [ -f "$d/.ok" ] && [ $((++n)) -le $((KEEP - 1)) ]; then continue; fi
+    log "pruning $d"; rm -rf "$d"
+  done < <(releases "$CMD")
+}
+
+no_symlinks() { [ -z "$(find "$1" -type l -print -quit)" ] || die "$2 contains symlinks"; }
+
+# =========================== arena ===========================
+arena_deploy() {
+  local top bundle listed present wheel new_kit
+  command -v unzip >/dev/null || die "unzip is not installed" 1
+  # refuse links/devices/fifos BEFORE extracting (a symlink entry followed by a file "through" it would escape the staging dir)
+  unzip -Z -s "$REL/input" >"$REL/list" 2>/dev/null || die "not a valid zip"
+  ! grep -Eq '^[lbcps?][-rwxsStT]{9}' "$REL/list" || die "the zip holds links or special files"
+  mkdir "$REL/x"; unzip -q "$REL/input" -d "$REL/x" || die "not a valid zip"
+  no_symlinks "$REL/x" "the bundle"
+  top=$(find "$REL/x" -mindepth 1 -maxdepth 1)
+  if ! { [ "$(printf '%s\n' "$top" | wc -l)" = 1 ] && [ -d "$top" ]; }; then die "the zip must hold exactly one top-level directory"; fi
+  bundle=$top
+  [ -f "$bundle/SHA256SUMS" ] || die "no SHA256SUMS in the bundle"
+  (cd "$bundle" && sha256sum -c --quiet SHA256SUMS) || die "checksum mismatch: the bundle was altered or is corrupt"
+  # every file must be covered by SHA256SUMS, not just the ones listed in it
+  listed=$(sed 's/^[0-9a-fA-F]* [ *]//' "$bundle/SHA256SUMS" | sort)
+  present=$(cd "$bundle" && find . -type f ! -name SHA256SUMS | sort)
+  [ "$listed" = "$present" ] || die "files in the bundle that SHA256SUMS does not cover (or the reverse)"
+  log "checksums ok ($(echo "$present" | wc -l) files)"
+
+  if [ ! -d "$bundle/server" ]; then
+    log "skipped: no server/ in bundle (arena/server is not in the repo yet)"
+    return 0
+  fi
+  [ -f "$bundle/server/deploy/install.sh" ] || die "server/deploy/install.sh missing from the bundle"
+
+  wheel=$(find "$bundle/kit" -maxdepth 1 -name 'oso_arena-*.whl')
+  if ! { [ "$(printf '%s\n' "$wheel" | wc -l)" = 1 ] && [ -n "$wheel" ]; }; then die "expected exactly one kit wheel in kit/"; fi
+  new_kit=$(basename "$wheel" | cut -d- -f2)
+  if [ "$HAVE_KIT" = 0 ]; then
+    INSTALLED_KIT=$("$ARENA_VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("oso_arena"))' 2>/dev/null || true)
+  fi
+  if [ -z "$INSTALLED_KIT" ]; then
+    log "no installed kit found in $ARENA_VENV: first install of kit $new_kit"
+  elif [ "$INSTALLED_KIT" != "$new_kit" ]; then
+    if [ "$ALLOW_BUMP" = 1 ]; then
+      log "kit bump $INSTALLED_KIT -> $new_kit allowed by --allow-kit-bump (a new season: every model is retired)"
+    else
+      die "refusing kit $INSTALLED_KIT -> $new_kit: a new kit starts a new season and retires every model. Run the workflow by hand with allow_kit_bump." 3
+    fi
+  else
+    log "kit $new_kit unchanged"
+  fi
+
+  log "plan: run server/deploy/install.sh on the bundle; check $ARENA_HEALTH_URL and $ARENA_SITE_URL; roll back to the previous release on failure"
+  if [ "$DRY" = 1 ]; then log "dry-run: nothing installed"; return 0; fi
+
+  if (cd "$bundle" && bash server/deploy/install.sh "$bundle") && http_ok "$ARENA_HEALTH_URL" && http_ok "$ARENA_SITE_URL"; then
+    touch "$REL/.ok"; log "arena deployed, healthy (kit $new_kit)"
+    prune
+    return 0
+  fi
+  log "arena deploy FAILED: rolling back"
+  local prev b d
+  prev=""
+  while read -r d; do
+    if [ "$d" != "$REL" ] && [ -f "$d/.ok" ]; then prev=$d; break; fi
+  done < <(releases arena)
+  if [ -z "$prev" ]; then fail "no previous successful release to roll back to"; fi
+  b=$(find "$prev/x" -mindepth 1 -maxdepth 1)
+  log "re-installing $prev"
+  (cd "$b" && bash server/deploy/install.sh "$b") || log "the rollback install also failed"
+  if http_ok "$ARENA_HEALTH_URL"; then log "rolled back, healthy again"; else log "STILL UNHEALTHY after rollback: check the Pi by hand"; fi
+  fail "new release was unhealthy"
+}
+
+# =========================== lan ===========================
+lan_deploy() {
+  local bad
+  mkdir "$REL/x"
+  bad=$(tar -tf "$REL/input" | grep -E '^/|(^|/)\.\.(/|$)' || true)
+  [ -z "$bad" ] || die "tar has absolute or '..' paths: $bad"
+  # refuse symlinks, hardlinks (a hardlink member can alias any file on the system), devices and fifos BEFORE extracting
+  tar -tvf "$REL/input" >"$REL/list" 2>/dev/null || die "not a valid tar"
+  ! grep -q '^[^-d]' "$REL/list" || die "the tar holds links or special files"
+  tar -xf "$REL/input" -C "$REL/x" --no-same-owner --no-same-permissions || die "not a valid tar"
+  no_symlinks "$REL/x" "the tar"
+  if ! { [ -f "$REL/x/dist/index.html" ] && [ -f "$REL/x/server/server.mjs" ] && [ -f "$REL/x/package.json" ]; }; then die "tar must hold dist/index.html, server/server.mjs and package.json"; fi
+  rm -rf "$REL/x/server/data" "$REL/x/data"   # never ship data
+  command -v rsync >/dev/null || die "rsync is not installed" 1
+  log "plan: snapshot $LAN_APP_DIR, rsync --delete the new app into it (data/ untouched), chown $LAN_USER, restart $LAN_UNIT (user unit), check $LAN_HEALTH_URL"
+  if [ "$DRY" = 1 ]; then log "dry-run: nothing installed"; return 0; fi
+
+  [ -d "$LAN_APP_DIR" ] || die "$LAN_APP_DIR does not exist: the friend's layout is expected" 1
+  local ex=(--exclude=/data/ --exclude=/node_modules/)
+  rsync -a "${ex[@]}" "$LAN_APP_DIR"/ "$REL/prev-app/"
+  restart() { systemctl --user -M "$LAN_USER"@ restart "$LAN_UNIT"; }
+  if rsync -a --delete "${ex[@]}" --chown="$LAN_USER": "$REL/x"/ "$LAN_APP_DIR"/ && restart && http_ok "$LAN_HEALTH_URL"; then
+    touch "$REL/.ok"; log "lan server deployed, healthy"
+    prune
+    return 0
+  fi
+  log "lan deploy FAILED: restoring the previous app/"
+  rsync -a --delete "${ex[@]}" --chown="$LAN_USER": "$REL/prev-app"/ "$LAN_APP_DIR"/ || log "restore failed"
+  restart || log "restart after restore failed"
+  if http_ok "$LAN_HEALTH_URL"; then log "restored, healthy again"; else log "STILL UNHEALTHY after restore: check the Pi by hand"; fi
+  fail "new app was unhealthy"
+}
+
+"${CMD}_deploy"
