@@ -93,7 +93,9 @@ What this says, with the caveats above:
 ## Uncertainty threshold (11-class CNN)
 Rule: report "unclassified" when the max class probability is below the threshold. The targets are not reachable; the stored fallback
 (best accuracy keeping >= 20 % coverage) for the exported model is **0.990**, which keeps 20 % of swings at 45 % accuracy. It comes
-from out-of-fold probabilities and must be re-picked once the model is useful.
+from out-of-fold probabilities and must be re-picked once the model is useful. Both stored thresholds (this one and the group
+model's) are tuned on the same out-of-fold predictions their coverage/accuracy figures are reported on, as are the variant choice
+and winner, so those figures are in-sample for the selection and optimistic; use nested selection once there are >= 2 drill sessions.
 
 ## Known limits
 One player, one clean session; no not_a_hit class; rally swings unused until reviewed; drill vs match gap untested; clipped swings
