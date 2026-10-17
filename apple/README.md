@@ -50,13 +50,19 @@ runs on the Raspberry Pi (`../deploy/pi/README.md`).
 1. Install **Xcode 26+**. Then `brew install xcodegen && cd apple && xcodegen` creates `Oso.xcodeproj` (the iPhone
    app with the watch app embedded, both linking OsoKit).
 2. Xcode → Settings → Accounts: add your Apple ID. A **free Apple ID works** (a "Personal Team"): Apple's capability
-   table lists HealthKit as available to free accounts on iOS and watchOS. In the project, select your team under
-   Signing & Capabilities for **both** targets. If the bundle IDs are taken, change `com.oso.phone` (and the watch's
-   `com.oso.phone.watchkitapp` + `WKCompanionAppBundleIdentifier`) in `project.yml` to something unique and rerun `xcodegen`.
+   table lists HealthKit as available to free accounts on iOS and watchOS. Then
+   `cp Signing.local.xcconfig.example Signing.local.xcconfig` (gitignored) and set your team id and a bundle-id prefix
+   you own (a free team can't use `com.oso.*`), then rerun `xcodegen`. Both apps and the watch's companion id follow
+   the prefix. The team id is the one Xcode shows for the account (Settings → Accounts → the team), or
+   `defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep teamID`; an old certificate in the
+   keychain may carry a different one.
+   Command line instead of Xcode: `xcodebuild -project Oso.xcodeproj -scheme OsoPhone -destination 'id=<iPhone UDID>'
+   -allowProvisioningUpdates build`, then `xcrun devicectl device install app --device <UDID> <path>/OsoPhone.app`.
 3. iPhone: Settings → Privacy & Security → **Developer Mode** on (restart). Watch: same, on the watch, after it has
    been connected to Xcode once (Xcode → Window → Devices and Simulators).
-4. Plug in the iPhone, pick the **OsoPhone** scheme and your iPhone, Run. The watch app installs with it, or run the
-   **OsoWatch** scheme on the watch directly.
+4. Plug in the iPhone, pick the **OsoPhone** scheme and your iPhone, Run. The watch app is embedded: install it from the
+   iPhone's Watch app (Available Apps → oso → Install), or run the **OsoWatch** scheme on the watch directly once the
+   watch has been paired with Xcode (otherwise devicectl reports "The device rejected the Bluetooth connection attempt").
 5. First launch: iPhone Settings → General → VPN & Device Management → trust your developer certificate. On the
    watch, open the app once and accept the prompt.
 6. In the app's Connections tab, set the Pi address (`http://<pi>.local:8080`) and check the connection.
