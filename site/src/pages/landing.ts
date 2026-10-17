@@ -103,6 +103,36 @@ function reportArt(): SVGSVGElement {
   );
 }
 
+/** Hero collage: our own racquet render layered over the shape kit. The diagonal bar and the dotted arc are the
+ *  shuttle's flight path; the orange circle is the shuttle. Pure SVG, classes only (CSP). */
+function collage(): HTMLElement {
+  const g = (cls: string, ...kids: SVGElement[]) => s("g", { class: cls }, kids);
+  return h(
+    "figure",
+    { class: "collage" },
+    s(
+      "svg",
+      { viewBox: "0 0 600 640", role: "img", "aria-label": "Collage: our rendered racquet, a shuttle flying along a dotted arc, over a diagonal bar, circles and a triangle." },
+      g("cl-par1", s("circle", { cx: 360, cy: 270, r: 200, class: "f-paper" })),
+      g("cl-in cl-d1", s("rect", { x: -60, y: 395, width: 740, height: 64, class: "f-sage", transform: "rotate(-36 300 427)" })),
+      g(
+        "cl-par2 cl-in cl-d2",
+        s("rect", { x: 300, y: 40, width: 270, height: 300, class: "f-accent" }),
+        s("image", { href: STILLS.ready[1], x: 300, y: 82, width: 270, height: 216, preserveAspectRatio: "xMidYMid slice" }),
+        s("rect", { x: 300.5, y: 40.5, width: 269, height: 299, class: "f-none s-line" }),
+      ),
+      s("rect", { x: 40, y: 170, width: 130, height: 130, class: "f-none s-line s-dot" }),
+      g("cl-in cl-d3", s("polygon", { points: "60,130 150,130 60,40", class: "f-accent" })),
+      s("polygon", { points: "76,146 166,146 76,56", class: "f-none s-line" }),
+      s("circle", { cx: 470, cy: 470, r: 112, class: "f-none s-line" }),
+      s("path", { d: "M110 610C230 400 380 330 468 458", class: "f-none s-line s-arc" }),
+      s("g", { transform: "translate(470 470) rotate(-36)" }, s("circle", { r: 14, class: "f-hot" }), s("path", { d: "M-14 0-46-16M-14 0H-46M-14 0-46 16", class: "f-none s-hot s-2" })),
+      s("path", { d: "M20 612h16M28 604v16M572 28h16M580 20v16", class: "f-none s-line" }),
+    ),
+    h("span", { class: "chip collage-tag" }, "500 samples/s"),
+  );
+}
+
 // ---------------------------------------------------------------- feature visuals (decorative)
 
 function viz(kind: Viz): HTMLElement {
@@ -125,7 +155,7 @@ function feature(f: Feature): HTMLElement {
   const avail = f.status === "Available";
   return h(
     "article",
-    { class: "feature reveal" },
+    { class: avail ? "feature reveal" : "feature reveal dev" },
     h("div", { class: "feature-head" }, icon(f.icon), h("h3", null, f.title), h("span", { class: avail ? "chip chip-ok" : "chip chip-dev" }, f.status)),
     h("p", null, f.text),
     viz(f.viz),
@@ -168,7 +198,22 @@ function report(): HTMLElement {
 // ---------------------------------------------------------------- page
 
 function step(n: number, art: SVGSVGElement, title: string, text: string): HTMLElement {
-  return h("li", { class: "step reveal" }, art, h("span", { class: "step-n", "aria-hidden": "true" }, n), h("h3", null, title), h("p", null, text));
+  return h("li", { class: `step s${n} reveal` }, art, h("span", { class: "step-n", "aria-hidden": "true" }, `0${n}`), h("h3", null, title), h("p", null, text));
+}
+
+/** Section heading: mono kicker, then a light lead-in and a heavy payoff. */
+function head(id: string, kicker: string, light: string, heavy: string): HTMLElement[] {
+  return [h("p", { class: "kicker" }, kicker), h("h2", { id }, h("span", { class: "lt" }, light), " ", h("span", { class: "hv" }, heavy))];
+}
+
+function teaserArt(cls: string): SVGSVGElement {
+  return s(
+    "svg",
+    { viewBox: "0 0 200 200", class: cls, "aria-hidden": "true", focusable: "false" },
+    s("circle", { cx: 140, cy: 60, r: 44, class: "tz-c1" }),
+    s("circle", { cx: 120, cy: 80, r: 44, class: "f-none tz-c2" }),
+    s("path", { d: "M0 200 200 0", class: "tz-bar" }),
+  );
 }
 
 export function landing(root: HTMLElement) {
@@ -180,18 +225,19 @@ export function landing(root: HTMLElement) {
       h(
         "div",
         { class: "l-hero-copy" },
-        h("h1", null, "A racquet sensor that tracks every hit"),
+        h("p", { class: "kicker" }, "The pod · racquet data"),
+        h("h1", { class: "display" }, h("span", { class: "lt" }, "Every swing,"), h("br"), h("span", { class: "hv" }, "measured.")),
         h("p", { class: "lead" }, "A small pod clips onto your racquet, records every swing at 500 samples a second and turns it into swing counts, speed and replays."),
-        h("div", { class: "row cta" }, link("/#features", h("span", { class: "btn primary" }, "See how it works")), link("/arena", h("span", { class: "btn" }, "Try the Arena"))),
+        h("div", { class: "row cta" }, link("/#how", h("span", { class: "btn primary" }, "See how it works")), link("/arena", h("span", { class: "btn" }, "Try the Arena"))),
         h("ul", { class: "proofs", "aria-label": "Key facts" }, chip("500 samples/s"), chip("6-axis motion"), chip("Bluetooth LE")),
       ),
-      h("div", { class: "l-hero-art" }, still("ready", "Rendered badminton racquet held upright on a dark 3D grid, the way it sits before a swing.", false)),
+      collage(),
     ),
-    h("section", { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" }, h("h2", { id: "features-h" }, "What the pod does"), h("p", { class: "lead" }, "Each feature shows whether it works today or is still being built."), h("div", { class: "features" }, FEATURES.map(feature))),
+    h("section", { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" }, ...head("features-h", "Features", "Hard numbers.", "Honest labels."), h("p", { class: "lead" }, "Every card says what works today and what is still being built. Speeds are estimated from the motion data."), h("div", { class: "features" }, FEATURES.map(feature))),
     h(
       "section",
-      { class: "l-sec", id: "how", "aria-labelledby": "how-h", tabindex: "-1" },
-      h("h2", { id: "how-h" }, "How it works"),
+      { class: "l-sec how", id: "how", "aria-labelledby": "how-h", tabindex: "-1" },
+      ...head("how-h", "How it works", "Three steps,", "one diagonal."),
       h(
         "ol",
         { class: "steps" },
@@ -200,13 +246,28 @@ export function landing(root: HTMLElement) {
         step(3, reportArt(), "Get your report", "Swings are counted and timed and head speed is estimated, then shown as a report."),
       ),
     ),
-    h("section", { class: "l-sec", id: "report", "aria-labelledby": "report-h" }, h("h2", { id: "report-h" }, "A post-match report"), report(), h("p", { class: "muted small foot" }, "Example. Headline figures come from a real 41-smash session; the swing-by-swing chart is illustrative. All values are estimates from the sensor.")),
+    h("section", { class: "l-sec", id: "report", "aria-labelledby": "report-h" }, ...head("report-h", "Report", "Read a session", "in ten seconds."), report(), h("p", { class: "muted small foot" }, "Example. Headline figures come from a real 41-smash session; the swing-by-swing chart is illustrative. All values are estimates from the sensor.")),
     h(
       "section",
-      { class: "l-sec arena-teaser card reveal", "aria-labelledby": "arena-h" },
-      h("h2", { id: "arena-h" }, "Train an AI player"),
-      h("p", null, "The Arena is a badminton game for AIs: train a small neural network, upload it, and watch it climb the ladder and play weekly tournaments in 3D."),
-      h("p", null, link("/arena", h("span", { class: "btn primary" }, "Explore the Arena"))),
+      { class: "l-sec teasers" },
+      h(
+        "article",
+        { class: "arena-teaser card reveal", "aria-labelledby": "arena-h" },
+        teaserArt("tz-art tz-block"),
+        h("p", { class: "kicker" }, "Arena"),
+        h("h2", { id: "arena-h" }, h("span", { class: "lt" }, "Train a small AI."), " ", h("span", { class: "hv" }, "Watch it play.")),
+        h("p", null, "The Arena is a badminton game for AIs: train a small neural network, upload it, and watch it climb the ladder and play weekly tournaments in 3D."),
+        h("p", null, link("/arena", h("span", { class: "btn primary" }, "Explore the Arena"))),
+      ),
+      h(
+        "article",
+        { class: "twin-teaser card reveal", "aria-labelledby": "twin-h" },
+        teaserArt("tz-art"),
+        h("span", { class: "chip chip-twin" }, "Twin"),
+        h("h2", { id: "twin-h" }, h("span", { class: "lt" }, "Train an AI that"), " ", h("span", { class: "hv" }, "plays like you.")),
+        h("p", null, "A Volante Twin learns from your pod data: your power, consistency and rhythm. Twins will compete on their own ladder."),
+        h("p", null, link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
+      ),
     ),
   );
 
