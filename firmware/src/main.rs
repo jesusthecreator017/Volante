@@ -38,8 +38,12 @@ extern crate alloc;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-/// User LED (GPIO21, active low): fast blink = IMU error, slow = erasing flash, double blink = un-uploaded session
-/// waiting, two blinks = marker. Debug only.
+const SYNC_GLOW_MS: u64 = 1200;
+const SYNC_GLOW_OFF_MS: u64 = 300;
+
+/// User LED (GPIO21, active low), highest priority first: fast blink = IMU error, slow = erasing flash, solid 1.2 s
+/// then 0.3 s off = sync tap or marker registered (a second one inside the glow restarts the 1.2 s), double blink =
+/// un-uploaded session waiting. Debug only.
 #[embassy_executor::task]
 async fn led(mut led: Output<'static>) {
     async fn blink(led: &mut Output<'static>, on_ms: u64, off_ms: u64) {
@@ -54,10 +58,17 @@ async fn led(mut led: Output<'static>) {
         } else if has(bits::ERASING) {
             blink(&mut led, 500, 500).await;
         } else if MARKER_BLINKS.load(Relaxed) > 0 {
-            MARKER_BLINKS.store(0, Relaxed);
-            for _ in 0..2 {
-                blink(&mut led, 80, 120).await;
+            info!("sync glow");
+            let mut end = Instant::now() + Duration::from_millis(SYNC_GLOW_MS);
+            led.set_low();
+            while Instant::now() < end {
+                if MARKER_BLINKS.swap(0, Relaxed) > 0 {
+                    end = Instant::now() + Duration::from_millis(SYNC_GLOW_MS);
+                }
+                Timer::after_millis(20).await;
             }
+            led.set_high();
+            Timer::after_millis(SYNC_GLOW_OFF_MS).await;
         } else if has(bits::PENDING_UPLOAD) {
             blink(&mut led, 80, 150).await;
             blink(&mut led, 80, 1500).await;
