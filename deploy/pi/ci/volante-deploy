@@ -60,6 +60,7 @@ else
 fi
 if [ -f "$CONF" ]; then
   [ "$DRY" = 1 ] || [ "$(stat -c %u "$CONF")" = 0 ] || die "$CONF is not owned by root"
+  [ "$DRY" = 1 ] || [[ $(stat -c %A "$CONF") != ????w???w* ]] || die "$CONF is group/world writable"
   # shellcheck disable=SC1090
   . "$CONF"
 fi
@@ -118,6 +119,9 @@ no_symlinks() { [ -z "$(find "$1" -type l -print -quit)" ] || die "$2 contains s
 arena_deploy() {
   local top bundle listed present wheel new_kit
   command -v unzip >/dev/null || die "unzip is not installed" 1
+  # refuse links/devices/fifos BEFORE extracting (a symlink entry followed by a file "through" it would escape the staging dir)
+  unzip -Z -s "$REL/input" >"$REL/list" 2>/dev/null || die "not a valid zip"
+  ! grep -Eq '^[lbcps?][-rwxsStT]{9}' "$REL/list" || die "the zip holds links or special files"
   mkdir "$REL/x"; unzip -q "$REL/input" -d "$REL/x" || die "not a valid zip"
   no_symlinks "$REL/x" "the bundle"
   top=$(find "$REL/x" -mindepth 1 -maxdepth 1)
@@ -183,6 +187,9 @@ lan_deploy() {
   mkdir "$REL/x"
   bad=$(tar -tf "$REL/input" | grep -E '^/|(^|/)\.\.(/|$)' || true)
   [ -z "$bad" ] || die "tar has absolute or '..' paths: $bad"
+  # refuse symlinks, hardlinks (a hardlink member can alias any file on the system), devices and fifos BEFORE extracting
+  tar -tvf "$REL/input" >"$REL/list" 2>/dev/null || die "not a valid tar"
+  ! grep -q '^[^-d]' "$REL/list" || die "the tar holds links or special files"
   tar -xf "$REL/input" -C "$REL/x" --no-same-owner --no-same-permissions || die "not a valid tar"
   no_symlinks "$REL/x" "the tar"
   [ -f "$REL/x/dist/index.html" ] && [ -f "$REL/x/server/server.mjs" ] && [ -f "$REL/x/package.json" ] || die "tar must hold dist/index.html, server/server.mjs and package.json"

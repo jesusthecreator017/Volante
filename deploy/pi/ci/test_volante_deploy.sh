@@ -71,7 +71,14 @@ expect "lan tar -> plan"              0 "dry-run: nothing installed" "$VD" --dry
 rm "$T/lan/package.json"; tar -C "$T/lan" -cf "$IN/lan-bad.tar" .
 expect "lan tar without package.json" 2 "tar must hold"                   "$VD" --dry-run lan "$IN/lan-bad.tar"
 ln -s /etc/passwd "$T/lan/server/pw"; echo '{}' > "$T/lan/package.json"; tar -C "$T/lan" -cf "$IN/lan-link.tar" .
-expect "lan tar with symlink"         2 "contains symlinks"               "$VD" --dry-run lan "$IN/lan-link.tar"
+expect "lan tar with symlink"         2 "links or special"               "$VD" --dry-run lan "$IN/lan-link.tar"
+
+# malicious archives: symlink / hardlink members are refused before extraction
+mkdir -p "$T/evil/oso-arena-pi" && ln -s /etc "$T/evil/oso-arena-pi/l" && (cd "$T/evil" && zip -qry "$IN/evil.zip" oso-arena-pi)
+expect "zip with symlink entry"       2 "links or special"                "$VD" --dry-run arena "$IN/evil.zip"
+mkdir -p "$T/hl/dist" "$T/hl/server" && echo h > "$T/hl/dist/index.html" && ln "$T/hl/dist/index.html" "$T/hl/server/server.mjs" && echo '{}' > "$T/hl/package.json"
+tar -C "$T/hl" -cf "$IN/lan-hl.tar" .
+expect "lan tar with hardlink"        2 "links or special"                "$VD" --dry-run lan "$IN/lan-hl.tar"
 
 if [ $fails -gt 0 ]; then echo "$fails test(s) failed"; exit 1; fi
 echo "all volante-deploy tests passed"

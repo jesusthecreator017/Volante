@@ -70,7 +70,6 @@ jobs:
               - *shared
               - deploy/pi/**
               - .github/workflows/**
-              -
             apple:
               - *shared
               - apple/**
