@@ -2,3 +2,6 @@
 .swiftpm/
 Oso.xcodeproj/
 xcuserdata/
+OsoPhone/Info.plist
+OsoWatch/Info.plist
+OsoWatch/OsoWatch.entitlements

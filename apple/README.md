@@ -57,8 +57,9 @@ on wall-clock time directly.
 ## Status
 
 - [x] OsoKit: protocol, imu.bin, fusion, spikes, swings, summary, wrist encoding, HR alignment, Google Health queries + tests
-- [x] iPhone app source: pod link, sessions, live view, watch receiver, Fitbit connect
+- [x] iPhone app source: pod link, sessions, live view, watch receiver, Fitbit connect + heart-rate fetch
 - [x] Watch app source: workout + batched motion + live swings + transfer
-- [ ] Compile in Xcode, fix what the compiler finds, run on hardware
+- [x] `project.yml` generates the project (`xcodegen` checked here: watch app embedded, OsoKit linked, sample bundled)
+- [ ] Compile in Xcode, fix what the compiler finds (the app sources are only syntax-checked so far), run on hardware
 - [ ] Watch: use the 800 Hz accelerometer for impact detection (device motion at 200 Hz smears 3 ms impacts)
 - [ ] Pod + watch in the same session (wrist and racquet together: the arm-vs-racquet timing)

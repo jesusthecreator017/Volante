@@ -57,7 +57,8 @@ public struct Sample: Sendable {
         self.t = t; self.acc = acc; self.gyro = gyro; self.saturated = saturated; self.accSaturated = accSaturated
     }
 
-    init(tUs: Double, v: [Int16]) {
+    /// A sample from a packet's raw counts at an unwrapped device time (µs).
+    public init(tUs: Double, v: [Int16]) {
         let f = { (x: Double) in Double(Float(x)) }
         let rail = { (x: Int16) in x == .max || x == .min }
         t = tUs * 1e-6

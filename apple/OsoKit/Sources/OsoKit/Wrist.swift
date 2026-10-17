@@ -42,9 +42,6 @@ public struct WristEncoder: Sendable {
         return p
     }
 
-    /// The same sample as the analysis sees it (after quantization), for the live analyzer.
-    public static func sample(_ p: RawPacket, tUs: Double) -> Sample { Sample(tUs: tUs, v: p.v) }
-
     /// Seconds from the first sample: the session's device-clock origin.
     public var startTime: Double? { t0 }
 
