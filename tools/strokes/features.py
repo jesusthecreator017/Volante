@@ -106,3 +106,87 @@ def summary(win):
         win[c:, 6].mean(),                       # mean |w| after (follow-through), dps
         win[:, 8].mean(),                        # share of gyro-saturated samples
     ])
+
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# Phase 16.4 candidate A: the full feature set. Part of the model contract (stroke_model_v0.json "features_version"): a change
+# here changes the classifier input, so bump FEATURES_VERSION and retrain. Deterministic, pure numpy, window -> float32 [N_FEATURES].
+FEATURES_VERSION = 1
+BANDS_HZ = [(0.5, 3), (3, 6), (6, 12), (12, 25), (25, 60), (60, 125)]  # |w| spectrum bands; log share of the window's energy
+_C = int(round(PRE_S * RATE_HZ))  # nominal peak index
+FEATURE_NAMES = (
+    [f"{n}_peak" for n in ("ax_g", "ay_g", "az_g", "wx_dps", "wy_dps", "wz_dps")]  # signed value of the largest |.| on the axis
+    + [f"{n}_at_peak" for n in ("ax_g", "ay_g", "az_g", "wx_dps", "wy_dps", "wz_dps")]  # signed value at the |w| peak sample
+    + [f"{n}_sign_pm50ms" for n in ("wx", "wy", "wz")]  # sign (+1/-1/0) of the mean rate within +-50 ms of the |w| peak
+    + ["w_peak_dps", "a_peak_g", "buildup_s", "burst_s", "burst_lo_s", "follow_decay", "follow_to20_s",
+       "shaft_roll_share", "pre_elev_deg", "pre_ax_g", "pre_ay_g", "pre_az_g", "clip_gyro_n", "clip_acc_n",
+       "t_apeak_minus_wpeak_s", "w_prebuild_mean_dps"]
+    + [f"band{i}_log_share" for i in range(len(BANDS_HZ))]
+)
+N_FEATURES = len(FEATURE_NAMES)
+
+
+def _run(mask, i):
+    """Contiguous True run of `mask` containing index i -> (first, last) indices."""
+    lo = hi = i
+    while lo > 0 and mask[lo - 1]:
+        lo -= 1
+    while hi < len(mask) - 1 and mask[hi + 1]:
+        hi += 1
+    return lo, hi
+
+
+def full_features(win):
+    """float32 [WINDOW_N, 10] -> float32 [N_FEATURES], in FEATURE_NAMES order.
+    - *_peak: signed value of each acc/gyro axis at its largest magnitude; *_at_peak: value at the |w| peak sample (axis signs
+      and shaft roll direction); *_sign_pm50ms: sign of the mean gyro axis within +-50 ms of that sample.
+    - w_peak_dps / a_peak_g: peak |w|, peak |a|.
+    - buildup_s: length of the run ending at the |w| peak where |w| > 20 % of the peak; burst_s: the run around the peak with
+      |w| > 50 % (burst_lo_s: same at 25 %, for the shoulders).
+    - follow_decay: mean |w| over +100..+300 ms after the peak / peak; follow_to20_s: time after the peak until |w| < 20 % (cap 0.4 s).
+    - shaft_roll_share: |wy| / |w| at the peak (pronation/supination share, racquet +Y = shaft).
+    - pre_elev_deg: shaft elevation from gravity, asin(mean a_y / |mean a|) over -600..-300 ms (near rest a ~ gravity), and the
+      normalised mean a vector (pre_a*_g are the means in g).
+    - clip_gyro_n / clip_acc_n: saturated sample counts in the window.
+    - t_apeak_minus_wpeak_s: time of the |a| peak minus the |w| peak. w_prebuild_mean_dps: mean |w| over -600..-300 ms.
+    - bandK_log_share: log10(share of the Hann-windowed |w| spectrum energy, DC removed, in BANDS_HZ[K] + 1e-6)."""
+    x = np.asarray(win, np.float64)
+    w = x[:, 6]
+    p = int(np.argmax(w))
+    wp = max(w[p], 1e-9)
+    f = []
+    for k in range(6):
+        c = x[:, k]
+        f.append(c[np.argmax(np.abs(c))])
+    f += list(x[p, :6])
+    r = max(1, int(0.05 * RATE_HZ))
+    f += [float(np.sign(np.round(x[max(0, p - r):p + r + 1, 3 + k].mean(), 3))) for k in range(3)]
+    f += [w[p], x[:, 7].max()]
+    above20 = w > 0.2 * wp
+    lo, _ = _run(above20, p)
+    f.append((p - lo) * DT)
+    lo, hi = _run(w > 0.5 * wp, p)
+    f.append((hi - lo + 1) * DT)
+    lo, hi = _run(w > 0.25 * wp, p)
+    f.append((hi - lo + 1) * DT)
+    a, b = min(len(w), p + int(0.1 * RATE_HZ)), min(len(w), p + int(0.3 * RATE_HZ))
+    f.append(w[a:b].mean() / wp if b > a else 0.0)
+    after = np.nonzero(w[p:] < 0.2 * wp)[0]
+    f.append(min(0.4, after[0] * DT) if len(after) else 0.4)
+    f.append(abs(x[p, 4]) / wp)
+    pre = x[:int(0.3 * RATE_HZ), :3].mean(axis=0)
+    f.append(np.degrees(np.arcsin(np.clip(pre[1] / max(np.linalg.norm(pre), 1e-9), -1, 1))))
+    f += list(pre)
+    f += [x[:, 8].sum(), x[:, 9].sum(), (np.argmax(x[:, 7]) - p) * DT, w[:int(0.3 * RATE_HZ)].mean()]
+    spec = np.abs(np.fft.rfft((w - w.mean()) * np.hanning(len(w)))) ** 2
+    freq = np.fft.rfftfreq(len(w), DT)
+    tot = max(spec.sum(), 1e-9)
+    for lo_hz, hi_hz in BANDS_HZ:
+        f.append(np.log10(spec[(freq >= lo_hz) & (freq < hi_hz)].sum() / tot + 1e-6))
+    out = np.asarray(f, np.float32)
+    assert out.shape == (N_FEATURES,), out.shape
+    return out
+
+
+def full_features_batch(x):
+    return np.stack([full_features(w) for w in x]) if len(x) else np.zeros((0, N_FEATURES), np.float32)
