@@ -293,6 +293,7 @@ omitted or `null` only where the type below says so.
 User         {id: int, login: str, avatar_url: str}                       # GitHub id, login, avatar URL (https://avatars.githubusercontent.com/...)
 Me           {user: User | null, csrf: str, uploads_left_today?: int}     # uploads_left_today when signed in
 Season       {id, contract: str, kit_version: str, started_at, ended_at: str | null, active: bool}
+Pod          {id: str, hw_id: str, name: str, last_seen: str | null}     # a user's racquet pod: id "pod_123", hw_id as printed in the app ("OSO-4C99"), account display name
 Build        {power: int, speed: int, reach: int, accuracy: int}          # each 1-10, sum 24
 Owner        User | {house: true}
 ModelStatus  "pending" | "active" | "rejected" | "retired" | "hidden"
