@@ -11,12 +11,14 @@ a policy cannot get stuck always serving into the wrong court) and flight-time p
 the same integrator and cached in out/badsim/. A drag flight stays in the vertical plane through its start and target, so 3 inputs
 are enough. Noise is added to the aim point before the second lookup.
 """
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # the kit root, so `python sim.py` finds oso_arena
+from oso_arena import builds as B  # noqa: E402
 from oso_arena import court as C  # noqa: E402
 from oso_arena import physics as sp  # noqa: E402
 
@@ -29,8 +31,10 @@ SHORT_X = C.SHORT_SERVICE_X
 SIGN = np.array([-1.0, 1.0])  # x side of player p
 MIRROR = np.array([1.0, -1.0])  # world -> own view: (x, z) *= MIRROR[p] (an involution)
 
-V_MAX_PLAYER, A_MAX = 5.0, 10.0
-REACH, REACH_LUNGE = 1.5, 2.0  # Phase 13.1 (tuning round): 1.0 / 1.4 made smashes unreturnable, 1.3 / 1.8 still gave no clears
+# Per-player limits (speed, acceleration, reach, launch-speed cap, aim noise) come from the stat build, see builds.py / CONTRACT.md. The
+# all-6 build is the Phase 13.2 set: V_MAX 5.0, A_MAX 10.0, REACH 1.5, REACH_LUNGE 2.0 (13.1 tuning round: 1.0 / 1.4 made smashes
+# unreturnable, 1.3 / 1.8 still gave no clears), launch cap 25 m/s below 1.0 m rising to 90 m/s at >= 2.6 m.
+PT = B.param_table()  # {param: [11]} by stat value
 H_MIN, H_MAX, H_MAX_JUMP = 0.15, 2.9, 3.2
 FREEZE_LUNGE, FREEZE_JUMP = 0.25, 0.3
 MIN_HIT_GAP = 0.35
@@ -61,7 +65,8 @@ RALLY_CAP_SHOTS = 150  # a longer rally is replayed (a "let"), nobody scores
 # fault reasons
 NET, OUT, MISSED, SERVE, LET = range(5)
 REASONS = ["net", "out", "missed", "serve", "let"]
-ACT_DIM, OBS_DIM = 6, 29
+ACT_DIM, OBS_DIM = 6, 37  # 29 Phase 13.2 floats + own build (4) + opponent build (4)
+OBS_BASE = 29
 
 
 def accel(v):
@@ -74,9 +79,18 @@ def rk2(p, v):
     return p + DT * vm, v + DT * accel(vm)
 
 
-def max_launch_speed(h):
-    """25 m/s below 1.0 m of contact height, rising linearly to 90 m/s at >= 2.6 m."""
-    return np.interp(h, [1.0, 2.6], [25.0, 90.0])
+def max_launch_speed(h, lo=25.0, hi=90.0):
+    """lo below 1.0 m of contact height, rising linearly to hi at >= 2.6 m (defaults: the all-6 build)."""
+    return np.interp(h, [1.0, 2.6], [lo, hi])
+
+
+def launch_cap(h, power):
+    """max_launch_speed for arrays h and the hitters' power stats (same shape)."""
+    cap = np.empty(np.shape(h))
+    for v in np.unique(power):
+        m = power == v
+        cap[m] = max_launch_speed(h[m], PT["launch_lo"][v], PT["launch_hi"][v])
+    return cap
 
 
 # ---------------------------------------------------------------- shot table
@@ -142,12 +156,12 @@ def _ballistic_fill(table):
     return np.where(np.isfinite(table), table, fill)
 
 
-def _tmin_table(table):
-    """[nD, nH]: the shortest flight time whose launch speed is within the cap for that contact height (the fastest allowed
-    flight). Where no time is feasible: the time of the slowest launch (the shot is clamped and falls short)."""
+def _tmin_table(table, power=6):
+    """[nD, nH]: the shortest flight time whose launch speed is within the cap (of that power stat) for that contact height (the
+    fastest allowed flight). Where no time is feasible: the time of the slowest launch (the shot is clamped and falls short)."""
     sp0 = np.hypot(table[..., 0], table[..., 1])
     sp0 = np.where(np.isfinite(table[..., 0]), sp0, np.inf)
-    cap = max_launch_speed(H_GRID)[None, :, None]
+    cap = max_launch_speed(H_GRID, PT["launch_lo"][power], PT["launch_hi"][power])[None, :, None]
     ok = sp0 <= cap
     first = np.argmax(ok, axis=-1)
     anyok = ok.any(-1)
@@ -164,20 +178,35 @@ def _tmin_table(table):
 
 class ShotTable:
     def __init__(self, cache=True):
-        path = Path(__file__).resolve().parents[3] / "out/badsim/shot_table.npz"
+        path = _cache_path()
         raw = None
         if cache and path.exists():
-            z = np.load(path)
-            if int(z["version"]) == TABLE_VERSION:
-                raw = z["table"]
+            try:
+                z = np.load(path, allow_pickle=False)
+                if int(z["version"]) == TABLE_VERSION:
+                    raw = z["table"]
+            except (OSError, ValueError, KeyError):
+                raw = None
         if raw is None:
             raw = _build_table()
             if cache:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                np.savez(path, table=raw, version=TABLE_VERSION)
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    np.savez(path, table=raw, version=TABLE_VERSION)
+                except OSError:
+                    pass  # read-only install: rebuilt next time
         self.raw = raw
         self.table = _ballistic_fill(raw)
-        self.tmin = _tmin_table(raw)
+        self._tmin = {}  # power stat -> [nD, nH], built on first use
+
+    def tmin_for(self, power):
+        if power not in self._tmin:
+            self._tmin[power] = _tmin_table(self.raw, power)
+        return self._tmin[power]
+
+    @property
+    def tmin(self):
+        return self.tmin_for(6)
 
     @staticmethod
     def _coords(grid, x):
@@ -185,11 +214,20 @@ class ShotTable:
         i = np.minimum(f.astype(int), len(grid) - 2)
         return i, f - i
 
-    def t_min(self, D, h):
+    def t_min(self, D, h, power=None):
+        """Fastest allowed flight time; `power` (array of the hitters' power stats) picks the launch cap, default all-6."""
         i, a = self._coords(D_GRID, D)
         j, b = self._coords(H_GRID, h)
-        t = self.tmin
-        return ((1 - a) * (1 - b) * t[i, j] + a * (1 - b) * t[i + 1, j] + (1 - a) * b * t[i, j + 1] + a * b * t[i + 1, j + 1])
+        if power is None:
+            power = np.full(np.shape(D), 6)
+        out = np.empty(np.shape(D))
+        for v in np.unique(power):
+            m = power == v
+            t = self.tmin_for(int(v))
+            am, bm, im, jm = a[m], b[m], i[m], j[m]
+            out[m] = ((1 - am) * (1 - bm) * t[im, jm] + am * (1 - bm) * t[im + 1, jm] + (1 - am) * bm * t[im, jm + 1]
+                      + am * bm * t[im + 1, jm + 1])
+        return out
 
     def lookup(self, D, h, T):
         """(horizontal speed, vertical speed, apex) arrays for arrays D (m), h (m), T (s)."""
@@ -203,6 +241,15 @@ class ShotTable:
                 for dk, wc in ((0, 1 - c), (1, c)):
                     out = out + (wa * wb * wc)[:, None] * t[i + di, j + dj, k + dk]
         return out[:, 0], out[:, 1], out[:, 2]
+
+
+def _cache_path():
+    """Shot-table cache: $OSO_ARENA_CACHE, else out/badsim in a repo checkout, else ~/.cache/oso-arena."""
+    env = os.environ.get("OSO_ARENA_CACHE")
+    if env:
+        return Path(env) / "shot_table.npz"
+    root = Path(__file__).resolve().parents[3]
+    return (root / "out/badsim" if (root / "Cargo.toml").exists() else Path.home() / ".cache/oso-arena") / "shot_table.npz"
 
 
 _TABLE = None
@@ -226,9 +273,9 @@ def toss_time():
 T_TOSS = toss_time()
 
 
-def is_over(s, o):
-    """15 points win by 2, capped at 21."""
-    return (s >= WIN_POINTS and s - o >= WIN_BY) | (s >= CAP_POINTS)
+def is_over(s, o, win=WIN_POINTS):
+    """15 points win by 2, capped at 21 (`win` is lowered only by the kit's smoke test)."""
+    return (s >= win and s - o >= WIN_BY) | (s >= CAP_POINTS)
 
 
 def in_bounds(x, z):
@@ -249,7 +296,8 @@ def service_z_sign(server, score_server):
 
 
 class BadSim:
-    def __init__(self, n_games, seed=0, log_game=None):
+    def __init__(self, n_games, seed=0, builds=None, log_game=None):
+        """builds: int array [n_games, 2, 4] (power, speed, reach, accuracy per player) or None for the all-6 build."""
         self.n = n_games
         self.rng = np.random.default_rng(seed)
         self.table = shot_table()
@@ -282,6 +330,7 @@ class BadSim:
         self._act = np.zeros((n, 2, ACT_DIM))
         self._pend = np.full(n, -1)  # index in shot_log of each game's latest shot (its x_end is not known yet)
         self.t = 0.0
+        self.nsub = 0  # sim steps (1/120 s) taken since construction / reset
         self.log = None
         self.dstep = 0  # decision steps taken
         self.rally_end = np.zeros(n, bool)  # per decision step: a rally ended in this game (winner -1 for a let)
@@ -289,15 +338,31 @@ class BadSim:
         self.end_reason = np.zeros(n, int)
         self.end_shots = np.zeros(n, int)
         self.final_score = np.zeros((n, 2), int)  # score of the last finished game
+        self.win_points = WIN_POINTS
+        self.random_server_after_game = True  # training: random; match.py: the winner serves first in the next game
+        self.builds = np.zeros((n, 2, 4), int)
+        self.set_builds(slice(None), np.full((n, 2, 4), 6) if builds is None else builds)
         self.reset()
+
+    def set_builds(self, idx, builds):
+        """Builds [k, 2, 4] for the games idx (index array or slice); takes effect from the next step."""
+        b = np.asarray(builds)
+        if b.dtype.kind not in "iu" or b.shape[1:] != (2, 4) or b.min() < B.MIN or b.max() > B.MAX:
+            raise ValueError("builds must be an integer array [k, 2, 4] with stats 1-10")
+        self.builds[idx] = b
+        self._p = {key: PT[key][self.builds[:, :, B.STATS.index(B.stat_of(key))]] for key in B.PARAM_KEYS}  # per-player [n, 2]
+        self.power = self.builds[:, :, 0]
+        norm = ((self.builds - 5.5) / 4.5).astype(np.float32)  # obs 29..36: own build, opponent build
+        self._build_obs = np.concatenate([norm, norm[:, ::-1]], -1)
 
     # ------------------------------------------------------------ reset / rally start
     def reset(self):
         self.score[:] = 0
         self.server[:] = self.rng.integers(0, 2, self.n)
         if self.log_game is not None:
-            self.log = dict(pos=[], shuttle=[], events=[])
+            self.log = dict(pos=[], vel=[], shuttle=[], events=[])
             self.t = 0.0
+            self.nsub = 0
         self._start_rally(np.arange(self.n))
         if self.log_game is not None:
             self._log_step()
@@ -330,7 +395,9 @@ class BadSim:
         self.rally_t[idx] = 0
         self._pend[idx] = -1
         if self.log_game is not None and self.log_game in idx:
-            self._event("start", step=len(self.log["pos"]), s=int(self.server[self.log_game]), score=self.score[self.log_game].tolist())
+            g = self.log_game
+            self._event("start", step=len(self.log["pos"]), s=int(self.server[g]), score=self.score[g].tolist(),
+                        pos=self.pos[g].tolist(), shuttle=self.shp[g].tolist())
 
     # ------------------------------------------------------------ observation
     def _can_hit(self, p):
@@ -340,8 +407,8 @@ class BadSim:
         h = self.shp[:, 1]
         base = (self.last_hitter != p) & (sx > 0) & (self.since_hit[:, p] >= MIN_HIT_GAP) & (self.freeze[:, p] <= 0) & (h >= H_MIN)
         rs = self.reach_scale
-        normal = base & (d <= REACH * rs) & (h <= H_MAX)
-        ext = base & (d <= REACH_LUNGE * rs) & (h <= H_MAX_JUMP)
+        normal = base & (d <= self._p["reach"][:, p] * rs) & (h <= H_MAX)
+        ext = base & (d <= self._p["reach_lunge"][:, p] * rs) & (h <= H_MAX_JUMP)
         return normal, ext
 
     def _obs(self):
@@ -372,7 +439,8 @@ class BadSim:
             ss = self.score[np.arange(self.n), self.server]
             put(ss % 2, self.score[:, p] / CAP_POINTS, self.score[:, q] / CAP_POINTS, np.minimum(self.shots, 40) / 20)
             put(self.react[:, p] / max(REACTION_S, 1e-9))
-            assert c == OBS_DIM
+            assert c == OBS_BASE
+            o[:, p, OBS_BASE:] = self._build_obs[:, p]
         return o
 
     # ------------------------------------------------------------ step
@@ -381,7 +449,7 @@ class BadSim:
         reachable), aim x, aim z, flight time u. Returns obs [n, 2, O], reward [n, 2], done [n], info."""
         a = np.clip(actions, -1.0, 1.0)
         self._act = a
-        self._tv = a[..., 0:2] * V_MAX_PLAYER * MIRROR[None, :, None]
+        self._tv = a[..., 0:2] * self._p["v_max"][..., None] * MIRROR[None, :, None]
         self._swing = a[..., 2] > 0
         reward = np.zeros((self.n, 2))
         done = np.zeros(self.n, bool)
@@ -405,10 +473,10 @@ class BadSim:
         tv = np.where((self.react > 0)[..., None], self.vel, self._tv)  # reacting: hold the current velocity
         tv = np.where((self.freeze > 0)[..., None], 0.0, tv)
         nrm = np.linalg.norm(tv, axis=-1, keepdims=True)
-        tv = tv * np.minimum(1.0, V_MAX_PLAYER / np.maximum(nrm, 1e-9))
+        tv = tv * np.minimum(1.0, self._p["v_max"][..., None] / np.maximum(nrm, 1e-9))
         dv = tv - self.vel
         dn = np.linalg.norm(dv, axis=-1, keepdims=True)
-        self.vel += dv * np.minimum(1.0, A_MAX * dt / np.maximum(dn, 1e-9))
+        self.vel += dv * np.minimum(1.0, self._p["a_max"][..., None] * dt / np.maximum(dn, 1e-9))
         self.pos += self.vel * dt
         xs = self.pos[..., 0] * SIGN
         xc = np.clip(xs, X_MIN_P, X_MAX_P)
@@ -429,6 +497,7 @@ class BadSim:
         old = self.shp.copy()
         self.shp, self.shv = rk2(self.shp, self.shv)
         self.t += dt
+        self.nsub += 1
         hitter = self.last_hitter
         cross = old[:, 0] * self.shp[:, 0] < 0
         with np.errstate(all="ignore"):
@@ -485,7 +554,7 @@ class BadSim:
         sh = self.shp[idx]
         h0 = sh[:, 1]
         jump = h0 > H_MAX
-        lunge = np.hypot(sh[:, 0] - self.pos[idx, p, 0], sh[:, 2] - self.pos[idx, p, 1]) > REACH * self.reach_scale
+        lunge = np.hypot(sh[:, 0] - self.pos[idx, p, 0], sh[:, 2] - self.pos[idx, p, 1]) > self._p["reach"][idx, p] * self.reach_scale
         extended = lunge | jump
         first = self.shots[idx] == 0
         tx = m * (HL / 2 + HL / 2 * a[:, 3])
@@ -500,19 +569,21 @@ class BadSim:
         u = a[:, 5]
         D, dx, dz = self._dir(tx - sh[:, 0], tz - sh[:, 2], p)
         tab = self.table
-        tmin = tab.t_min(D, h0)
+        pw = self.power[idx, p]
+        tmin = tab.t_min(D, h0, pw)
         tmax = np.clip(np.maximum(1.0 + 0.1 * D, tmin + 0.25), 0.3, T_GRID[-1])
         T = tmin + (u + 1) / 2 * np.maximum(tmax - tmin, 0.0)
         vh, vy, _ = tab.lookup(D, h0, T)
         speed0 = np.hypot(vh, vy)
         pspeed = np.linalg.norm(self.vel[idx, p], axis=-1)
-        sigma = (0.15 + 0.25 * speed0 / 90 + SMASH_NOISE * (speed0 / 90) ** 2 + 0.3 * extended + 0.2 * pspeed / V_MAX_PLAYER) * self.noise_scale
+        sigma = ((0.15 + 0.25 * speed0 / 90 + SMASH_NOISE * (speed0 / 90) ** 2 + 0.3 * extended + 0.2 * pspeed / self._p["v_max"][idx, p])
+                 * self._p["noise_mult"][idx, p] * self.noise_scale)
         tx2 = tx + self.rng.normal(size=k) * sigma
         tz2 = tz + self.rng.normal(size=k) * sigma
         D2, dx2, dz2 = self._dir(tx2 - sh[:, 0], tz2 - sh[:, 2], p)
         vh, vy, apex = tab.lookup(D2, h0, T)
         sp2 = np.hypot(vh, vy)
-        scale = np.minimum(1.0, max_launch_speed(h0) / np.maximum(sp2, 1e-9))
+        scale = np.minimum(1.0, launch_cap(h0, pw) / np.maximum(sp2, 1e-9))
         vh, vy = vh * scale, vy * scale
         self.shv[idx, 0], self.shv[idx, 1], self.shv[idx, 2] = vh * dx2, vy, vh * dz2
         self.land[idx, 0], self.land[idx, 1] = tx2, tz2
@@ -572,7 +643,7 @@ class BadSim:
                 self.shot_log[self._pend[g]][8] = abs(float(lx[g])) if landed[g] else 0.0
                 self._close_run(g, 1 - self.last_hitter[g])
             if self.log_game == g:
-                self._event("land", x=float(lx[g]), z=float(lz[g]), reason=REASONS[r])
+                self._event("land", x=float(lx[g]), z=float(lz[g]), reason=REASONS[r], shots=shots, pos=self.pos[g].tolist(), vel=self.vel[g].tolist())
             if let:
                 continue
             lo = int(loser[g])
@@ -587,30 +658,41 @@ class BadSim:
             self.winner[g] = win
             if self.log_game == g:
                 self._event("point", winner=win, reason=REASONS[r], score=self.score[g].tolist(), shots=shots)
-            if is_over(self.score[g, win], self.score[g, lo]):
+            if is_over(self.score[g, win], self.score[g, lo], self.win_points):
                 game_over.append(g)
         for g in game_over:
             done[g] = True
             st["games"] += 1
             self.final_score[g] = self.score[g]
             self.score[g] = 0
-            self.server[g] = self.rng.integers(0, 2)
+            if self.random_server_after_game:
+                self.server[g] = self.rng.integers(0, 2)  # else the winner of the game serves first in the next one
             if self.log_game == g:
                 self._event("game_over")
         self._start_rally(idx)
 
+    def set_first_server(self, server):
+        """Games with log_game: restart the first rally with this server (0 / 1) instead of the seeded random one."""
+        self.server[:] = server
+        self.log = dict(pos=[], vel=[], shuttle=[], events=[])
+        self.t, self.nsub = 0.0, 0
+        self._start_rally(np.arange(self.n))
+        self._log_step()
+
     # ------------------------------------------------------------ logging for export
     def _event(self, kind, step=None, **kw):
         step = len(self.log["pos"]) - 1 if step is None else step
-        self.log["events"].append(dict(kind=kind, t=self.t, step=step, **kw))
+        self.log["events"].append(dict(kind=kind, t=self.t, k=self.nsub, step=step, **kw))
 
     def _log_step(self):
         g = self.log_game
         self.log["pos"].append(self.pos[g].copy())
+        self.log["vel"].append(self.vel[g].copy())
         self.log["shuttle"].append(np.concatenate([self.shp[g], self.shv[g]]))
 
     def serialize_game(self, i):
-        """Per-sim-step (120 Hz) logs of game i (needs BadSim(..., log_game=i)): pos [S,2,2], shuttle [S,6] (x,y,z,vx,vy,vz) and
-        the event list (kinds: start, hit, land, point, game_over; `step` indexes the arrays)."""
+        """Per-sim-step (120 Hz) logs of game i (needs BadSim(..., log_game=i)): pos [S,2,2], vel [S,2,2], shuttle [S,6]
+        (x,y,z,vx,vy,vz) and the event list (kinds: start, hit, land, point, game_over; `step` indexes the arrays, `k` is the sim step
+        count at the event, `t` the sim time)."""
         assert i == self.log_game, "construct BadSim(..., log_game=i) to serialize game i"
-        return dict(pos=np.array(self.log["pos"]), shuttle=np.array(self.log["shuttle"]), events=list(self.log["events"]), dt=DT)
+        return dict(pos=np.array(self.log["pos"]), vel=np.array(self.log["vel"]), shuttle=np.array(self.log["shuttle"]), events=list(self.log["events"]), dt=DT)

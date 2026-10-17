@@ -1,5 +1,5 @@
 """Full-game evaluation: policy vs scripted bot and policy vs policy (200 games each by default).
-  python arena/kit/oso_arena/evaluate.py [--ckpt out/badsim/best.pt] [--games 200] [--out out/badsim/eval.json]
+  python arena/kit/oso_arena/evaluate.py [--ckpt out/badsim/best.pt | FILE.safetensors] [--games 200] [--out out/badsim/eval.json]
 Reports win rate, rally length (shots), points per game, faults by type, shot mix and mean launch speed; prints a table and writes JSON."""
 import argparse
 import json
@@ -11,6 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from oso_arena import bot, sim  # noqa: E402
+from oso_arena import builds as B  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 KINDS = ["unknown", "serve", "clear", "smash", "drop", "drive", "lift", "net"]
@@ -49,16 +50,21 @@ def shot_mix(rows):
     return c, (float(np.mean([r[5] for r in rows])) if rows else float("nan"))
 
 
-def play_games(fa, fb, n, seed=0, max_steps=60000, sim_kw=None):
+def play_games(fa, fb, n, seed=0, max_steps=60000, sim_kw=None, builds=None):
     """A = fa, B = fb (each obs [m, O] -> actions [m, 6], applied per slot). A is player 0 in the first half of the games and
-    player 1 in the second. Runs until every game finished once (or max_steps). Returns a result dict."""
-    s = sim.BadSim(n, seed)
+    player 1 in the second. builds = (build of A, build of B) dicts, default all-6. Runs until every game finished once (or
+    max_steps). Returns a result dict."""
+    a_slot = np.zeros(n, int)
+    a_slot[n // 2:] = 1  # slot of A in each game
+    bl = None
+    if builds is not None:
+        ba, bb = (B.to_array(b) for b in builds)
+        bl = np.where((a_slot == 0)[:, None, None], np.stack([ba, bb])[None], np.stack([bb, ba])[None])
+    s = sim.BadSim(n, seed, builds=bl)
     for k, v in (sim_kw or {}).items():
         setattr(s, k, v)
     s.shaping = 0.0
     s.log_shots = True
-    a_slot = np.zeros(n, int)
-    a_slot[n // 2:] = 1  # slot of A in each game
     is_a = np.zeros((n, 2), bool)
     is_a[np.arange(n), a_slot] = True
     obs = s._obs()
@@ -119,7 +125,11 @@ def _is_a(r, s):
 
 
 def make_policy(ckpt, deterministic=True):
-    """Checkpoint -> function obs [m, O] -> actions [m, 6] (numpy)."""
+    """A .safetensors submission (NumpyPolicy) or a .pt checkpoint of ours (trusted, torch) -> function obs [m, O] -> actions [m, 6]."""
+    if str(ckpt).endswith(".safetensors"):
+        from oso_arena.policy import NumpyPolicy
+
+        return NumpyPolicy.load(ckpt).act
     import torch
 
     from oso_arena.train import load_net
@@ -153,7 +163,7 @@ def main():
     ap.add_argument("--max-steps", type=int, default=60000)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=ROOT / "out/badsim/eval.json")
-    ap.add_argument("--legacy", action="store_true", help="13.1 checkpoint: 28-dim obs, no reaction delay (baseline measurement)")
+    ap.add_argument("--legacy", action="store_true", help="old .pt checkpoint (trusted, ours): 28-dim obs, no reaction delay (baseline measurement)")
     args = ap.parse_args()
     if args.legacy:
         sim.REACTION_S = 0.0

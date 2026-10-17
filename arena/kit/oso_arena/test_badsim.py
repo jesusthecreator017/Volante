@@ -15,7 +15,7 @@ import replay  # noqa: E402
 import synth_motion as sm  # noqa: E402
 from oso_arena import court as kit_court  # noqa: E402
 from oso_arena import physics as kit_physics  # noqa: E402
-from oso_arena import bot, evaluate, play_match as pm, sim  # noqa: E402
+from oso_arena import animate as pm, bot, evaluate, match, sim  # noqa: E402
 
 # sha256 of synth_motion.generate(0) / generate(3, 30.0, 6.0) (joints, t, swing_player, swing_t0), recorded before the Phase 13 refactor
 GOLDEN_SYNTH = ["f7629ba921112fba54f5c59e2a9bd1090cb273a7384ed49b13ec3e477b4f523b",
@@ -498,8 +498,8 @@ def test_mirrored_play_is_symmetric():
 def test_bot_game_is_legal():
     n = 16
     # The bot never misses at the Phase 13.1 reach (rallies run into the 150-shot let), so it plays with the Phase 13 reach here
-    reach, sim.REACH, sim.REACH_LUNGE = (sim.REACH, sim.REACH_LUNGE), 1.0, 1.4
     s = sim.BadSim(n, 3)
+    s._p["reach"][:], s._p["reach_lunge"][:] = 1.0, 1.4
     s.shaping = 0
     obs = s._obs()
     done_at = np.full(n, -1)
@@ -511,7 +511,6 @@ def test_bot_game_is_legal():
         finals[new] = info["final_score"][new]
         if (done_at >= 0).all():
             break
-    sim.REACH, sim.REACH_LUNGE = reach
     assert (done_at >= 0).all(), "bot games did not finish"
     hi, lo = finals.max(1), finals.min(1)
     assert ((hi >= 15) & (hi <= 21) & ((hi - lo >= 2) | (hi == 21))).all(), finals
@@ -546,8 +545,7 @@ def test_shot_classifier_rules():
 
 def test_match_export_timeline():
     """A bot-vs-bot game becomes consistent replay tracks: legal final score, point events, flights, contacts, round trip."""
-    g, stop = pm.run_game(lambda o: np.stack([bot.bot_actions(o[:1])[0], bot.bot_actions(o[1:])[0]]), 2)
-    tl = pm.build(g, stop)
+    tl = pm.build(match.play("bot", "bot", 2, best_of=1))
     ev = tl["events"]
     pts = ev[ev[:, 1] == 3]
     w = pts[-1]

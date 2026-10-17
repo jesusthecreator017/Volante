@@ -96,20 +96,22 @@ the web viewer's Stats button shows the same numbers (`oso_stats()`).
 # Badminton self-play (Phase 13, side project: two AIs play a 15-point game, the viewer replays it)
 `arena/kit/oso_arena/`: a vectorised singles simulator (`sim.py`, numpy, N games at once, shuttle drag from `physics.py`, a numpy-only copy of `shuttle_physics.py`; `court.py` is a copy of `tools/court.py`, and `test_badsim.py` checks both copies, net / lines / service rules,
 players as point masses with a reach envelope), a scripted baseline bot (`bot.py`), PPO self-play training (`train.py`, PyTorch), evaluation
-(`evaluate.py`) and the match exporter (`play_match.py`). Setup: `.venv/bin/pip install torch` (not part of the `--no-deps` list; see requirements.txt).
+(`evaluate.py`), and since Phase 14.2 the contract kit (`builds`, `policy`, `export`, `check`, `match`, `log`, `animate`, CLI `oso-arena`; see `arena/contract/CONTRACT.md`). Setup: `.venv/bin/pip install torch` (not part of the `--no-deps` list; see requirements.txt).
 All commands from the repo root; outputs go to `out/badsim/` (gitignored).
 ```
 tools/.venv/bin/python arena/kit/oso_arena/test_badsim.py                       # simulator, rules, solver, mirroring, export tests
 tools/.venv/bin/python arena/kit/oso_arena/train.py --minutes 225               # PPO self-play, checkpoints + train_log.jsonl every 15 min / 2 min (--resume continues)
 tools/.venv/bin/python arena/kit/oso_arena/evaluate.py                          # 200 games vs bot + 200 policy-vs-policy -> out/badsim/eval.json
-tools/.venv/bin/python arena/kit/oso_arena/play_match.py --seed 0               # one game -> out/badsim/match.bin + match.json
+tools/.venv/bin/python arena/kit/tests/run_all.py                                # Phase 14.2 kit tests (contract, builds, check, match, animate, CLI)
+PYTHONPATH=arena/kit tools/.venv/bin/python -m oso_arena match A.safetensors bot -o out/badsim/m.log.gz --seed 0   # one game -> match log (A / B: file or `bot`)
+PYTHONPATH=arena/kit tools/.venv/bin/python -m oso_arena animate out/badsim/m.log.gz -o out/badsim/match.bin   # -> replay.bin
 cargo run --release -p oso-arena -- --screenshot out/badsim/shot.png --time 12 --replay out/badsim/match.bin
 ```
 - **What is learned:** where to stand, when to hit, which shot and where (target landing point + flight time). The swing is animation: players are
   point masses (5 m/s, 10 m/s^2) with a 1.5 m reach (2.0 m lunge; Phase 13 had 1.0 / 1.4, 0.25 s freeze; height 0.15-2.9 m, 3.2 m jump, 0.3 s freeze); the racquet face is not simulated.
   The numbers (speeds, reach, execution noise, 25 -> 90 m/s launch cap by contact height) are hand-set, so the emergent style depends on them.
 - **Shot model:** the action's aim point and flight time are turned into a launch velocity with a lookup table (distance, contact height, time) built with a
-  Newton solve on the sim's own integrator (cached in `out/badsim/shot_table.npz`, first build ~10 s); landing error without noise < 1 cm. Gaussian noise on the aim point
+  Newton solve on the sim's own integrator (cached in `out/badsim/shot_table.npz` in a checkout, else `$OSO_ARENA_CACHE` or `~/.cache/oso-arena`; first build ~10 s); landing error without noise < 1 cm. Gaussian noise on the aim point
   grows with launch speed, lunges / jumps and player speed.
 - **Opponents in training:** 60 % self-play, 30 % frozen snapshots, 10 % the bot. Reward: +-1 per rally, plus 0.1 for a legal net crossing annealed to 0 over the first 30 % of the time budget; Phase 13.1 adds a depth reward (0.15 x how far past the short service line the predicted landing is, paid at the net crossing, first 10 rally shots) and a base-position reward (0.001 per decision step while the opponent is to hit, annealed over 25 %). `train.py` writes `best.pt` only for checkpoints with bot win rate >= 80 % and clear + lift >= 10 % (per-checkpoint numbers in `ckpt_eval.jsonl`).
 - **Match export:** the 120 Hz sim log is resampled to 60 fps; bodies come from `synth_motion.player_pose` along the sim paths (swing peak = contact, pitch follows
