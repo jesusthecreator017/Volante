@@ -1,0 +1,68 @@
+/* No inline styles: the page runs under style-src 'self' */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #222; }
+/* winit follows the canvas CSS size, so this is what makes resize work */
+#canvas { width: 100vw; height: 100vh; display: block; outline: none; }
+#timeline {
+  position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: rgba(10, 10, 10, 0.72); color: #eee; font: 14px system-ui, sans-serif;
+}
+#scrub { width: 100%; margin: 4px 0; box-sizing: border-box; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#timeline button, #timeline select {
+  min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
+  background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
+}
+#timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+#readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Match header: A's name in A's colour vs B's. The colours are brightened sRGB versions of oso_render PLAYER_COLORS
+   (linear #ff730d / #00ccff) so small text stays readable on the dark court. A compact top-left card, so it never
+   covers the in-scene scoreboard at the top centre. */
+#players {
+  position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; z-index: 5; box-sizing: border-box;
+  pointer-events: none; display: flex; flex-direction: column; gap: 2px;
+  max-width: calc(50vw - 90px); padding: 6px 10px; border-radius: 6px;
+  background: rgba(10, 10, 10, 0.6); color: #eee; font: 14px/1.3 system-ui, sans-serif;
+}
+#players .pl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#players .name { font-weight: 700; }
+#players .build { font-size: 0.85em; font-variant-numeric: tabular-nums; opacity: 0.85; }
+#players .vs { opacity: 0.6; font-size: 0.85em; }
+#pl-a { color: #ff9a2e; }
+#pl-b { color: #25d5ff; }
+
+/* The overlay shows the same information as the corner text Rust writes */
+#status { display: none; }
+[hidden] { display: none !important; }
+
+#overlay {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;
+  box-sizing: border-box; width: min(420px, calc(100vw - 32px)); padding: 16px 20px;
+  background: rgba(10, 10, 10, 0.88); color: #eee; border: 1px solid #555; border-radius: 8px;
+  font: 15px/1.4 system-ui, sans-serif; text-align: center; overflow-wrap: anywhere;
+  pointer-events: none;
+}
+#overlay[hidden] { display: none; }
+#ov-status:empty, #ov-error:empty { display: none; }
+#ov-progress { display: block; width: 100%; height: 10px; margin-top: 10px; }
+#ov-error { color: #ff9a8a; font-weight: 600; }
+#ov-status + #ov-error, #ov-progress + #ov-error { margin-top: 10px; }
+#ov-drop { font-size: 18px; padding: 12px 0; }
+
+/* Drop highlight while a file is dragged over the page */
+body.dragging::after {
+  content: ""; position: fixed; inset: 8px; z-index: 20; pointer-events: none;
+  border: 3px dashed #8ab4f8; border-radius: 12px; background: rgba(138, 180, 248, 0.12);
+}
+
+/* Embedded in a small iframe (the Arena match page): one compact row so the court stays visible */
+@media (max-height: 480px), (max-width: 600px) {
+  #timeline { padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); font-size: 12px; }
+  #players { top: calc(4px + env(safe-area-inset-top)); left: 4px; padding: 3px 6px; font-size: 12px; }
+  #scrub { margin: 0 0 2px; }
+  .row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  #timeline button, #timeline select { min-height: 28px; min-width: 28px; padding: 2px 6px; flex: none; }
+  #timeline label { flex: none; }
+  #readout { flex: none; }
+}

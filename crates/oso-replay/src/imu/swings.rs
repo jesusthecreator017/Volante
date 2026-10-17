@@ -47,8 +47,16 @@ impl Swing {
     }
 }
 
-/// `bias` in rad/s (racquet frame, after the mount rotation); `t_video = t_dev * (1 + a) + b`.
-pub fn detect(samples: &[Sample], gaps: &[Gap], bias: [f64; 3], a: f64, b: f64) -> Vec<Swing> {
+/// `bias` in rad/s (racquet frame, after the mount rotation); `t_video = t_dev * (1 + a) + b`; `rate_hz`: the capture's sample rate.
+/// (GAP_PACKETS counts packets, not seconds, so it is the same at any rate.)
+pub fn detect(
+    samples: &[Sample],
+    gaps: &[Gap],
+    bias: [f64; 3],
+    a: f64,
+    b: f64,
+    rate_hz: f64,
+) -> Vec<Swing> {
     let dps: Vec<f64> = samples
         .iter()
         .map(|s| {
@@ -59,8 +67,8 @@ pub fn detect(samples: &[Sample], gaps: &[Gap], bias: [f64; 3], a: f64, b: f64) 
                 .to_degrees()
         })
         .collect();
-    let strength = sync::spike_strength(samples);
-    let impacts = sync::spikes_with_peak(samples, &strength, 0, sync::IMPACT_G);
+    let strength = sync::spike_strength(samples, rate_hz);
+    let impacts = sync::spikes_with_peak(samples, &strength, 0, sync::IMPACT_G, rate_hz);
     let mut out = Vec::new();
     let (mut start, mut below): (Option<usize>, Option<usize>) = (None, None);
     for i in 0..samples.len() {
@@ -215,7 +223,7 @@ mod tests {
     }
 
     fn detect_plain(s: &[Sample]) -> Vec<Swing> {
-        detect(s, &[], [0.0; 3], 0.0, 0.0)
+        detect(s, &[], [0.0; 3], 0.0, 0.0, 500.0)
     }
 
     #[test]
@@ -354,10 +362,16 @@ mod tests {
             missing,
         };
         let s = samples(&p, None);
-        assert_eq!(detect(&s, &[gap(3)], [0.0; 3], 0.0, 0.0)[0].confidence, 1.0);
-        assert_eq!(detect(&s, &[gap(4)], [0.0; 3], 0.0, 0.0)[0].confidence, 0.5);
+        assert_eq!(
+            detect(&s, &[gap(3)], [0.0; 3], 0.0, 0.0, 500.0)[0].confidence,
+            1.0
+        );
+        assert_eq!(
+            detect(&s, &[gap(4)], [0.0; 3], 0.0, 0.0, 500.0)[0].confidence,
+            0.5
+        );
         // t_video = t_dev + 10
-        let shifted = detect(&s, &[], [0.0; 3], 0.0, 10.0);
+        let shifted = detect(&s, &[], [0.0; 3], 0.0, 10.0, 500.0);
         assert!((shifted[0].t_start - sw[0].t_start - 10.0).abs() < 1e-9);
     }
 
@@ -370,12 +384,12 @@ mod tests {
         for x in &mut s {
             x.gyro[0] = bias[0] as f32;
         }
-        assert!(detect(&s, &[], bias, 0.0, 0.0).is_empty());
-        assert_eq!(detect(&s, &[], [0.0; 3], 0.0, 0.0).len(), 0); // 200 < 300 either way
+        assert!(detect(&s, &[], bias, 0.0, 0.0, 500.0).is_empty());
+        assert_eq!(detect(&s, &[], [0.0; 3], 0.0, 0.0, 500.0).len(), 0); // 200 < 300 either way
         for x in &mut s[100..200] {
             x.gyro[0] += 500f64.to_radians() as f32;
         }
-        assert_eq!(detect(&s, &[], bias, 0.0, 0.0).len(), 1);
+        assert_eq!(detect(&s, &[], bias, 0.0, 0.0, 500.0).len(), 1);
     }
 
     #[test]
@@ -433,5 +447,50 @@ mod tests {
         let sw = detect_plain(&s);
         assert!((sw[0].t_peak - imax as f64 * DT).abs() < DT);
         assert!((sw[0].peak_dps - 800.0).abs() < 1.0);
+    }
+
+    /// Same synthetic session as app/test/wrist.test.ts and OsoKit's wristSessionAnalyzesAt200Hz: 3 s at rest, then a
+    /// 0.4 s rotation about z peaking at 900 dps with a 10 g tap at its peak. Built at `rate` Hz.
+    fn wrist_session(rate: f64) -> Vec<Sample> {
+        (0..(4.0 * rate) as usize)
+            .map(|i| {
+                let t = i as f64 / rate;
+                let u = t - 3.0;
+                let w = if u > 0.0 && u < 0.4 {
+                    900f64.to_radians() * (std::f64::consts::PI * u / 0.4).sin()
+                } else {
+                    0.0
+                };
+                let tap = if (u - 0.2).abs() < 0.003 { 10.0 } else { 0.0 };
+                Sample {
+                    t_dev: t,
+                    acc: [(tap * 9.80665) as f32, 0.0, 9.80665],
+                    gyro: [0.0, 0.0, w as f32],
+                    saturated: false,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn swing_and_impact_agree_across_rates() {
+        let run = |rate: f64| detect(&wrist_session(rate), &[], [0.0; 3], 0.0, 0.0, rate);
+        let (hi, lo) = (run(500.0), run(200.0));
+        assert_eq!((hi.len(), lo.len()), (1, 1), "{hi:?} {lo:?}");
+        // The wrist test's acceptance numbers: peak 900 dps within 5, impact present
+        assert!((lo[0].peak_dps - 900.0).abs() < 5.0, "{}", lo[0].peak_dps);
+        assert!((hi[0].peak_dps - 900.0).abs() < 5.0);
+        let (ih, il) = (hi[0].impact.unwrap(), lo[0].impact.unwrap());
+        assert!(
+            (il.0 - 3.2).abs() < 0.005 && (ih.0 - 3.2).abs() < 0.005,
+            "{ih:?} {il:?}"
+        );
+        assert!((ih.0 - il.0).abs() < 0.005);
+        assert!(il.1 > 5.0);
+        assert!((hi[0].t_peak - lo[0].t_peak).abs() < 0.005);
+        assert!((hi[0].t_start - lo[0].t_start).abs() < 0.005);
+        assert!((hi[0].t_end - lo[0].t_end).abs() < 0.005);
+        // Head speed from the rotation at the peak, as the wrist test checks (0.3 m forearm lever there)
+        assert!((lo[0].head_speed_rot() - lo[0].peak_dps.to_radians() * HEAD_CENTER).abs() < 1e-9);
     }
 }

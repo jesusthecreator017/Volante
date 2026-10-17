@@ -81,6 +81,10 @@ struct Scene {
     lines: Vec<LineVertex>,
 }
 
+// The live view draws the Replay racquet (the OBJ model), so none of the app hooks apply
+struct NoExtras;
+impl crate::state::Extras for NoExtras {}
+
 impl Scene {
     async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
         let gpu = Gpu::new(window.clone()).await?;
@@ -96,6 +100,7 @@ impl Scene {
             &renderer.gpu.device,
             &renderer.gpu.queue,
             &renderer.material_layout,
+            &NoExtras,
         )
         .await?;
         // Key light from the camera side, a weaker fill from behind so a racquet turned away does not vanish

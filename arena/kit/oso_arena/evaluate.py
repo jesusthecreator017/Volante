@@ -63,7 +63,6 @@ def play_games(fa, fb, n, seed=0, max_steps=60000, sim_kw=None, builds=None):
     s = sim.BadSim(n, seed, builds=bl)
     for k, v in (sim_kw or {}).items():
         setattr(s, k, v)
-    s.shaping = 0.0
     s.log_shots = True
     is_a = np.zeros((n, 2), bool)
     is_a[np.arange(n), a_slot] = True
@@ -91,7 +90,7 @@ def play_games(fa, fb, n, seed=0, max_steps=60000, sim_kw=None, builds=None):
     # A's score first
     a_pts = np.where(a_slot == 0, final[:, 0], final[:, 1])
     b_pts = np.where(a_slot == 0, final[:, 1], final[:, 0])
-    return dict(n=n, finished=finished, a_pts=a_pts, b_pts=b_pts, rallies=rallies, shots=rows, a_slot=a_slot, steps=step + 1)
+    return dict(n=n, finished=finished, a_pts=a_pts, b_pts=b_pts, rallies=rallies, shots=rows, a_slot=a_slot, steps=step + 1, cords=int(s.stats["cords"]))
 
 
 def summarize(r):
@@ -107,7 +106,10 @@ def summarize(r):
     ns = [r for r in r["shots"] if not r[2]]  # non-serve shots
     disp = np.array([r[10] for r in ns]) if ns else np.zeros(1)
     run = np.array([r[11] for r in ns]) if ns else np.zeros(1)
+    q = np.array([x[13] for x in r["shots"]]) if r["shots"] else np.ones(1)
     return dict(
+        contact_q_mean=float(q.mean()), mishit_rate=float((q < sim.MISHIT_Q).mean()), net_cord_events=r["cords"],
+        net_cords_per_rally=r["cords"] / nr,
         disp_mean=float(disp.mean()), disp_median=float(np.median(disp)), opp_run_per_shot=float(run.mean()),
         games=r["n"], finished=nf,
         win_rate_A=float((r["a_pts"] > r["b_pts"])[f].mean()) if nf else None,
@@ -154,6 +156,7 @@ def table(name, d):
     print(f"displacement d (non-serve): mean {d['disp_mean']:.2f} m  median {d['disp_median']:.2f} m; opponent run per shot {d['opp_run_per_shot']:.2f} m; "
           f"serve faults/rally {d['faults_per_rally']['serve']:.3f}")
     print(f"mean launch speed {d['launch_speed_mean']:.1f} m/s")
+    print(f"contact quality: mean {d['contact_q_mean']:.3f}  mishit rate {100 * d['mishit_rate']:.1f}%  net-cord events {d['net_cord_events']} ({d['net_cords_per_rally']:.3f} per rally)")
 
 
 def main():

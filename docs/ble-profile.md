@@ -1,7 +1,7 @@
 # Racquet pod BLE profile (firmware 0.1)
 
 Implemented by `firmware/` (ESP32-S3, esp-hal + trouble), spoken by `crates/oso-replay/src/bin/oso-rec.rs`; the constants live in `proto/` (`oso-proto`).
-The handoff app (`dist/oso-app-handoff/PROMPT.md`) must follow this document. Everything is little-endian.
+The app in `app/` follows this document (`app/src/ble/profile.ts`, checked by `app/test/protocol.test.ts`). Everything is little-endian.
 
 ## Advertising and link
 - Local name `OSO-xxxx` (last two bytes of the Bluetooth MAC, hex), advertised service UUID 128-bit `6f736f00-0001-...`.

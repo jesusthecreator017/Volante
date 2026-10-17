@@ -15,7 +15,7 @@ import replay  # noqa: E402
 import synth_motion as sm  # noqa: E402
 from oso_arena import court as kit_court  # noqa: E402
 from oso_arena import physics as kit_physics  # noqa: E402
-from oso_arena import animate as pm, bot, evaluate, match, sim  # noqa: E402
+from oso_arena import animate as pm, bot, evaluate, match, rewards, sim  # noqa: E402
 
 # sha256 of synth_motion.generate(0) / generate(3, 30.0, 6.0) (joints, t, swing_player, swing_t0), recorded before the Phase 13 refactor
 GOLDEN_SYNTH = ["f7629ba921112fba54f5c59e2a9bd1090cb273a7384ed49b13ec3e477b4f523b",
@@ -30,12 +30,13 @@ def one(seed=0, **kw):
     return s
 
 
-def run_substeps(s, k=1, act=NOOP):
-    """k decision steps; returns the last info and the accumulated reward."""
+def run_substeps(s, k=1, act=NOOP, shaping=0.0, base_scale=0.0):
+    """k decision steps; returns the last info and the accumulated reward: the simulator's win / loss reward plus the default reward
+    terms (rewards.default_reward; the net-crossing `shaping` and `base_scale` are off unless a test asks for them)."""
     rew = 0
     for _ in range(k):
         _, r, d, info = s.step(act)
-        rew = rew + r
+        rew = rew + rewards.total_reward(r, s.events(), None, shaping=shaping, base_scale=base_scale)
     return info, rew
 
 
@@ -50,7 +51,6 @@ def setup_flight(s, last_hitter, shots, p, v, server=None, score=(0, 0)):
     s.pos[0, 0] = [-4, 0]
     s.pos[0, 1] = [4, 0]
     s.vel[:] = 0
-    s.base_scale = 0.0  # tests of the other rewards; the base reward has its own test
     s.land[:] = [1.0, 0.0]  # predicted landing short of the short line: no depth reward unless a test sets it
 
 
@@ -94,19 +94,19 @@ def test_shot_solver():
     v = np.stack([vh, vy, np.zeros(K)], -1)
     err = np.full(K, np.nan)
     mx = h.copy()
-    for _ in range(400):
+    for i in range(400):
         po = p
-        p, v = sim.rk2(p, v)
+        p, v = sim.rk2(p, v, i * sim.DT)  # a struck shuttle: turnover drag from the hit
         mx = np.maximum(mx, p[:, 1])
         land = (p[:, 1] <= 0) & np.isnan(err)
         f = po[:, 1] / (po[:, 1] - p[:, 1])
         err = np.where(land, np.abs(po[:, 0] + f * (p[:, 0] - po[:, 0]) - D), err)
     print(f"shot table: landing error max {err.max() * 100:.2f} cm, mean {err.mean() * 100:.2f} cm, apex error max {np.abs(mx - apex).max() * 100:.1f} cm")
     assert err.max() < 0.05
-    # against the reference solver (RK4 truth) on a few cases: velocity and landing
+    # against the reference solver (RK4 truth, no turnover) on a few cases: the turnover drag asks for a slightly faster launch (< 12 %, more for fast smashes)
     for i in range(5):
         v_ref = shp.solve_shot([0, h[i], 0], 0.0, [D[i], 0, 0], T[i])
-        assert abs(vh[i] - v_ref[0]) < 0.15 and abs(vy[i] - v_ref[1]) < 0.15, (vh[i], vy[i], v_ref)
+        assert 0 <= vh[i] - v_ref[0] < 0.12 * abs(v_ref[0]) + 0.15 and abs(vy[i] - v_ref[1]) < 0.12 * np.hypot(*v_ref[:2]) + 0.15, (vh[i], vy[i], v_ref)
     # end to end through a hit: no noise, the flight lands on the aimed point (3D, 5 cm)
     s = one(noise_scale=0.0)
     s.shp[0], s.shv[0] = [-3.0, 1.9, 0.4], 0
@@ -117,9 +117,9 @@ def test_shot_solver():
     s._hit(np.array([0]), 0)
     target = s.land[0].copy()
     p, v = s.shp[0].copy(), s.shv[0].copy()
-    for _ in range(600):
+    for i in range(600):
         po = p
-        p, v = sim.rk2(p, v)
+        p, v = sim.rk2(p, v, i * sim.DT)
         if p[1] <= 0:
             f = po[1] / (po[1] - p[1])
             lx = po + f * (p - po)
@@ -135,7 +135,7 @@ def test_smash_noise():
         s = sim.BadSim(4000, 1)
         s.shp[:] = [-3.0, h, 0.0]
         s.shv[:] = 0
-        s.pos[:, 0] = [-3.2, 0.0]
+        s.pos[:, 0] = [-3.45, -0.5]  # the shuttle is 0.45 m ahead and 0.5 m to the racquet side: contact quality 1
         s.vel[:] = 0
         s.shots[:] = 3
         s._act = np.tile(np.array([0, 0, 1, ax, 0.0, u]), (4000, 2, 1))
@@ -181,19 +181,18 @@ def test_step_rate():
 def test_net_fault():
     s = one()
     setup_flight(s, 0, 2, [-0.05, 1.0, 0.0], [8.0, 0.0, 0.0], server=0)  # crosses at ~1.0 m, tape is 1.524
-    s.shaping = 0
     info, rew = run_substeps(s)
     assert info["rally_end"][0] and info["reason"][0] == sim.NET and info["winner"][0] == 1
     assert s.score[0].tolist() == [0, 1] and s.server[0] == 1 and rew[0].tolist() == [-1, 1]
     # over the tape: no fault, shaping reward to the hitter
     s = one()
     setup_flight(s, 0, 2, [-0.05, 2.5, 0.0], [8.0, 0.0, 0.0], server=0)
-    info, rew = run_substeps(s)
-    assert not info["rally_end"][0] and abs(rew[0, 0] - (0.1 + sim.SHOT_REWARD)) < 1e-9
+    info, rew = run_substeps(s, shaping=0.1)
+    assert not info["rally_end"][0] and abs(rew[0, 0] - (0.1 + rewards.SHOT_REWARD)) < 1e-9
     # the per-shot reward stops after 10 shots of a rally; the annealed shaping does not
     s = one()
     setup_flight(s, 0, 11, [-0.05, 2.5, 0.0], [8.0, 0.0, 0.0], server=0)
-    info, rew = run_substeps(s)
+    info, rew = run_substeps(s, shaping=0.1)
     assert abs(rew[0, 0] - 0.1) < 1e-9
     print("net fault / legal crossing ok")
 
@@ -203,10 +202,9 @@ def test_depth_reward():
     def crossing(land, y=2.5):
         s = one()
         setup_flight(s, 0, 2, [-0.05, y, 0.0], [8.0, 0.0, 0.0], server=0)
-        s.shaping = 0
         s.land[:] = land
-        return run_substeps(s)[1][0, 0] - sim.SHOT_REWARD
-    d = sim.DEPTH_REWARD
+        return run_substeps(s)[1][0, 0] - rewards.SHOT_REWARD
+    d = rewards.DEPTH_REWARD
     assert abs(crossing([sim.SHORT_X, 0.0])) < 1e-9
     assert abs(crossing([sim.HL, 0.0]) - d) < 1e-9
     assert abs(crossing([(sim.SHORT_X + sim.HL) / 2, 0.0]) - d / 2) < 1e-9
@@ -216,7 +214,7 @@ def test_depth_reward():
     s.land[:] = [sim.HL, 0.0]
     assert run_substeps(s)[1][0, 0] == -1.0  # net fault: only the lost point
     # shaping bound: the cap counts rally shots, so one player earns on at most ceil(10 / 2) = 5 of them: below one point
-    assert -(-sim.SHOT_REWARD_MAX_SHOTS // 2) * (sim.SHOT_REWARD + sim.DEPTH_REWARD + sim.DISP_REWARD) < 1.0
+    assert -(-rewards.SHOT_REWARD_MAX_SHOTS // 2) * (rewards.SHOT_REWARD + rewards.DEPTH_REWARD + rewards.DISP_REWARD) < 1.0
     print("depth reward ok")
 
 
@@ -225,12 +223,11 @@ def test_displacement_reward():
     def crossing(d, shots=2):
         s = one()
         setup_flight(s, 0, shots, [-0.05, 2.5, 0.0], [8.0, 0.0, 0.0], server=0)
-        s.shaping = 0
         s.disp[:] = d
         return run_substeps(s)[1][0, 0]
     assert crossing(0.0) == 0.0
-    assert abs(crossing(sim.DISP_NORM) - sim.DISP_REWARD) < 1e-9 and abs(crossing(9.0) - sim.DISP_REWARD) < 1e-9
-    assert abs(crossing(sim.DISP_NORM / 2) - sim.DISP_REWARD / 2) < 1e-9
+    assert abs(crossing(rewards.DISP_NORM) - rewards.DISP_REWARD) < 1e-9 and abs(crossing(9.0) - rewards.DISP_REWARD) < 1e-9
+    assert abs(crossing(rewards.DISP_NORM / 2) - rewards.DISP_REWARD / 2) < 1e-9
     assert crossing(9.0, shots=11) == 0.0
     # _hit stores d = distance from the opponent to the landing point, and starts the opponent's reaction
     s = one(noise_scale=0.0)
@@ -267,7 +264,6 @@ def test_reaction_delay():
 def test_serve_fault_penalty():
     s = one()
     setup_flight(s, 0, 0, [-4.0, 0.02, 0.0], [0.0, -5.0, 0.0], server=0)  # toss dropped: serve fault by the server
-    s.shaping = 0
     info, rew = run_substeps(s)
     assert info["reason"][0] == sim.SERVE and rew[0].tolist() == [-1 - sim.SERVE_FAULT_PENALTY, 1]
     print("serve fault penalty ok")
@@ -279,18 +275,16 @@ def test_base_reward():
         s = one()
         setup_flight(s, hitter, 3, [-6.0, 3.0, 0.0], [0.0, 0.0, 0.0])  # high, slow, far from both: nothing ends in one step
         s.shv[:] = 0
-        s.base_scale = scale
         s.pos[0, 0] = pos
-        s.pos[0, 1] = [sim.BASE_X, 0.0]
+        s.pos[0, 1] = [rewards.BASE_X, 0.0]
         act = np.zeros((1, 2, sim.ACT_DIM))
         act[..., 2] = -1  # stand still, no swing
-        _, rew, _, _ = s.step(act)
-        return rew[0]
-    at = r([-sim.BASE_X, 0.0])
-    assert abs(at[0] - sim.BASE_REWARD) < 1e-5 and at[1] == 0.0  # player 1 is the next hitter
-    assert r([-sim.BASE_X + 1.6, 0.0])[0] < sim.BASE_REWARD * np.exp(-2.0) * 1.01  # 2 sigma away
-    assert r([-sim.BASE_X, 0.0], scale=0.5)[0] == at[0] / 2 and r([-sim.BASE_X, 0.0], scale=0.0)[0] == 0.0
-    assert r([-sim.BASE_X, 0.0], hitter=1)[0] == 0.0
+        return run_substeps(s, act=act, base_scale=scale)[1][0]
+    at = r([-rewards.BASE_X, 0.0])
+    assert abs(at[0] - rewards.BASE_REWARD) < 1e-5 and at[1] == 0.0  # player 1 is the next hitter
+    assert r([-rewards.BASE_X + 1.6, 0.0])[0] < rewards.BASE_REWARD * np.exp(-2.0) * 1.01  # 2 sigma away
+    assert r([-rewards.BASE_X, 0.0], scale=0.5)[0] == at[0] / 2 and r([-rewards.BASE_X, 0.0], scale=0.0)[0] == 0.0
+    assert r([-rewards.BASE_X, 0.0], hitter=1)[0] == 0.0
     print("base reward ok")
 
 
@@ -360,9 +354,9 @@ def test_serve_aim_is_normalised_over_the_service_court():
                 s._act[0, sv] = [0, 0, 1, ax, az, 0.5]
                 s._hit(np.array([0]), sv)
                 p, v = s.shp[0].copy(), s.shv[0].copy()
-                for _ in range(600):
+                for i in range(600):
                     po = p
-                    p, v = sim.rk2(p, v)
+                    p, v = sim.rk2(p, v, i * sim.DT)
                     if p[1] <= 0:
                         f = po[1] / (po[1] - p[1])
                         break
@@ -500,7 +494,6 @@ def test_bot_game_is_legal():
     # The bot never misses at the Phase 13.1 reach (rallies run into the 150-shot let), so it plays with the Phase 13 reach here
     s = sim.BadSim(n, 3)
     s._p["reach"][:], s._p["reach_lunge"][:] = 1.0, 1.4
-    s.shaping = 0
     obs = s._obs()
     done_at = np.full(n, -1)
     finals = np.zeros((n, 2), int)

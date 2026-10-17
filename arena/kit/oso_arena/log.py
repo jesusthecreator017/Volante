@@ -34,9 +34,9 @@ class MatchLog:
     duration_s: float  # simulated play time (intervals excluded)
     wall_duration_s: float  # including the intervals
     games: list = field(default_factory=list)  # {score [a, b], winner, first_server, rallies} per finished game
-    rallies_detail: list = field(default_factory=list)  # {game 1-3, ends (world side of a: 0 = -X, 1 = +X), interval_before_s, start_t, end_t (sim play seconds), server, winner (None = let), reason, shots, score (the game's points)}
+    rallies_detail: list = field(default_factory=list)  # {game 1-3, ends (world side of a: 0 = -X, 1 = +X), interval_before_s, start_t, end_t (sim play seconds), server, winner (None = let), reason, shots, score (the game's points), contact_q (contact quality 0-1 of each shot, in order)}
     frames: dict = field(default_factory=dict)  # 30 Hz: pos [F,2,2] f32 (court x,z), vel [F,2,2] f16, shuttle [F,3] f32 (x,y,z); frame f = sim step 4f
-    events: list = field(default_factory=list)  # sim events: start (+ game, ends, interval_before_s), hit, land, point, game_over; k = sim step (1/120 s), t = sim seconds
+    events: list = field(default_factory=list)  # sim events: start (+ game, ends, interval_before_s), hit (+ q, body [forward, lateral, height], mishit), cord (net-cord contact), land, point, game_over; k = sim step (1/120 s), t = sim seconds
 
 
 _SCALARS = [f.name for f in fields(MatchLog) if f.name != "frames"]

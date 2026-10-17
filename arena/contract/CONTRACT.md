@@ -125,7 +125,8 @@ The action is held for the 4 simulation steps (1/120 s each) of a decision step.
 | 5 | flight_time | u in [-1, 1]: flight time T = t_min + (u + 1)/2 * (t_max - t_min) seconds, with D the horizontal distance to the target, t_min the fastest flight within the hitter's launch cap at that contact height, t_max = clip(max(1 + 0.1 D, t_min + 0.25), 0.3, 3.0) |
 
 Execution noise: the aim point gets Gaussian noise (x and z, independent) with sigma = (0.15 + 0.25 v/90 + 0.35 (v/90)^2 + 0.3 [lunge or
-jump] + 0.2 s/`v_max`) * `noise_mult`, with v the launch speed (m/s) and s the hitter's speed. A shot faster than the launch cap is slowed to the cap (it then falls short).
+jump] + 0.2 s/`v_max`) * `noise_mult` * (1 + 1.5 (1 - q)), with v the launch speed (m/s), s the hitter's speed and q the contact quality
+(section 9). A shot faster than the launch cap x (0.6 + 0.4 q) is slowed to that cap (it then falls short).
 
 ## 6. Match rules
 
@@ -133,7 +134,20 @@ A match is **best of 3 games** (BWF laws with 15-point games).
 
 - **Each game:** 15-point rally scoring, win by 2, capped at 21 (at 20-20 the 21st point wins). The winner of a rally serves next. The server serves from the right court at an even own score, the left at an odd score, into the diagonal service court (short service line to back line, centre line to side line).
 - **Serving order:** the first server of game 1 is random from the seed (the first draw of `numpy.random.default_rng(seed).integers(0, 2, 1)`). **The winner of a game serves first in the next game.**
-- Real service rules as implemented in the simulator: an unhit toss, a serve landing outside the diagonal service court, a net fault (the shuttle crosses below the net tape, or lands on the hitter's own side) and a shot landing out are faults and lose the rally. A shuttle that lands in bounds on the hitter's opponent's half is won by the hitter.
+- **Laws enforced by the simulator (singles).** Each fault loses the rally for the player named; the `reason` is the name in the match log (`rallies_detail`, the `point` event) and in `evaluate` faults.
+
+  | reason | fault | law |
+  |---|---|---|
+  | `serve` | the toss is not hit; the serve lands outside the diagonal service court; the serve is struck with the shuttle centre above 1.15 m (the toss starts at 1.1 m, so this cannot happen in normal play) | 9.1, 9.1.3 |
+  | `net` | the shuttle passes under the net tape (also a serve), or ends on the hitter's own side (falls back from the net cord) | 13.4 |
+  | `net_touch` | a hit whose contact point is within 0.10 m of the net plane (`|x| < 0.10`) with the player extended (a lunge or jump), at once, hitter loses. Approximation of "touches the net" | 13.4.3 |
+  | `out` | a shot lands outside the singles court (lines are in) | 13.1 |
+  | `ceiling` | the shuttle goes above 11.5 m or beyond 12 m in x or 9.5 m in z (the hall), hitter loses | ceiling or obstacle |
+  | `missed` | the shuttle lands in bounds on the opponent's side: the hitter wins the rally (the opponent did not return it) | |
+  | `let` | the rally exceeds 150 shots: replayed, nobody scores. The only let | 14 |
+
+  Other laws: server and receiver **stand still until the serve is struck** (their commanded velocity is ignored, the server may swing; 9.1); a player may hit the shuttle only on their own side of the net (13.4.1); no player hits twice in a row and 0.35 s must pass since their last hit (13.4.5); the shuttle is hit by the racquet only.
+- A shuttle that lands in bounds on the hitter's opponent's half is won by the hitter.
 - **Intervals** (time only, no effect on play): 60 s when the leading score first reaches 8 in a game, 120 s between games. They count in `wall_duration_s` and appear as pauses in the replay (shown at most 8 s long).
 - **Change of ends:** after game 1, after game 2, and in game 3 when the leading score first reaches 8. The simulator is mirror-symmetric, so this only flips which world side each player occupies; every rally in the log records it (`ends`: 0 = player A on the -X half, 1 = on +X). Game 1 starts with A on -X.
 - A rally of more than **150 shots** is a let: replayed, nobody scores.
@@ -171,3 +185,20 @@ Two matches against the scripted bot (all-6 build), each **one game to 5 points*
 
 Passes when both games run with no exception and every action is finite. A game still running after 10 simulated minutes is stopped
 and counts as run (not a failure).
+
+## 9. Shuttle physics and racquet contact
+
+All of this is in the simulator; none of it changes the observation or action sizes.
+
+- **Flight:** quadratic drag, terminal velocity 6.8 m/s (the fitted model in `physics.py`), midpoint RK2 at 1/120 s. **Turnover:** for 0.03 s after every hit the drag is multiplied by 1.6, decaying linearly to 1. The shot solver (`shot_table.npz`, table version 3) uses the same flight, so an intended landing point is reached (within 1 cm without noise).
+- **Net cord:** the tape is a horizontal cylinder of radius 0.02 m along z, centred at 1.524 m at the middle of the net rising linearly to 1.55 m at the posts (|z| = 3.05 m). When the shuttle centre comes within 0.05 m (tape plus shuttle radius 0.03 m) of the tape axis, the velocity component normal to the tape is reflected with restitution 0.15, the tangential part (also z) is multiplied by 0.5, and the x velocity gets Gaussian noise (sigma 0.2 m/s) from the match seed. The shuttle then flies on under the drag model: it may roll over (play on) or fall back (`net`). A `cord` event is logged.
+- **Floor:** the shuttle stops at the floor, no bounce.
+- **Contact quality q in [0, 1].** The contact point is the shuttle position at the hit, in the hitter's body frame: forward f (toward the net), lateral l (+ on the racquet side, the right hand: +z for player 0, -z for player 1, in court coordinates), height y. Ideal zone: f 0.2-0.7 m, l 0.2-0.9 m, y 0.9-2.9 m; the lower f limit relaxes from 0.2 to -0.1 as y goes from 2.0 to 2.6 m (an overhead stroke). `q = 1 - (zone + cramped + late + backhand + stretch)`, clipped to [0, 1], with
+  - zone = 0.6 * min(1, d / (0.8 * reach)), d = distance from the contact point to the ideal zone
+  - cramped = 0.25 * clip(1 - r / 0.35, 0, 1), r = horizontal distance from the body
+  - late = 0.4 * clip(excess / 0.5, 0, 1), excess = how far behind the (relaxed) lower f limit
+  - backhand = 0.2 * clip(-l / 0.4, 0, 1)
+  - stretch = 0.15 when the hit is a lunge or a jump.
+- **Effect of q:** the launch cap is multiplied by (0.6 + 0.4 q); the aim noise sigma by (1 + 1.5 (1 - q)). **Mishit** when q < 0.15: the shuttle leaves at 40 % of the intended launch speed with the elevation and the heading each off by a Gaussian error of sigma 25 degrees.
+- **Replay:** `animate` moves the body so the contact is 0.78-1.08 m from the right shoulder (a step, hop or crouch) and solves the right arm so that the racquet's sweet spot (0.55 m from the grip along the forearm, as the viewer draws the racquet) is on the shuttle at every contact frame.
+- The match log records `q` (and the body-frame contact point, `mishit`) on every `hit` event and `contact_q` per rally in `rallies_detail`.

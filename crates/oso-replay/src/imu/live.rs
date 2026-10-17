@@ -146,7 +146,7 @@ impl LiveFusion {
 
     fn finish_calibration(&mut self) {
         let Some(w) = self.warm.take() else { return };
-        if let Some(win) = fusion::find_stationary(&w) {
+        if let Some(win) = fusion::find_stationary(&w, 1.0 / self.params.nominal_dt) {
             self.bias = fusion::gyro_bias(&w, win);
         }
         let acc = mean_acc(&w[..START_TILT]);

@@ -10,6 +10,7 @@ thread_local! {
     // wasm is single-threaded, so a thread_local is a global
     static QUEUE: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
     static STATUS: Cell<Status> = const { Cell::new(Status::EMPTY) };
+    static REPLAY_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// What the timeline UI polls each animation frame.
@@ -60,6 +61,17 @@ pub fn drain_into(out: &mut Vec<Command>) {
 
 pub fn set_status(s: Status) {
     STATUS.with(|c| c.set(s));
+}
+
+/// Called by `State::new` (wasm only) with the replay load/parse error; read back by `oso_replay_error`.
+pub fn set_replay_error(e: String) {
+    REPLAY_ERROR.with(|c| *c.borrow_mut() = e);
+}
+
+/// Empty when the replay loaded or none was attempted, otherwise the load/parse error.
+#[wasm_bindgen]
+pub fn oso_replay_error() -> String {
+    REPLAY_ERROR.with(|c| c.borrow().clone())
 }
 
 #[wasm_bindgen]

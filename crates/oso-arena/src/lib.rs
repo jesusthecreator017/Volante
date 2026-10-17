@@ -1,12 +1,13 @@
 //! Arena viewer: the shared renderer plus the scoreboard, driven by the `point` events of a replay.bin.
 
+mod racquet;
 mod scoreboard;
 #[cfg(target_arch = "wasm32")]
 mod web_api;
 
 use oso_render::Extras;
-use oso_render::replay::Replay;
 use oso_render::renderer::model::Model;
+use oso_render::replay::Replay;
 use oso_render::scene::components::{ModelHandle, Transform};
 use oso_render::scene::court;
 use oso_render::state::PLAYER_COLORS;
@@ -18,7 +19,7 @@ const BOARD_COLOR: [f32; 4] = [0.03, 0.03, 0.04, 1.0];
 // Lit segments are emissive (alpha < 0.9, see model.wgsl); the separator is white
 const SEGMENT_ALPHA: f32 = 0.5;
 
-/// One 7-segment bar of the scoreboard: `cell` 0..4 (P1 tens, P1 units, P2 tens, P2 units), `seg` 0..7 (a..g)
+/// One 7-segment bar of the scoreboard: `cell` 0..4 (A tens, A units, B tens, B units; by slot P1 / P2 when the replay has no `match` header), `seg` 0..7 (a..g)
 #[derive(Copy, Clone, Debug)]
 struct ScoreSegment {
     cell: usize,
@@ -34,7 +35,20 @@ struct ArenaExtras {
 impl Extras for ArenaExtras {
     #[cfg(target_arch = "wasm32")]
     fn replay_loaded(&mut self, r: &Replay) {
-        web_api::set_points(r.events());
+        web_api::set_replay(r);
+    }
+
+    // A model keeps its color across a change of ends (the replay slots follow the world sides)
+    fn slot_colors(&self, r: &Replay, t: f64) -> [usize; 2] {
+        r.slot_models(t)
+    }
+
+    // Procedural racquet: the Arena bundle ships no racquet OBJ
+    fn racquet_parts(
+        &self,
+        color: [f32; 3],
+    ) -> Option<Vec<(oso_render::scene::court::CpuMesh, [f32; 4])>> {
+        Some(racquet::parts(color))
     }
 
     fn spawn(
@@ -53,9 +67,10 @@ impl Extras for ArenaExtras {
         Ok(())
     }
 
-    // Score is stateless in t, so seeks work; instances are only touched when the lit segments change
+    // Score is stateless in t, so seeks work; instances are only touched when the lit segments change. The board shows the score by model
+    // (A left in orange, B right in cyan, like the page header), not by court side, so it does not swap at a change of ends.
     fn update(&mut self, world: &mut hecs::World, r: &Replay, t: f64) {
-        if let Some(score) = r.score_at(t) {
+        if let Some(score) = r.model_score_at(t) {
             let masks = scoreboard::masks(score);
             if self.score_masks != Some(masks) {
                 self.score_masks = Some(masks);
@@ -72,7 +87,7 @@ impl Extras for ArenaExtras {
 }
 
 // The scoreboard: dark board hung on cables behind the far baseline, 4 digit cells of 7 bar instances each (hidden until the first update writes the score),
-// and a two-dot separator. Bars are P0 orange / P1 cyan emissive.
+// and a two-dot separator. Bars are model A orange / model B cyan emissive (PLAYER_COLORS 0 / 1).
 fn spawn_scoreboard(
     world: &mut hecs::World,
     models: &mut Vec<Model>,
@@ -161,6 +176,48 @@ pub fn run() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use oso_render::replay::{Build, MatchInfo, ModelInfo};
+
+    fn replay_with_ends(ends: Vec<(f64, u8)>) -> Replay {
+        let b = || ModelInfo {
+            name: "M".into(),
+            build: Build {
+                power: 1,
+                speed: 1,
+                reach: 1,
+                accuracy: 1,
+            },
+        };
+        Replay::from_parts(60.0, 1, 2, vec![[0.0; 4]; 2 * 17], None).with_match(MatchInfo {
+            a: b(),
+            b: b(),
+            ends,
+        })
+    }
+
+    // The colors of the slots swap at a change of ends so model A stays orange (PLAYER_COLORS[0]) and B cyan
+    #[test]
+    fn slot_colors_follow_the_models_across_a_change_of_ends() {
+        let r = replay_with_ends(vec![(0.0, 0), (100.0, 1)]);
+        let x = ArenaExtras::default();
+        assert_eq!(x.slot_colors(&r, 99.9), [0, 1]);
+        assert_eq!(x.slot_colors(&r, 100.0), [1, 0]);
+        assert_eq!(x.slot_colors(&r, 500.0), [1, 0]);
+        // Without a match header (an old file) the colors stay by slot
+        let plain = Replay::from_parts(60.0, 1, 2, vec![[0.0; 4]; 2 * 17], None);
+        assert_eq!(x.slot_colors(&plain, 500.0), [0, 1]);
+    }
+
+    #[test]
+    fn arena_brings_its_own_racquet_one_tint_per_player_color() {
+        let x = ArenaExtras::default();
+        let a = x.racquet_parts(PLAYER_COLORS[0]).unwrap();
+        let b = x.racquet_parts(PLAYER_COLORS[1]).unwrap();
+        assert_eq!(a.len(), b.len());
+        assert_ne!(a[0].1, b[0].1);
+    }
+
     // The default replay of a fresh checkout must exist
     #[test]
     fn synthetic_replay_is_there() {

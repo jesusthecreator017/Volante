@@ -1,0 +1,74 @@
+# XcodeGen spec: `brew install xcodegen && cd apple && xcodegen` -> Oso.xcodeproj
+name: Oso
+options:
+  bundleIdPrefix: com.oso
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+packages:
+  OsoKit:
+    path: OsoKit
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "" # set your team in Xcode (Signing & Capabilities) for both targets
+targets:
+  OsoPhone:
+    type: application
+    platform: iOS
+    sources:
+      - OsoPhone
+      - Shared
+      - path: ../app/public/sample/imu.bin # bundled sample session
+        buildPhase: resources
+    dependencies:
+      - package: OsoKit
+      - target: OsoWatch
+    configFiles:
+      Debug: OsoPhone/Config.xcconfig
+      Release: OsoPhone/Config.xcconfig
+    info:
+      path: OsoPhone/Info.plist
+      properties:
+        CFBundleDisplayName: oso
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSBluetoothAlwaysUsageDescription: oso connects to the racquet pod over Bluetooth to record your swings.
+        NSLocalNetworkUsageDescription: oso talks to your oso server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true # plain http to the Pi on the LAN (deploy/pi/README.md)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        GoogleClientID: $(GOOGLE_CLIENT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [$(GOOGLE_REDIRECT_SCHEME)]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oso.phone
+  OsoWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - OsoWatch
+      - Shared
+    dependencies:
+      - package: OsoKit
+    entitlements:
+      path: OsoWatch/OsoWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+    info:
+      path: OsoWatch/Info.plist
+      properties:
+        CFBundleDisplayName: oso
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.oso.phone
+        WKBackgroundModes: [workout-processing]
+        NSHealthShareUsageDescription: oso reads your heart rate and energy during badminton workouts.
+        NSHealthUpdateUsageDescription: oso saves your badminton workouts to Health.
+        NSMotionUsageDescription: oso records your wrist motion during badminton to count and measure swings.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oso.phone.watchkitapp

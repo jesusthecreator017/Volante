@@ -1,5 +1,8 @@
 """Stat builds (contract oso-arena/1, spec 3.2): four integer stats 1-10 that sum to 24 map piecewise-linearly (1 -> 6 -> 10) to
 the simulator's per-player limits. A 6 in every stat is exactly the Phase 13.2 constant set."""
+import functools
+import itertools
+
 import numpy as np
 
 STATS = ("power", "speed", "reach", "accuracy")
@@ -70,3 +73,21 @@ def parse(s):
 
 def to_array(build):
     return np.array([build[k] for k in STATS], int)
+
+
+@functools.lru_cache(maxsize=1)
+def _all_valid():
+    a = np.array([b for b in itertools.product(range(MIN, MAX + 1), repeat=4) if sum(b) == BUDGET], int)
+    a.setflags(write=False)
+    return a
+
+
+def all_valid():
+    """Every valid build (four integers 1-10 that sum to 24) as a read-only int array [k, 4], in lexicographic order."""
+    return _all_valid()
+
+
+def random_builds(rng, k):
+    """k builds [k, 4] drawn uniformly from all valid builds."""
+    v = all_valid()
+    return v[rng.integers(0, len(v), k)]

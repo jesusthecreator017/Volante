@@ -100,7 +100,7 @@ players as point masses with a reach envelope), a scripted baseline bot (`bot.py
 All commands from the repo root; outputs go to `out/badsim/` (gitignored).
 ```
 tools/.venv/bin/python arena/kit/oso_arena/test_badsim.py                       # simulator, rules, solver, mirroring, export tests
-tools/.venv/bin/python arena/kit/oso_arena/train.py --minutes 225               # PPO self-play, checkpoints + train_log.jsonl every 15 min / 2 min (--resume continues)
+PYTHONPATH=arena/kit tools/.venv/bin/python -m oso_arena train --minutes 225 --out out/badsim   # PPO self-play (safetensors checkpoints + train_log.jsonl; --resume continues); see arena/kit/README.md
 tools/.venv/bin/python arena/kit/oso_arena/evaluate.py                          # 200 games vs bot + 200 policy-vs-policy -> out/badsim/eval.json
 tools/.venv/bin/python arena/kit/tests/run_all.py                                # Phase 14.2 kit tests (contract, builds, check, match, animate, CLI)
 PYTHONPATH=arena/kit tools/.venv/bin/python -m oso_arena match A.safetensors bot -o out/badsim/m.log.gz --seed 0   # one game -> match log (A / B: file or `bot`)
