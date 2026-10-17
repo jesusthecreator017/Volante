@@ -40,6 +40,7 @@ function scrollToHash() {
   if (el) el.scrollIntoView();
 }
 
+let firstRender = true;
 let cleanup: (() => void) | void = undefined;
 let notFound: Page = () => {};
 let onNavigate: (path: string) => void = () => {};
@@ -65,7 +66,9 @@ export async function render(root: HTMLElement) {
   document.title = m ? `${m.route.title} · oso` : "Not found · oso";
   onNavigate(url.pathname);
   cleanup = await (m ? m.route.page(root, m.params, url.searchParams) : notFound(root, {}, url.searchParams));
-  root.focus({ preventScroll: true });
+  // Not on the first load: focusing <main> moves the Tab start point past the skip link and header.
+  if (!firstRender) root.focus({ preventScroll: true });
+  firstRender = false;
   scrollToHash();
 }
 
