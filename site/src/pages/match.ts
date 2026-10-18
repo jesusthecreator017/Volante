@@ -1,17 +1,12 @@
 // Match: the 3D viewer (embedded, never rebuilt), scoreboard, per-game scores, rally list with click-to-seek.
 
-import { api, replayUrl } from "../api";
+import { api } from "../api";
 import { RALLY_REASON } from "../arena";
 import { buildBars, fmtDate, fmtDelta, load, modelLink, ownerChip, setChips, statusPill, styleGuess } from "../components";
 import { h } from "../dom";
 import type { MatchDetail, Rally, Side } from "../types";
-
-/** The viewer bundle shipped by the oso repo team (handoff section 7). */
-export const viewerSrc = (matchId: number) => `/viewer/index.html?match=${encodeURIComponent(replayUrl(matchId))}`;
-
-interface ViewerWindow extends Window {
-  oso_seek?: (t: number) => void;
-}
+import { mountViewer } from "../viewer";
+import { icon } from "../icons";
 
 export function match(root: HTMLElement, p: Record<string, string>) {
   const id = Number(p.id);
@@ -53,34 +48,9 @@ function render(root: HTMLElement, m: MatchDetail) {
     return;
   }
 
-  // Replays are 10-30 MB: don't start the download on its own on phones / metered connections
-  const conn = (navigator as Navigator & { connection?: { saveData?: boolean; type?: string } }).connection;
-  const small = matchMedia("(max-width: 700px)").matches;
-  let frame: HTMLIFrameElement | null = null;
-  const mount = () => {
-    frame = h("iframe", { src: viewerSrc(m.id), title: `3D replay: ${m.a.name} vs ${m.b.name}`, allow: "fullscreen", class: "viewer-frame" });
-    viewerBox.replaceChildren(frame);
-  };
-  if (small || conn?.saveData || conn?.type === "cellular") {
-    viewerBox.append(
-      h(
-        "div",
-        { class: "viewer-wait" },
-        h("p", null, "The 3D replay is a 10–30 MB download."),
-        h("button", { type: "button", class: "btn primary", onclick: mount }, "Load 3D replay"),
-      ),
-    );
-  } else mount();
-
+  const viewer = mountViewer(viewerBox, m);
   const seek = (r: Rally) => {
-    if (!frame) mount();
-    const w = frame!.contentWindow as ViewerWindow | null;
-    try {
-      if (w?.oso_seek) w.oso_seek(r.t_start);
-      else frame!.addEventListener("load", () => (frame!.contentWindow as ViewerWindow | null)?.oso_seek?.(r.t_start), { once: true });
-    } catch {
-      // cross-origin viewer: seeking unavailable
-    }
+    viewer.seek(r.t_start);
     viewerBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
   root.append(rallyList(m, seek));
@@ -112,7 +82,7 @@ function rallyList(m: MatchDetail, seek: (r: Rally) => void): HTMLElement {
                 { class: "rally" },
                 h("span", { class: "ry-score" }, `${r.score[0]}–${r.score[1]}`),
                 h("span", { class: "ry-text" }, h("strong", null, name(r.winner)), ` · ${RALLY_REASON[r.reason] ?? r.reason} · ${r.shots} ${r.shots === 1 ? "shot" : "shots"}`),
-                h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, "▶ " + fmtT(r.t_start)),
+                h("button", { type: "button", class: "link-btn", onclick: () => seek(r), "aria-label": `Jump to game ${r.game} rally at ${r.score.join("–")}` }, icon("play-fill"), fmtT(r.t_start)),
               ),
             ),
         ),

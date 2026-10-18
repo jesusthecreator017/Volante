@@ -3,8 +3,22 @@
 import { BUILD_TOTAL, MAX_UPLOAD_BYTES, PLAY_STYLES, STATS, STAT_EFFECT, STAT_LABEL, STAT_SHORT, UPLOADS_PER_DAY } from "../arena";
 import { buildBars } from "../components";
 import { h, link } from "../dom";
+import { icon } from "../icons";
 
-const code = (t: string) => h("pre", { class: "code" }, h("code", null, t));
+/** A command block with a copy button (the button only appears where the Clipboard API is available). */
+const code = (t: string) => {
+  const pre = h("pre", { class: "code" }, h("code", null, t));
+  if (!navigator.clipboard) return pre;
+  const btn = h("button", { type: "button", class: "icon-btn copy-btn", "aria-label": "Copy commands", title: "Copy" }, icon("copy"));
+  btn.addEventListener("click", () => {
+    void navigator.clipboard.writeText(t).then(() => {
+      btn.replaceChildren(icon("check-circle-fill"));
+      btn.setAttribute("aria-label", "Copied");
+      setTimeout(() => (btn.replaceChildren(icon("copy")), btn.setAttribute("aria-label", "Copy commands")), 1600);
+    });
+  });
+  return h("div", { class: "code-wrap" }, pre, btn);
+};
 
 export function getStarted(root: HTMLElement) {
   root.append(
@@ -15,7 +29,7 @@ export function getStarted(root: HTMLElement) {
       "Arena is a badminton game for AIs. You train a small neural network to play singles, upload it, and it plays everyone else's around the clock. Every match can be watched in 3D.",
     ),
     h("h2", null, "1. Get the training kit"),
-    code("git clone https://github.com/jesusthecreator017/oso.git\ncd oso\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
+    code("git clone https://github.com/jesusthecreator017/Volante.git\ncd Volante\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
     h(
       "p",
       null,
@@ -57,6 +71,15 @@ export function getStarted(root: HTMLElement) {
       h("strong", null, "oso-arena-coach"),
       " skill to train toward a style.",
     ),
+    h("h3", null, "Optional: make your twin"),
+    h(
+      "p",
+      null,
+      "Have a Volante pod? Turn your sessions into a style profile and train a model that plays like you. It goes on the ",
+      link("/arena/twins", "Twins ladder"),
+      " once it proves it does:",
+    ),
+    code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
     h("h2", null, "5. Upload"),
     h(
       "ul",
@@ -92,6 +115,7 @@ export function terms(root: HTMLElement) {
       h("li", null, "One account per person."),
       h("li", null, "Matches can be voided, and models removed, for exploiting simulator bugs."),
       h("li", null, "You can delete your account at any time from the account menu."),
+      h("li", null, "A twin's style profile is self-reported. A twin that stops playing like its profile is moved back to the open ladder."),
     ),
     h("p", { class: "muted small" }, "Draft text: the final terms (and the kit's licence) are set by the project owner."),
   );
@@ -102,6 +126,9 @@ export function privacy(root: HTMLElement) {
     h("h1", null, "Privacy"),
     h("p", null, "We store only your GitHub user id, login and avatar URL, plus the models you upload and the matches they play."),
     h("p", null, "Sign-in uses a session cookie. There are no trackers or third-party analytics on this site."),
+    h("h2", null, "Volante Twins"),
+    h("p", null, "Your raw pod sessions stay on your computer or phone. Only the style profile (a few numbers: speeds, tempo, counts) is uploaded, inside the model file."),
+    h("p", null, "The profile contains no name, no pod ID and no timestamps except its creation time. It is shown publicly on the model's page. Deleting the model or your account deletes it."),
     h("p", null, "Delete your account any time from the account menu: your account is removed."),
     h("p", { class: "muted small" }, "Draft text, set by the project owner."),
   );

@@ -8,7 +8,7 @@ const MIN_SPEED: f32 = 0.1;
 const MAX_SPEED: f32 = 2.0;
 
 /// Everything a UI can ask of the app; queued and applied in order once per frame.
-// Play, Pause and Preset come from the web buttons only (NextStroke/PrevStroke from both; they need the replay, so State applies them); native keys 1-3 go through the camera controller.
+// Play, Pause come from the web buttons only; Preset and NextStroke/PrevStroke from both (they need the replay or camera, so State applies them).
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Command {

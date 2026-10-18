@@ -1,6 +1,6 @@
 # CI/CD (GitHub Actions)
 
-The repo is private: Actions minutes count against the plan. No server deploys.
+The repo is private: Actions minutes count against the plan. Merges to `main` deploy to the Pi (see Deploy below).
 
 ## CI (`.github/workflows/ci.yml`)
 Runs on pull requests, pushes to `main` and manual dispatch. A `changes` job (paths filter) decides which jobs run, so a docs-only PR
@@ -13,12 +13,19 @@ Notes:
 - `tools/test_video.py` is not run (needs rendered videos and ONNX pose models); `tools/test_strokes.py` skips its BFMD parts.
 - Not covered: `oso-replay` for wasm, `web/replay/build.sh`, and the firmware (release only).
 
+## Deploy to the Pi (`.github/workflows/deploy.yml`)
+On a push to `main` touching `site/ web/ crates/ proto/ arena/ app/ deploy/pi/` (and by manual dispatch), a self-hosted runner on the Pi
+installs the Arena bundle and/or the Replay LAN server through `/usr/local/sbin/volante-deploy`, health-checks, and rolls back on failure.
+Kit version bumps are refused unless dispatched with `allow_kit_bump`. The bundle build is the reusable `bundle.yml` (also used by the
+release). Setup, trust model, rollback and pausing: [deploy/pi/CD.md](../deploy/pi/CD.md). CI job `Pi deploy scripts` runs shellcheck and
+`deploy/pi/ci/test_volante_deploy.sh`.
+
 ## Release (`.github/workflows/release.yml`)
 ```
 git tag v0.4.1 && git push origin v0.4.1
 ```
 Jobs: `kit` (wheel + sdist, checked in a fresh venv), `web` (viewer zips and site zip), `pi-bundle`
-(`arena/handoff/make_bundle.sh`), `firmware` (esp toolchain, `cargo build --release`, app image), then `release` creates the GitHub
+(`bundle.yml`, i.e. `arena/handoff/make_bundle.sh`), `firmware` (esp toolchain, `cargo build --release`, app image), then `release` creates the GitHub
 Release with generated notes, every file below and `SHA256SUMS.txt`.
 
 Assets: `oso_arena-*.whl`, `oso_arena-*.tar.gz`, `oso-viewer-arena-<tag>.zip`, `oso-viewer-replay-<tag>.zip`, `site-<tag>.zip`,

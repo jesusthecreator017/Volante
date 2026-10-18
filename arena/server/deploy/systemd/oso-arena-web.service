@@ -1,0 +1,40 @@
+[Unit]
+Description=oso Arena web (API + site, 127.0.0.1:8700; /healthz on 127.0.0.1:8701)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oso-arena
+Group=oso-arena
+EnvironmentFile=/etc/oso-arena/arena.env
+ExecStart=/opt/oso-arena/venv/bin/python -m osoarena.web
+Restart=always
+RestartSec=2
+UMask=0027
+ReadWritePaths=/var/lib/oso-arena
+InaccessiblePaths=-/var/lib/oso-arena/jobs
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=1G
+TasksMax=128
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

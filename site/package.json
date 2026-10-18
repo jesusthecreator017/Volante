@@ -9,9 +9,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "icons": "node scripts/phosphor-icons.mjs"
   },
   "devDependencies": {
+    "@phosphor-icons/core": "2.1.1",
     "happy-dom": "^21.0.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

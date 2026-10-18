@@ -1,10 +1,5 @@
 use std::sync::Arc;
-use winit::{
-    event::{MouseButton, MouseScrollDelta},
-    event_loop::ActiveEventLoop,
-    keyboard::KeyCode,
-    window::Window,
-};
+use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 use crate::assets::load_bytes;
 use crate::calib::{self, Calib};
@@ -16,7 +11,7 @@ use crate::renderer::model::Model;
 use crate::replay::{self, BONES, JOINTS, Replay, TrailPoint};
 use crate::scene::body::{self, BodyPart};
 use crate::scene::camera::{Camera, Projection};
-use crate::scene::camera_controller::CameraController;
+use crate::scene::camera_transition::{Pose, Transition};
 use crate::scene::components::{
     CameraMarker, ModelHandle, PointLight, Racquet, Shuttle, Transform,
 };
@@ -38,8 +33,8 @@ const MARKER_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 const MARKER_SCALE: f32 = 0.15;
 // Net body grid, linear
 const NET_LINE_COLOR: [f32; 3] = [0.08, 0.08, 0.08];
-const HALL_FLOOR_COLOR: [f32; 4] = [0.45, 0.38, 0.32, 1.0];
-const HALL_WALL_COLOR: [f32; 4] = [0.45, 0.52, 0.65, 1.0];
+const HALL_FLOOR_COLOR: [f32; 4] = [0.42, 0.4, 0.34, 1.0];
+const HALL_WALL_COLOR: [f32; 4] = [0.42, 0.52, 0.47, 1.0];
 const HALL_CEILING_COLOR: [f32; 4] = [0.77, 0.77, 0.79, 1.0];
 // Alpha below 0.9 makes model.wgsl draw the material unlit and bright (HDR); the fixture glows warm white
 const HALL_FIXTURE_COLOR: [f32; 4] = [1.0, 0.95, 0.85, 0.5];
@@ -91,7 +86,12 @@ pub struct State {
     models: Vec<Model>,
     camera: Camera,
     projection: Projection,
-    camera_controller: CameraController,
+    // Preset switch in flight (None when the camera is at rest)
+    transition: Option<Transition>,
+    // Last camera preset selected (1-5), published to the page
+    preset: u8,
+    // Presets jump instead of gliding: screenshots and frame renders
+    instant_camera: bool,
     calib: Option<Calib>,
     replay: Option<Replay>,
     playback: Playback,
@@ -129,9 +129,6 @@ pub struct State {
     last_tick: Instant,
     // Rebuilt every frame, reused to avoid reallocating
     line_vertices: Vec<LineVertex>,
-    // Orbit only while the left button is held
-    mouse_pressed: bool,
-    right_pressed: bool,
 }
 
 impl State {
@@ -177,7 +174,7 @@ impl State {
         let mut world = hecs::World::new();
 
         let parts = [
-            ("Floor", court::floor(), [0.1, 0.45, 0.2, 1.0]),
+            ("Floor", court::floor(), [0.16, 0.45, 0.26, 1.0]),
             ("Lines", court::lines(), [1.0, 1.0, 1.0, 1.0]),
             ("Net tape", court::net(), [0.95, 0.95, 0.95, 1.0]),
             ("Posts", court::posts(), [0.2, 0.2, 0.2, 1.0]),
@@ -344,7 +341,9 @@ impl State {
             models,
             camera,
             projection,
-            camera_controller: CameraController::new(0.004),
+            transition: None,
+            instant_camera: false,
+            preset: 1,
             calib,
             replay,
             playback: Playback::new(duration),
@@ -368,8 +367,6 @@ impl State {
             reorient: false,
             last_tick: Instant::now(),
             line_vertices: Vec::new(),
-            mouse_pressed: false,
-            right_pressed: false,
         })
     }
 
@@ -396,6 +393,7 @@ impl State {
     pub fn screenshot(&mut self, shot: &crate::app::Shot) -> anyhow::Result<()> {
         let (w, h) = shot.size;
         self.resize(w, h);
+        self.instant_camera = true;
         if let Some(job) = &shot.frames {
             return self.render_frames(shot, job);
         }
@@ -582,8 +580,13 @@ impl State {
         }
         self.commands = commands;
         self.playback.advance(dt);
-        self.camera_controller
-            .update_camera(&mut self.camera, dt as f32);
+        if let Some(tr) = &mut self.transition {
+            let (pose, done) = tr.advance(dt as f32);
+            self.set_pose(&pose);
+            if done {
+                self.transition = None;
+            }
+        }
         self.update_bodies();
         #[cfg(target_arch = "wasm32")]
         self.publish_status();
@@ -642,17 +645,19 @@ impl State {
 
     // 1-3: orbit presets with the default lens; 4-5: calibrated camera views
     fn apply_preset(&mut self, preset: u8) {
-        if (1..=3).contains(&preset) {
-            self.camera.apply_preset(preset);
-            self.projection.set_fovy(cgmath::Deg(DEFAULT_FOVY));
+        let to = if (1..=3).contains(&preset) {
+            let mut c = Camera::new((0.0, 0.0, 0.0), cgmath::Deg(0.0), cgmath::Deg(30.0), 10.0);
+            c.apply_preset(preset);
+            Pose {
+                eye: c.eye().into(),
+                target: c.target.into(),
+                fovy: cgmath::Rad::from(cgmath::Deg(DEFAULT_FOVY)).0,
+            }
         } else if let Some(cam) = self
             .calib
             .as_ref()
-            .and_then(|c| c.cameras.get(preset as usize - 4))
+            .and_then(|c| c.cameras.get((preset as usize).wrapping_sub(4)))
         {
-            self.camera = Camera::look_from(cam.position, cam.look_target());
-            // Vertical FOV matches the framing; a different viewport aspect crops or extends horizontally
-            self.projection.set_fovy(cgmath::Rad(cam.fovy()));
             let aspect = self.renderer.gpu.aspect();
             if (aspect - cam.aspect()).abs() > 0.05 {
                 log::info!(
@@ -661,7 +666,37 @@ impl State {
                     cam.aspect()
                 );
             }
+            // Vertical FOV matches the framing; a different viewport aspect crops or extends horizontally
+            Pose {
+                eye: cam.position,
+                target: cam.look_target(),
+                fovy: cam.fovy(),
+            }
+        } else {
+            return;
+        };
+        self.preset = preset;
+        #[cfg(target_arch = "wasm32")]
+        let reduced = crate::web_api::reduced_motion();
+        #[cfg(not(target_arch = "wasm32"))]
+        let reduced = false;
+        if self.instant_camera || reduced {
+            self.transition = None;
+            self.set_pose(&to);
+        } else {
+            // From wherever the camera is now, so a switch mid-flight does not jump
+            let from = Pose {
+                eye: self.camera.eye().into(),
+                target: self.camera.target.into(),
+                fovy: self.projection.fovy().0,
+            };
+            self.transition = Some(Transition::new(from, to));
         }
+    }
+
+    fn set_pose(&mut self, pose: &Pose) {
+        self.camera = Camera::look_from(pose.eye, pose.target);
+        self.projection.set_fovy(cgmath::Rad(pose.fovy));
     }
 
     // Samples the replay at the playback time and moves every body part and shadow to match
@@ -776,6 +811,7 @@ impl State {
             big_shuttle: self.big_shuttle,
             has_shuttle: self.replay.as_ref().is_some_and(|r| r.has_shuttle()),
             stroke_count: r.strokes().len() as u32,
+            preset: self.preset as u32,
             cameras: self.calib.as_ref().map_or(0, |c| c.cameras.len() as u32),
         });
     }
@@ -787,10 +823,6 @@ impl State {
         is_pressed: bool,
         repeat: bool,
     ) {
-        if self.camera_controller.handle_key(code, is_pressed) && is_pressed {
-            // Presets 1-3 are the Phase 0 views with the default lens
-            self.projection.set_fovy(cgmath::Deg(DEFAULT_FOVY));
-        }
         if is_pressed && !repeat && code == KeyCode::KeyC {
             self.show_markers = !self.show_markers;
             let scale = if self.show_markers { MARKER_SCALE } else { 0.0 };
@@ -801,10 +833,8 @@ impl State {
         if is_pressed {
             self.handle_playback_key(code, repeat);
         }
-        match code {
-            KeyCode::Digit4 if is_pressed => self.apply_preset(4),
-            KeyCode::Digit5 if is_pressed => self.apply_preset(5),
-            _ => {}
+        if let (true, false, Some(n)) = (is_pressed, repeat, preset_key(code)) {
+            self.commands.push(Command::Preset(n));
         }
         if code == KeyCode::Escape && is_pressed {
             event_loop.exit();
@@ -815,7 +845,6 @@ impl State {
     fn handle_playback_key(&mut self, code: KeyCode, repeat: bool) {
         let cmd = match code {
             // Held Space must not flip play/pause every repeat; held , and . keep stepping
-            // (arrows fly the camera)
             KeyCode::Space if !repeat => Command::TogglePlay,
             KeyCode::Period | KeyCode::Comma => match step_command(code) {
                 Some(c) => c,
@@ -832,32 +861,6 @@ impl State {
             _ => return,
         };
         self.commands.push(cmd);
-    }
-
-    pub fn handle_mouse_button(&mut self, button: MouseButton, pressed: bool) {
-        match button {
-            MouseButton::Left => self.mouse_pressed = pressed,
-            MouseButton::Right => self.right_pressed = pressed,
-            _ => {}
-        }
-    }
-
-    pub fn handle_focus_lost(&mut self) {
-        self.camera_controller.clear_keys();
-        self.mouse_pressed = false;
-        self.right_pressed = false;
-    }
-
-    pub fn handle_mouse_motion(&mut self, dx: f64, dy: f64) {
-        if self.right_pressed {
-            self.camera_controller.handle_mouse(dx, dy, true);
-        } else if self.mouse_pressed {
-            self.camera_controller.handle_mouse(dx, dy, false);
-        }
-    }
-
-    pub fn handle_scroll(&mut self, delta: &MouseScrollDelta) {
-        self.camera_controller.handle_scroll(delta);
     }
 }
 
@@ -884,7 +887,19 @@ fn net_line_vertices() -> Vec<LineVertex> {
         .collect()
 }
 
-// Frame-step keys: , and . (arrows fly the camera)
+// Camera presets: 1-3 always, 4-5 are the calibrated views (ignored without calibration)
+fn preset_key(code: KeyCode) -> Option<u8> {
+    match code {
+        KeyCode::Digit1 => Some(1),
+        KeyCode::Digit2 => Some(2),
+        KeyCode::Digit3 => Some(3),
+        KeyCode::Digit4 => Some(4),
+        KeyCode::Digit5 => Some(5),
+        _ => None,
+    }
+}
+
+// Frame-step keys: , and .
 fn step_command(code: KeyCode) -> Option<Command> {
     match code {
         KeyCode::Period => Some(Command::Step(1)),
@@ -1065,6 +1080,26 @@ mod tests {
         ));
         assert!(step_command(KeyCode::ArrowLeft).is_none());
         assert!(step_command(KeyCode::ArrowRight).is_none());
+    }
+
+    #[test]
+    fn only_digit_keys_select_presets() {
+        assert_eq!(preset_key(KeyCode::Digit1), Some(1));
+        assert_eq!(preset_key(KeyCode::Digit3), Some(3));
+        assert_eq!(preset_key(KeyCode::Digit5), Some(5));
+        for k in [
+            KeyCode::KeyW,
+            KeyCode::KeyA,
+            KeyCode::KeyS,
+            KeyCode::KeyD,
+            KeyCode::KeyQ,
+            KeyCode::KeyE,
+            KeyCode::ArrowUp,
+            KeyCode::ShiftLeft,
+            KeyCode::Digit0,
+        ] {
+            assert_eq!(preset_key(k), None);
+        }
     }
 
     #[test]

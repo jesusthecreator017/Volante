@@ -2,7 +2,7 @@
 
 import { notFound, getStarted, privacy, terms } from "./pages/content";
 import { arenaHome } from "./pages/home";
-import { ladder } from "./pages/ladder";
+import { ladder, twinsLadder } from "./pages/ladder";
 import { landing } from "./pages/landing";
 import { match } from "./pages/match";
 import { model } from "./pages/model";
@@ -17,6 +17,7 @@ route("/terms", "Terms", terms);
 route("/privacy", "Privacy", privacy);
 route("/arena", "Arena", arenaHome);
 route("/arena/ladder", "Ladder · Arena", ladder);
+route("/arena/twins", "Twins · Arena", twinsLadder);
 route("/arena/models/:id", "Model · Arena", model);
 route("/arena/matches/:id", "Match · Arena", match);
 route("/arena/tournaments", "Tournaments · Arena", tournaments);

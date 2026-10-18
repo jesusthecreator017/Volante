@@ -1,12 +1,27 @@
 import { api, ApiError } from "../api";
-import { actionLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
+import { moreLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
 import { append, h, link, s } from "../dom";
-import type { Tournament, TournamentSummary } from "../types";
+import type { LadderName, Tournament, TournamentSummary } from "../types";
+import { ladderToggle } from "../twins";
 
 export function arenaHome(root: HTMLElement) {
   const featured = h("section", { class: "card featured", "aria-labelledby": "feat-h" });
   const top = h("div");
   const latest = h("div");
+  // Top 10 with an Open | Twins switch that swaps the list in place (no navigation)
+  const topHead = h("div", { class: "section-head" }, h("h2", null, "Top 10"));
+  const topMore = h("div");
+  const showTop = (lad: LadderName) => {
+    const sw = ladderToggle(lad, (l) => (l === "twins" ? "/arena/twins" : "/arena/ladder"), "Top 10");
+    for (const a of sw.querySelectorAll("a")) {
+      a.removeAttribute("data-nav");
+      a.addEventListener("click", (e) => (e.preventDefault(), showTop(a.textContent === "Twins" ? "twins" : "open")));
+    }
+    topHead.replaceChildren(h("h2", null, "Top 10"), sw);
+    topMore.replaceChildren(moreLink(lad === "twins" ? "/arena/twins" : "/arena/ladder", lad === "twins" ? "Full Twins ladder" : "Full ladder"));
+    top.replaceChildren();
+    void loadTop(lad);
+  };
   root.append(
     h(
       "section",
@@ -21,12 +36,13 @@ export function arenaHome(root: HTMLElement) {
       h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
     ),
     featured,
-    h("div", { class: "grid2" }, h("section", null, h("h2", null, "Top 10"), top, actionLink("/arena/ladder", "Full ladder →")), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h("div", { class: "grid2" }, h("section", null, topHead, top, topMore), h("section", null, h("h2", null, "Latest matches"), latest)),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
-  void load(top, () => api.ladder(undefined, 0, 10), (l) => {
-    if (!l.items.length) return top.append(h("p", { class: "muted" }, "No rated models yet. Be the first."));
+  const loadTop = (lad: LadderName) => load(top, () => api.ladder(undefined, 0, 10, lad), (l) => {
+    if (!l.items.length || (lad === "twins" && l.items.every((it) => "house" in it.model.owner)))
+      return top.append(h("p", { class: "muted" }, lad === "twins" ? "No twins yet." : "No rated models yet. Be the first."));
     top.append(
       h(
         "ol",
@@ -44,6 +60,7 @@ export function arenaHome(root: HTMLElement) {
       ),
     );
   });
+  showTop("open");
   void load(latest, () => api.matches({ limit: 8 }), (p) => {
     latest.append(p.items.length ? h("ul", { class: "match-list" }, p.items.map((m) => matchRow(m))) : h("p", { class: "muted" }, "No matches yet."));
   });

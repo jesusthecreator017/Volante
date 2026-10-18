@@ -5,6 +5,7 @@ import { MAX_UPLOAD_BYTES, UPLOADS_PER_DAY, checkUploadFile } from "../arena";
 import { buildBars, errorBox, fmtDate, fmtRating, load, modelLink, statusPill } from "../components";
 import { h, link, replace } from "../dom";
 import type { ModelDetail, ModelSummary } from "../types";
+import { dataVolume } from "../twins";
 
 const POLL_MS = 3000;
 
@@ -113,6 +114,7 @@ function pendingCard(d: ModelDetail): HTMLElement {
     { class: `card result-${d.status}` },
     h("p", null, statusPill(d.status), " ", h("strong", null, d.name)),
     d.status === "pending" ? h("p", { class: "loading" }, "Checking the model… this takes a few seconds.") : null,
+    d.twin ? h("p", null, `This file carries a style profile: ${dataVolume(d.twin.profile)}. It plays the open ladder until it passes the twin check after 10 matches.`) : null,
     d.status === "active" ? h("p", null, "Accepted. It now plays its 10 placement matches. ", modelLink(d)) : null,
     d.status === "rejected"
       ? [h("p", null, "The checker rejected it:"), h("ul", { class: "reasons" }, (d.reject_reasons ?? ["no reason given"]).map((r) => h("li", null, r))), h("p", { class: "muted small" }, "Fix it with the kit and upload again. ", link("/arena/get-started", "How to improve"))]

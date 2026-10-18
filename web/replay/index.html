@@ -38,6 +38,8 @@
       min-height: 36px; min-width: 36px; padding: 4px 10px; font: inherit; color: #eee;
       background: #3a3a3a; border: 1px solid #666; border-radius: 6px;
     }
+    #timeline button[data-preset] { min-height: 44px; min-width: 44px; }
+    #timeline button[hidden] { display: none; }
     #timeline button[aria-pressed="true"] { background: #2d5fa8; border-color: #8ab4f8; }
     #timeline :focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
     #readout, #head-readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -71,7 +73,7 @@
   <canvas id="canvas" tabindex="0" aria-label="3D court view"></canvas>
   <div id="status">loading...</div>
   <section id="timeline" aria-label="Playback timeline" hidden>
-    <div id="hint" title="Camera and playback controls">WASD/arrows move &middot; Q/E down/up &middot; Shift fast &middot; drag orbit &middot; right-drag look &middot; , . step &middot; Space play &middot; N/P next/prev stroke</div>
+    <div id="hint" title="Camera and playback controls">1-3 camera presets &middot; , . step &middot; Space play &middot; N/P next/prev stroke</div>
     <div id="credit"><a href="https://sketchfab.com/3d-models/basic-humanoid-block-rig-0b7834d927d545b497e9bfbb80765c08" target="_blank" rel="noopener">"Basic Humanoid Block Rig"</a> by <a href="https://sketchfab.com/trogan305" target="_blank" rel="noopener">Trogan305</a>, <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC-BY-4.0</a></div>
     <div id="spark-wrap" hidden>
       <canvas id="spark" role="img" aria-label="Player 1 racquet head speed over the clip"></canvas>
@@ -99,11 +101,11 @@
         </select>
       </label>
       <div class="group" role="group" aria-label="Camera presets">
-        <button type="button" data-preset="1">Baseline</button>
-        <button type="button" data-preset="2">Side</button>
-        <button type="button" data-preset="3">Top</button>
-        <button type="button" data-preset="4" disabled>Cam A</button>
-        <button type="button" data-preset="5" disabled>Cam B</button>
+        <button type="button" data-preset="1" aria-pressed="true">Baseline</button>
+        <button type="button" data-preset="2" aria-pressed="false">Side</button>
+        <button type="button" data-preset="3" aria-pressed="false">Top</button>
+        <button type="button" data-preset="4" aria-pressed="false" hidden>Cam A</button>
+        <button type="button" data-preset="5" aria-pressed="false" hidden>Cam B</button>
       </div>
       <button id="skeleton" type="button" aria-pressed="false">Skeleton</button>
       <button id="stats-btn" type="button" aria-expanded="false" aria-controls="stats" hidden>Stats</button>
@@ -111,10 +113,6 @@
     </div>
   </section>
   <section id="stats" aria-label="Match stats" hidden></section>
-  <script>
-    // Right-drag looks around; don't pop the browser menu
-    document.getElementById("canvas").addEventListener("contextmenu", (e) => e.preventDefault());
-  </script>
   <script type="module">
     import init, * as oso from "./pkg/oso.js";
     import { setupTimeline } from "./timeline.js";

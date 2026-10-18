@@ -4,6 +4,7 @@ import { ApiError } from "./api";
 import { STATS, STAT_LABEL, STAT_SHORT, suggestStyle } from "./arena";
 import { h, link, s } from "./dom";
 import { isHouse, type Build, type MatchSummary, type ModelStatus, type ModelSummary, type Owner, type Side } from "./types";
+import { icon } from "./icons";
 
 export const fmtRating = (r: number | null | undefined) => (r == null ? "—" : r.toFixed(0));
 export const fmtDelta = (d: number) => `${d > 0 ? "+" : ""}${d.toFixed(1)}`;
@@ -26,7 +27,7 @@ export function fmtAgo(iso: string | null | undefined): string {
 }
 
 export function ownerChip(o: Owner): HTMLElement {
-  if (isHouse(o)) return h("span", { class: "owner house" }, h("span", { class: "house-badge", "aria-hidden": "true" }, "◆"), "House");
+  if (isHouse(o)) return h("span", { class: "owner house" }, icon("house-fill", { cls: "house-badge" }), "House");
   return h(
     "span",
     { class: "owner" },
@@ -39,6 +40,8 @@ export const modelLink = (m: Pick<ModelSummary, "id" | "name">) => link(`/arena/
 
 /** An internal link styled as an action (accent colour, no underline until hover). */
 export const actionLink = (href: string, ...children: (Node | string)[]) => h("a", { href, "data-nav": true, class: "act" }, ...children);
+/** "Full ladder ->" style link: text plus a trailing arrow icon. */
+export const moreLink = (href: string, text: string) => h("a", { href, "data-nav": true, class: "act more" }, text, icon("arrow-right"));
 
 /** Game scores as compact "set" chips. */
 export const setChips = (games: [number, number][]) => h("span", { class: "sets" }, games.map((g) => h("span", { class: "set" }, `${g[0]}–${g[1]}`)));

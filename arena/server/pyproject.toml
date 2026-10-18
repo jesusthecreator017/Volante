@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osoarena-server"
+version = "0.1.0"
+description = "oso Arena server for the Raspberry Pi (API, upload pipeline, match runner, ladder, tournaments)"
+requires-python = ">=3.10"
+
+[project.scripts]
+oso-arena-web = "osoarena.web:main"
+oso-arena-admin = "osoarena.admin:main"
+
+[tool.setuptools]
+packages = ["osoarena"]

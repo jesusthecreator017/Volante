@@ -1,24 +1,29 @@
 import { api, ApiError } from "../api";
-import { actionLink, fmtDate, load, ownerChip } from "../components";
+import { actionLink, fmtDate, load, moreLink, ownerChip } from "../components";
 import { h, link } from "../dom";
 import type { Tie, Tournament, TournamentSummary } from "../types";
+import { ladderOf, ladderToggle } from "../twins";
 
 const ROUND = ["Quarterfinals", "Semifinals", "Final"];
 
 export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) {
   const season = q.get("season") ? Number(q.get("season")) : undefined;
+  const lad = ladderOf(q);
   const current = h("div");
   const past = h("div");
   root.append(
-    h("h1", null, "Tournaments"),
-    h("p", { class: "lead" }, "Every Sunday at 18:00 (server time) the top 8 by rating with at least 20 games play single elimination, one best-of-3 per tie. Tournament matches don't change ratings."),
+    h("div", { class: "page-head" }, h("h1", null, lad === "twins" ? "Twins tournaments" : "Tournaments"),
+      ladderToggle(lad, (l) => `/arena/tournaments${l === "twins" ? "?ladder=twins" : ""}`, "Tournaments")),
+    h("p", { class: "lead" }, lad === "twins"
+      ? "Every Sunday at 15:00 (server time), after the weekly fidelity re-check, the top 8 twins by Twins rating with at least 20 games play single elimination, one best-of-3 per tie. Tournament matches don't change ratings."
+      : "Every Sunday at 18:00 (server time) the top 8 by rating with at least 20 games play single elimination, one best-of-3 per tie. Tournament matches don't change ratings."),
     current,
     h("h2", null, "Past tournaments"),
     past,
   );
   void load(current, async () => {
     try {
-      return await api.currentTournament();
+      return await api.currentTournament(lad);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) return null;
       throw e;
@@ -26,7 +31,7 @@ export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) 
   }, (t) => {
     if (t) current.append(h("section", { class: "card" }, h("h2", null, t.status === "done" ? "This week" : `This week · ${t.status}`), bracket(t)));
   });
-  void load(past, () => api.tournaments(season), (list: TournamentSummary[]) => {
+  void load(past, () => api.tournaments(season, lad), (list: TournamentSummary[]) => {
     const done = list.filter((t) => t.status === "done").sort((a, b) => b.starts_at.localeCompare(a.starts_at));
     past.append(
       done.length
@@ -38,7 +43,7 @@ export function tournaments(root: HTMLElement, _p: unknown, q: URLSearchParams) 
 
 export function tournament(root: HTMLElement, p: Record<string, string>) {
   void load(root, () => api.tournament(Number(p.id)), (t) => {
-    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), link("/arena/tournaments", "All tournaments →"));
+    root.append(h("h1", null, `Tournament · ${fmtDate(t.starts_at, false)}`), h("p", { class: "muted" }, `Season ${t.season_id} · ${t.status}`), bracket(t), moreLink("/arena/tournaments", "All tournaments"));
   });
 }
 

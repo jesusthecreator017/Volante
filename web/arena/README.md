@@ -54,6 +54,13 @@ and skeleton lines by model, so A keeps its colour across a change of ends, and 
 stay by court slot and the readout says "P1 ... P2". The in-scene scoreboard is by model rather than by court side: it never swaps
 owners at a change of ends, and it matches the colours of the page header.
 
+## Camera
+
+Presets only: the Baseline / Side / Top buttons (or keys 1-3 with the canvas focused; 4-5 are the calibrated views in the Replay viewer
+when the replay has them). There is no free camera: the canvas ignores drag, wheel and touch, so the page scrolls normally over it.
+Switching glides for 0.4 s; with `prefers-reduced-motion` it jumps (`oso_set_reduced_motion(bool)`, wired by the timeline).
+The active preset is `oso_status().preset` and `aria-pressed` on its button.
+
 ## Drag and drop
 
 Dropping a file anywhere loads it; nothing is uploaded. Before the replay is handed to wasm, the drop wins and aborts
@@ -78,3 +85,11 @@ Defined synchronously when the module script runs, before wasm is ready.
 big_shuttle has_shuttle cameras stroke_count`) plus `phase` (`waiting | preparing | downloading | loading | ready |
 error`), `error`, `received` (bytes) and `total` (bytes, `null` when unknown). The page frees the wasm Status object
 itself, so callers never call `.free()`.
+
+## Look
+
+`arena.css` follows the website's look (`site/src/style.css`): SF system font stack, glass panels, capsule buttons, light/dark through
+`prefers-color-scheme` (the site's manual theme toggle can't reach the iframe). The few tokens it needs (`--text`, `--glass`, `--btn`, the
+dark values, the readable A/B name tints) are **copied** into the `:root` blocks at the top of `arena.css`: the viewer imports nothing
+from `site/`, so when the site palette changes, update both. The 3D scene colors live in `crates/oso-render/src/state.rs` (court floor,
+hall floor and walls) and were tuned to the same green palette (shared with the Replay viewer).

@@ -2,7 +2,11 @@
 // exists. Deterministic fixtures; same shapes as src/types.ts. Never included in the production build (__MOCK__).
 
 import { checkPodName } from "./pods";
-import type { LadderItem, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, Side, Tie, Tournament } from "./types";
+import type { LadderItem, LadderName, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, Side, StyleProfile, Tie, Tournament, Twin } from "./types";
+
+/** Real kit matches from scripts/make-mock-replays.sh (gitignored); empty when they haven't been made. Keyed by match id. */
+type Fixture = Pick<MatchDetail, "games_won" | "winner" | "games" | "seed" | "rallies"> & { a: Pick<ModelSummary, "name" | "build">; b: Pick<ModelSummary, "name" | "build"> };
+const FIXTURES: Record<string, Fixture> = Object.values(import.meta.glob<Record<string, Fixture>>("../.mock-replays/matches.json", { eager: true, import: "default" }))[0] ?? {};
 
 let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -40,6 +44,18 @@ function addModel(name: string, owner: ModelSummary["owner"], build = pick(BUILD
 addModel("House Base", { house: true }, { power: 6, speed: 6, reach: 6, accuracy: 6 });
 addModel("House Bot", { house: true }, { power: 5, speed: 7, reach: 6, accuracy: 6 });
 NAMES.forEach((n, i) => addModel(n, user(i)));
+// Volante Twins: one model per state (docs/twins-site.md), on the Twins ladder or still on the open one
+const profile = (swings: number, minutes: number, p50: number, p90: number, cv: number, gap: number, clipped = 0.05, mix = false): StyleProfile => ({
+  schema: "volante-style/1", created_at: iso(9000), source: { sessions: Math.max(1, Math.round(minutes / 40)), swings, minutes, pod_fw: "0.1", tool: "oso-app 1.0" },
+  speed: { p50_kmh: p50, p90_kmh: p90, cv, clipped_frac: clipped }, tempo: { median_gap_s: gap, p25_gap_s: Math.round(gap * 82) / 100, p75_gap_s: Math.round(gap * 121) / 100 },
+  stroke_mix: mix ? { clear: 0.31, drop: 0.22, smash: 0.18, lift: 0.14, drive: 0.09, net: 0.06 } : null, side_mix: mix ? { fh: 0.72, bh: 0.28 } : null,
+  notes: "speeds are estimates (gyro x 0.53 m) and lower bounds when clipped",
+});
+const twin = (name: string, i: number, t: Twin, lad: LadderName) => Object.assign(addModel(name, user(i)), { twin: t, ladder: lad });
+twin("Jesus's Twin", 1, { profile: profile(1240, 52, 61, 82, 0.14, 1.9), fidelity: { ok: true, tempo_ratio: 1.08, mix_js: null, checked_at: iso(600), reasons: [] } }, "twins");
+twin("Rachel (twin)", 5, { profile: profile(3310, 140, 55, 77, 0.08, 2.3, 0.24, true), fidelity: { ok: true, tempo_ratio: 0.93, mix_js: 0.04, checked_at: iso(1200), reasons: [] } }, "twins");
+twin("Greg's Twin", 6, { profile: profile(410, 18, 48, 69, 0.23, 2.6), fidelity: { ok: false, tempo_ratio: null, mix_js: null, checked_at: null } }, "open");
+twin("Nate's Twin", 3, { profile: profile(890, 37, 66, 91, 0.12, 1.6), fidelity: { ok: false, tempo_ratio: 1.52, mix_js: null, checked_at: iso(300), reasons: ["tempo ratio 1.52 is outside 0.75-1.33"] } }, "open");
 const me0 = user(0);
 addModel("Old Smasher v1", me0, BUILDS[0], "retired");
 const myRejected = addModel("Broken build", me0, { power: 9, speed: 9, reach: 4, accuracy: 3 }, "rejected");
@@ -82,7 +98,10 @@ for (let i = 0; i < 60; i++) {
   const a = pick(ms);
   let b = pick(ms);
   while (b.id === a.id) b = pick(ms);
-  matches.push(makeMatch(500 - i, a, b, pick(["ladder", "ladder", "ladder", "placement"] as const), i * 17 + 2));
+  const m = makeMatch(500 - i, a, b, pick(["ladder", "ladder", "ladder", "placement"] as const), i * 17 + 2);
+  const f = FIXTURES[m.id];
+  if (f) Object.assign(m, f, { a: { ...m.a, ...f.a }, b: { ...m.b, ...f.b }, rating_delta: f.winner === "a" ? { a: 9.4, b: -9.4 } : { a: -9.4, b: 9.4 } });
+  matches.push(m);
 }
 const running: MatchDetail = { ...makeMatch(501, models[3], models[4], "ladder", 0), status: "running", finished_at: null, winner: null, games: [], games_won: [0, 0], rallies: [], rating_delta: null };
 matches.unshift(running);
@@ -173,7 +192,9 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
     const items = ladderItems();
     const off = n("offset") ?? 0;
     const lim = n("limit") ?? 50;
-    return json({ season: seasons.find((s) => s.id === (n("season") ?? 2)) ?? seasons[1], total: items.length, items: items.slice(off, off + lim) });
+    const lad: LadderName = q.get("ladder") === "twins" ? "twins" : "open";
+    const xs = items.filter((it) => "house" in it.model.owner || (it.model.ladder ?? "open") === lad);
+    return json({ season: seasons.find((s) => s.id === (n("season") ?? 2)) ?? seasons[1], ladder: lad, total: xs.length, items: xs.slice(off, off + lim).map((it, i) => ({ ...it, rank: off + i + 1 })) });
   }
   if (p === "/api/models" && method === "GET" && q.get("owner") === "me") {
     if (!signedIn) return json({ error: "auth", detail: "Please sign in." }, 401);
@@ -228,8 +249,8 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
     const m = matches.find((x) => x.id === Number(mm![1]));
     return m ? json(m) : json({ error: "not_found", detail: "No such match." }, 404);
   }
-  if (p === "/api/tournaments/current") return json(tournaments[0]);
-  if (p === "/api/tournaments") return json(tournaments.map(({ rounds: _r, ...t }) => t));
+  if (p === "/api/tournaments/current") return q.get("ladder") === "twins" ? json({ error: "not_found", detail: "No tournament is scheduled yet." }, 404) : json(tournaments[0]);
+  if (p === "/api/tournaments") return json(q.get("ladder") === "twins" ? [] : tournaments.map(({ rounds: _r, ...t }) => t));
   mm = /^\/api\/tournaments\/(\d+)$/.exec(p);
   if (mm) {
     const t = tournaments.find((x) => x.id === Number(mm![1]));

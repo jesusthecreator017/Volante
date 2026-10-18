@@ -298,7 +298,13 @@ Pod          {id: str, hw_id: str, name: str, last_seen: str | null}     # a use
 Build        {power: int, speed: int, reach: int, accuracy: int}          # each 1-10, sum 24
 Owner        User | {house: true}
 ModelStatus  "pending" | "active" | "rejected" | "retired" | "hidden"
-ModelSummary {id, name, owner: Owner, build: Build, status: ModelStatus, rating: number | null, games: int}
+ModelSummary {id, name, owner: Owner, build: Build, status: ModelStatus, rating: number | null, games: int,
+              ladder?: "open" | "twins", twin?: Twin | null}                # ladder/twin: section 14 (absent = "open" / null)
+StyleProfile {schema: "volante-style/1", created_at: str, source: {sessions, swings, minutes, pod_fw, tool},
+              speed: {p50_kmh, p90_kmh, cv, clipped_frac}, tempo: {median_gap_s, p25_gap_s, p75_gap_s},
+              stroke_mix: {str: number} | null, side_mix: {fh, bh} | null, notes?: str | null}   # contract/STYLE_PROFILE.md
+Twin         {profile: StyleProfile, fidelity: {ok: bool, tempo_ratio: number | null, mix_js: number | null,
+              checked_at: str | null, reasons?: [str]}}                     # section 14
 ModelDetail  = ModelSummary + {description: str | null, created_at, retired_at: str | null, season_id: int,
                                reject_reasons?: [str], rating_history: [{t: str, rating: number, match_id: int}]}
 LadderItem   {rank: int, model: ModelSummary, rating: number, provisional: bool, games: int, wins: int, losses: int}

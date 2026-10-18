@@ -1,8 +1,10 @@
 import { api } from "../api";
 import { STATS, STAT_EFFECT, STAT_LABEL } from "../arena";
 import { buildRadar, fmtDate, fmtRating, load, matchRow, ownerChip, provisional, ratingChart, statusPill, styleGuess } from "../components";
-import { append, h } from "../dom";
+import { append, h, link } from "../dom";
 import type { MatchSummary, ModelDetail } from "../types";
+import { mountViewer } from "../viewer";
+import { twinCard } from "../twins";
 
 export function model(root: HTMLElement, p: Record<string, string>) {
   const id = Number(p.id);
@@ -12,6 +14,7 @@ export function model(root: HTMLElement, p: Record<string, string>) {
 function render(root: HTMLElement, m: ModelDetail) {
   document.title = `${m.name} · Arena · Volante`;
   const matches = h("div");
+  const latest = h("section");
   append(root, [
     h(
       "header",
@@ -23,6 +26,7 @@ function render(root: HTMLElement, m: ModelDetail) {
     m.reject_reasons?.length
       ? h("div", { class: "error-box" }, h("p", null, "Rejected by the checker:"), h("ul", null, m.reject_reasons.map((r) => h("li", null, r))))
       : null,
+    m.twin ? twinCard({ ...m, twin: m.twin }) : null,
     h(
       "div",
       { class: "grid2" },
@@ -32,6 +36,7 @@ function render(root: HTMLElement, m: ModelDetail) {
         h("h2", null, "Build"),
         buildRadar(m.build),
         h("p", null, "Suggested style: ", styleGuess(m.build)),
+        m.twin ? h("p", { class: "muted small" }, "Build derived from the player's profile.") : null,
         h(
           "dl",
           { class: "stats" },
@@ -41,15 +46,30 @@ function render(root: HTMLElement, m: ModelDetail) {
       h(
         "section",
         { class: "card" },
-        h("h2", null, "Rating"),
+        h("h2", null, m.ladder === "twins" ? "Twins rating" : "Rating"),
         h("p", { class: "big" }, fmtRating(m.rating), provisional(m.games), h("span", { class: "muted small" }, ` after ${m.games} games`)),
         ratingChart(m.rating_history),
         h("p", { class: "muted small" }, `Uploaded ${fmtDate(m.created_at)}`, m.retired_at ? ` · retired ${fmtDate(m.retired_at)}` : ""),
       ),
     ),
+    latest,
     h("section", null, h("h2", null, "Recent matches"), matches),
   ]);
+  void showLatest(latest, m.id);
   loadMatches(matches, m.id);
+}
+
+/** The model's most recent finished match, inline (nothing when it has none or the lookup fails). */
+export async function showLatest(slot: HTMLElement, modelId: number) {
+  const m = await api.matches({ model: modelId, limit: 10 }).then((p) => p.items.find((x) => x.status === "done"), () => undefined);
+  if (!m) return;
+  const box = h("div", { class: "viewer" });
+  slot.append(
+    h("h2", null, "Latest match"),
+    h("p", { class: "muted small" }, `${m.a.name} ${m.games_won[0]}–${m.games_won[1]} ${m.b.name} · `, link(`/arena/matches/${m.id}`, "Open match")),
+    box,
+  );
+  mountViewer(box, m);
 }
 
 function loadMatches(el: HTMLElement, id: number, before?: number, list?: HTMLUListElement) {

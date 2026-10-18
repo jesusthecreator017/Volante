@@ -5,3 +5,5 @@ This work is based on "Basic Humanoid Block Rig" (https://sketchfab.com/3d-model
 The model is in `assets/models/humanoid/` (with its original `license.txt`).
 
 `assets/models/racquet/WhiteBadmintonRacket.obj` — source/license unknown: downloaded by the user, no author or license attached (original account may be deleted). Replace before any public or commercial release if provenance matters. Its `.mtl` was not provided; colors are assigned in `crates/oso-render/src/scene/racquet.rs`.
+
+Website icons: Phosphor Icons (https://phosphoricons.com), Copyright (c) 2023 Phosphor Icons, MIT License. The path data used is copied into `site/src/icons.gen.ts` by `site/scripts/phosphor-icons.mjs` from `@phosphor-icons/core`.
