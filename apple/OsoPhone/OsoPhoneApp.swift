@@ -73,7 +73,13 @@ struct OsoPhoneApp: App {
     private func wire() {
         pod.liveActivity.endStale()
         pod.onSession = { imu, meta in
-            do { try store.save(imu: imu, meta: meta); syncHeartRate() } catch { pod.lastError = "save failed: \(error)" }
+            do {
+                let saved = try store.save(imu: imu, meta: meta)
+                syncHeartRate()
+                // the post-session Summary opens by itself (live session ended or a recording downloaded)
+                router.tab = .sessions
+                router.path = [saved]
+            } catch { pod.lastError = "save failed: \(error)" }
         }
         watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
         syncHeartRate()

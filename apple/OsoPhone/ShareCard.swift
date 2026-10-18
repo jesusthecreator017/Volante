@@ -15,6 +15,8 @@ struct ShareCardView: View {
     var personalBest = false
     /// Stroke groups (experimental), racquet sessions; nil hides the mix.
     var breakdown: StrokeBreakdown?
+    /// The session's top insight (SessionReport), one line; nil hides it.
+    var insight: String?
 
     private var s: SessionSummary { analysis.summary }
     private let ink = Color.white
@@ -55,6 +57,12 @@ struct ShareCardView: View {
                 stat("\(s.hitCount)", "Hits")
             }
             .padding(.top, 20)
+            if let insight {
+                Label(insight, systemImage: "sparkles")
+                    .font(.system(size: 40, weight: .semibold, design: .rounded)).foregroundStyle(ink)
+                    .lineLimit(2).minimumScaleFactor(0.7)
+                    .padding(.top, 28)
+            }
 
             Spacer(minLength: 24)
 
@@ -154,8 +162,8 @@ private struct Court: Shape {
 // MARK: sharing
 
 @MainActor
-func renderShareCard(_ analysis: SessionAnalysis, date: Date, personalBest: Bool, breakdown: StrokeBreakdown? = nil) -> Data? {
-    let r = ImageRenderer(content: ShareCardView(analysis: analysis, date: date, personalBest: personalBest, breakdown: breakdown))
+func renderShareCard(_ analysis: SessionAnalysis, date: Date, personalBest: Bool, breakdown: StrokeBreakdown? = nil, insight: String? = nil) -> Data? {
+    let r = ImageRenderer(content: ShareCardView(analysis: analysis, date: date, personalBest: personalBest, breakdown: breakdown, insight: insight))
     r.scale = 1 // 1 pt = 1 px: exactly 1080x1350
     r.isOpaque = true
     return r.uiImage?.pngData()
@@ -167,10 +175,11 @@ struct SessionCardImage: Transferable, Sendable {
     let date: Date
     let personalBest: Bool
     var breakdown: StrokeBreakdown?
+    var insight: String?
 
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .png) { card in
-            guard let data = await renderShareCard(card.analysis, date: card.date, personalBest: card.personalBest, breakdown: card.breakdown) else {
+            guard let data = await renderShareCard(card.analysis, date: card.date, personalBest: card.personalBest, breakdown: card.breakdown, insight: card.insight) else {
                 throw CocoaError(.fileWriteUnknown)
             }
             return data

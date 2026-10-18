@@ -88,6 +88,7 @@ struct SessionDetailView: View {
     @Environment(PiServer.self) private var pi
     @State var meta: SessionMeta
     @State private var message: String?
+    @State private var report: SessionReport?
     #if DEBUG
     @State private var debugSwingOpen = false
     #endif
@@ -98,6 +99,8 @@ struct SessionDetailView: View {
         Screen {
             if let a {
                 SessionHeaderView(meta: meta, analysis: a, bests: store.bests)
+                if let report, !report.insights.isEmpty { InsightsCard(report: report) }
+                if let report, report.timeline.count > 1 { IntensityCard(report: report) }
                 speedChart(a, st)
                 if let st { StrokeBreakdownCard(breakdown: StrokeBreakdown(swings: a.swings, results: st.results)) }
                 if !meta.heartRate.isEmpty, let anchor = meta.anchor { heartRateChart(a, anchor) }
@@ -118,14 +121,21 @@ struct SessionDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(
                         item: SessionCardImage(analysis: a, date: meta.createdAt, personalBest: !store.bests.kinds(for: meta.id).isEmpty,
-                                               breakdown: st.map { StrokeBreakdown(swings: a.swings, results: $0.results) }),
+                                               breakdown: st.map { StrokeBreakdown(swings: a.swings, results: $0.results) },
+                                               insight: report?.insights.first { $0.id != "play_longer" }?.title),
                         preview: SharePreview("Volante session, \(meta.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     ) { Label("Share session image", systemImage: "square.and.arrow.up") }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) { actionsMenu(a) }
         }
-        .task { await store.loadStrokes(meta); await store.loadAllSummaries() }
+        .task {
+            await store.loadStrokes(meta)
+            let st = store.analysis(meta).flatMap { a in store.strokes[meta.id].flatMap { $0.results.count == a.swings.count ? StrokeBreakdown(swings: a.swings, results: $0.results) : nil } }
+            report = await store.report(meta, breakdown: st)
+            if let report { try? Data(report.json().utf8).write(to: store.reportURL(meta.id), options: .atomic) }
+            await store.loadAllSummaries()
+        }
         #if DEBUG
         .navigationDestination(isPresented: $debugSwingOpen) {
             if let a, !a.swings.isEmpty { SwingDetailView(analysis: a, start: debugSwingStart, strokes: st?.results) }
@@ -260,6 +270,9 @@ struct SessionDetailView: View {
                     ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }
                 }
                 ShareLink(item: store.imuURL(meta.id)) { Label("Share imu.bin", systemImage: "doc") }
+                if report != nil {
+                    ShareLink(item: store.reportURL(meta.id)) { Label("Export report (JSON)", systemImage: "doc.text") }
+                }
             }
         } label: {
             Label("More", systemImage: "ellipsis")
