@@ -192,3 +192,19 @@ describe("API client", () => {
     expect(urls).toEqual(["/api/matches?model=3&limit=20", "/api/ladder?offset=50&limit=50"]);
   });
 });
+
+describe("render", () => {
+  test("a class a page adds to the root is gone on the next page", async () => {
+    const { render } = await import("../src/router");
+    route("/__leak_a", "A", (root) => { root.classList.add("dash"); });
+    route("/__leak_b", "B", () => {});
+    const root = document.createElement("main");
+    root.className = "base";
+    history.pushState(null, "", "/__leak_a");
+    await render(root);
+    expect(root.classList.contains("dash")).toBe(true);
+    history.pushState(null, "", "/__leak_b");
+    await render(root);
+    expect(root.className).toBe("base");
+  });
+});
