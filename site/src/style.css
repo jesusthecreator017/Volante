@@ -1624,8 +1624,9 @@ select {
   gap: 6px;
 }
 .tag {
-  border: 1px dashed var(--muted);
-  color: var(--muted);
+  /* solid in the accent like the other feature graphics (the dashed muted look read as "coming soon") */
+  background: var(--accent);
+  color: var(--accent-text);
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 0.85rem;

@@ -18,6 +18,7 @@ const NAV: [string, string][] = [
   ["/#features", "Features"],
   ["/how-it-works", "How it works"],
   ["/arena", "Arena"],
+  ["/account/dashboard", "Dashboard"],
 ];
 
 /** Arena sub-nav, shown inside /arena/*. */
