@@ -292,7 +292,8 @@ omitted or `null` only where the type below says so.
 
 ```
 User         {id: int, login: str, avatar_url: str}                       # GitHub id, login, avatar URL (https://avatars.githubusercontent.com/...)
-Me           {user: User | null, csrf: str, uploads_left_today?: int}     # uploads_left_today when signed in
+Me           {user: User | null, csrf: str, uploads_left_today?: int,     # uploads_left_today when signed in
+              app_linked?: bool}                                           # app_linked: true once the phone/watch app has synced a session
 Season       {id, contract: str, kit_version: str, started_at, ended_at: str | null, active: bool}
 Pod          {id: str, hw_id: str, name: str, last_seen: str | null}     # a user's racquet pod: id "pod_123", hw_id as printed in the app ("OSO-4C99"), account display name
 Build        {power: int, speed: int, reach: int, accuracy: int}          # each 1-10, sum 24
@@ -322,6 +323,27 @@ MatchPage    {items: [MatchSummary], next_before: int | null}
 Tie          {seed_a: int, seed_b: int, a: ModelSummary | null, b: ModelSummary | null, match_id: int | null, winner: Side | null}
 Tournament   {id, season_id, starts_at, status: "scheduled" | "running" | "done", rounds: [[Tie]]}      # rounds[0] = quarterfinals
 TournamentSummary  {id, season_id, starts_at, status}  (+ optionally the rest of Tournament)
+SessionSource "pod" | "watch"
+StrokeGroup  "power" | "mid" | "touch" | "not_a_hit" | "unclassified"
+SessionSummary {id: str, started_at: str, source: SessionSource, duration_s: number, active_s: number, swings: int, p90_kmh: number | null,
+              max_kmh: number | null, rallies: int, longest_rally: int, hr_avg: number | null, has_strokes: bool}
+SessionPage  {items: [SessionSummary], next_before: str | null}           # next_before = opaque "<started_at>~<id>" cursor, null on the last page
+SessionReport {schema: "volante-report/1", session: {started_at, duration_s, active_s, source, pod_fw}, swings: {count, per_min_active},
+              speed: {p50_kmh, p90_kmh, max_kmh, clipped_frac, estimated: true}, tempo: {median_gap_s, p25_gap_s, p75_gap_s},
+              rallies: {count, median_shots, longest_shots},
+              timeline: [{t_min, swings, p90_kmh, hr_bpm}], heart_rate: {avg_bpm, max_bpm} | null,
+              strokes: {groups: {str: number}, counts?, speed_by_class?, unclassified?, experimental: bool} | null,
+              insights: [{id, severity: "info" | "tip" | "praise", title, body, evidence: {str: number}}],
+              model: {name, version} | null}                              # docs/strokes/report-format.md; stored as validated, never interpreted
+SessionDetail {id: str, report: SessionReport}
+Best         {value: number, session_id: str, started_at: str}
+GroupShares  {power, mid, touch, not_a_hit, unclassified: number}         # shares summing to 1
+Dashboard    {totals: {sessions, swings, active_min, rallies}, weekly: [{week: "YYYY-Www", sessions, swings, active_min}],   # 12 weeks, oldest first
+              trends: [{id, started_at, p90_kmh, swings_per_min, median_gap_s, hr_avg}],     # pod sessions, last 50, oldest first
+              wrist: {sessions, swings},
+              bests: {max_kmh, most_swings, longest_rally, best_rate: Best | null},
+              strokes: {groups: GroupShares, overall: GroupShares | null, sessions: int, experimental: true} | null,  # groups = last 10 sessions with strokes, overall = all
+              style: StyleProfile | null, twin_model_id: int | null}
 ```
 
 Field meanings that the types do not say:
@@ -365,6 +387,13 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `DELETE /api/me` | **204**. Deletes the account: retires the user's models and removes their uploaded files and personal data (see D8; past matches keep the placeholder owner below), ends the session. |
 | `GET /api/me/pods` | **200** `{"items": [Pod]}` of the signed-in user's pods (**401** signed out). `Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_seen": "2026-10-17T15:20:00Z" or null}`. `Cache-Control: no-store`. Pairing (`POST /api/me/pods`, from the app) is future work. |
 | `PATCH /api/me/pods/<id>` | CSRF header. Body `{"name": "..."}`: the account display name for the pod (not the Bluetooth name). Trim it; 1-40 characters, no control or format characters (Unicode category C), else **400** `{"error": "invalid_name"}`. **200** the updated `Pod`; **404** unknown or not the caller's pod. |
+| `PUT /api/me/sessions/<id>` | CSRF header. App-only (the phone sends it; the site never does). Body `{"report": <volante-report/1>}`, **<= 16 KB** (else **413** `too_large`, checked before parsing). `<id>` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (else **400**). Idempotent upsert by (user, id): **200** `{"id", "started_at"}`. **400** `invalid_report` (validate against `docs/strokes/report.schema.json`), **400** `too_many_sessions` (max 5,000 per user; replacing an existing id is still allowed), **429** `rate_limited` (60 PUTs/min/user across sessions and style, plus the per-IP write limit). |
+| `GET /api/me/sessions?before=<cursor>&limit=N` | **200** `SessionPage`, newest first; `limit` 1-100 (default 20); `before` is a `next_before` cursor (or a bare `started_at`); **400** on a bad value. `no-store`. |
+| `GET /api/me/sessions/<id>` | **200** `SessionDetail`; **404**. `no-store`. |
+| `DELETE /api/me/sessions/<id>` | CSRF header. **204**; **404**. |
+| `DELETE /api/me/sessions` | CSRF header. "Delete my web data": all the caller's app sessions and the style profile. **204**. |
+| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 16 KB): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
+| `GET /api/me/dashboard` | **200** `Dashboard`, aggregated on read from the stored reports (sessions, weekly volume, trends, bests, stroke groups, style, the active twin id). `no-store`. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 
 Auth routes (browser redirects, not JSON):
@@ -382,8 +411,8 @@ Operations:
 
 Cross-check: the site's client calls exactly `GET /api/me`, `/api/seasons`, `/api/ladder`, `/api/models/<id>`, `/api/matches`,
 `/api/matches/<id>`, `/api/tournaments/current`, `/api/tournaments`, `/api/tournaments/<id>`, `GET /api/models?owner=me`,
-`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `GET /api/me/pods`, `PATCH /api/me/pods/<id>`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
-and the sign-in link `/auth/github/login?next=<path>`. Nothing else. Write contract tests that call each of these against your
+`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `GET /api/me/pods`, `PATCH /api/me/pods/<id>`, `GET /api/me/sessions[/<id>]`, `DELETE /api/me/sessions[/<id>]`, `GET /api/me/dashboard`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
+and the sign-in link `/auth/github/login?next=<path>`. Nothing else (the two `PUT`s are called by the phone/watch app, not the site). Write contract tests that call each of these against your
 server and compare the JSON shape with `docs/site-types.ts` (and the mock fixtures).
 
 ## 8. Serving the site and the viewer
@@ -405,7 +434,7 @@ Do not rebuild pages. Serve the two prebuilt folders. The details are in `docs/s
   On `/viewer/` only, add `'wasm-unsafe-eval'` to `script-src`. Also send `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: SAMEORIGIN` (the site frames only itself) and add `frame-ancestors 'self'` to the CSP. Send **no CORS headers** at all (same origin only; no
   `Access-Control-Allow-*`, no wildcard). Enable HSTS (`Strict-Transport-Security: max-age=31536000`) at the Cloudflare edge (or in `web`). API JSON
-  responses get `Cache-Control: no-store` for anything user specific (`/api/me`, `/api/models?owner=me`); public lists may be cached for a few seconds.
+  responses get `Cache-Control: no-store` for anything user specific (`/api/me`, `/api/models?owner=me`, `/api/me/*`); public lists may be cached for a few seconds.
 - **Get started page**: it describes installing the kit from the repository or a wheel. Whether you also host the kit wheel and
   `CONTRACT.md` for download is an **OWNER DECISION** (D7); the site has no link to them.
 

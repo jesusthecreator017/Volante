@@ -50,6 +50,7 @@ OSO_REPLAY=../out/e2e/match.bin node scripts/serve-pi.mjs      # http://localhos
 | `/settings` | pods + account (signed in) |
 | `/how-it-works` | three steps, a real session |
 | `/privacy` | site-wide |
+| `/account/dashboard`, `/account/dashboard/sessions/<id>` | web dashboard: stats and per-session reports synced from the Volante app (signed in; the menu entry shows once `GET /api/me` has `app_linked`) |
 | `/arena` | Arena home |
 | `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`, `/arena/get-started` | Arena pages |
 
@@ -121,6 +122,23 @@ Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_se
 Validate: trim, 1-40 characters, no control or format characters. `no-store` on the GET. Pairing/linking
 (`POST /api/me/pods`, from the Volante app) is future work: until then Settings shows "No pods linked yet: pair one in the Volante
 app." The same rows are in `arena/handoff/PROMPT.md` (section 6 table and cross-check).
+
+## For the Pi agent: dashboard endpoints (history routing and API)
+
+History routing: serve `index.html` for `/account/dashboard` and `/account/dashboard/sessions/<id>` (as for every other site route; the id is `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`).
+```
+GET    /api/me                      adds app_linked: bool
+GET    /api/me/sessions             [auth]        ?before=<next_before>&limit=1-100 (20)  -> 200 {"items":[SessionSummary],"next_before":str|null}
+GET    /api/me/sessions/{id}        [auth]        200 {"id","report":volante-report/1} | 404
+DELETE /api/me/sessions/{id}        [auth + CSRF] 204 | 404
+DELETE /api/me/sessions             [auth + CSRF] 204   (all web data, incl. the style profile)
+GET    /api/me/dashboard            [auth]        200 Dashboard
+PUT    /api/me/sessions/{id}        [auth + CSRF] app only; {"report":...} <= 16 KB; 413 / 400 / 429
+PUT    /api/me/style                [auth + CSRF] app only; volante-style/1
+```
+Types are in `src/types.ts` (`SessionSummary`, `SessionPage`, `SessionReport`, `SessionDetail`, `Best`, `Dashboard`) and the same rows are in
+`arena/handoff/PROMPT.md` (section 7). All responses `no-store`. Limits: 5,000 sessions per user, 60 PUTs/min/user. Reports are stored for the
+owner only, as the Privacy page says.
 
 ## Decisions taken (change freely)
 

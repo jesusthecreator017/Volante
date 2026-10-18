@@ -28,7 +28,7 @@ private section: **Account → Dashboard**. It is shown only when the account is
 - New table `app_sessions`:
   - `(user_id INTEGER NOT NULL REFERENCES users(id), id TEXT NOT NULL, started_at TEXT NOT NULL, source TEXT NOT NULL, report TEXT NOT NULL,`
     `received_at TEXT NOT NULL, PRIMARY KEY (user_id, id))`
-  - `id`: the app's session id, opaque, 1-64 chars `[A-Za-z0-9._-]`, with no device or personal data.
+  - `id`: the app's session id, opaque, matching `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (reviewed tightening: the first character must be a letter or digit; was `[A-Za-z0-9._-]{1,64}`), with no device or personal data.
   - `report`: the validated JSON text.
 - New table `app_style (user_id INTEGER PRIMARY KEY, profile TEXT NOT NULL, received_at TEXT NOT NULL)`. It holds the latest
   `volante-style/1` profile the app computed, if the app has one.

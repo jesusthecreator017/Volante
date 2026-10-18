@@ -17,7 +17,7 @@
 ## Global Constraints
 - **Data:** session summaries only, as `volante-report/1` (`docs/strokes/report-format.md`, `docs/strokes/report.schema.json`). No raw IMU data.
 - **Privacy:** private to the owner. Every endpoint is `[auth]`, writes need CSRF (`require_user(request)`), reads use `require_user(request, csrf=False)`, and all responses are `cache-control: no-store`.
-- **Limits:** report body ≤ 16 KB, ≤ 5,000 sessions per user, PUT ≤ 60 per minute per user. Session id matches `^[A-Za-z0-9._-]{1,64}$`.
+- **Limits:** report body ≤ 16 KB, ≤ 5,000 sessions per user, PUT ≤ 60 per minute per user. Session id matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (reviewed tightening: the first character must be a letter or digit; was `[A-Za-z0-9._-]{1,64}`).
 - **Speeds:** pod (racquet) and watch (wrist) speeds are never mixed. Speed aggregates use `source == "pod"` only.
 - **Copy:** speeds say "estimated", strokes say "experimental", watch sessions are labelled "wrist".
 - **No new dependencies** in server, site or app. Site: CSP unchanged, no inline style or script, user text as text nodes.

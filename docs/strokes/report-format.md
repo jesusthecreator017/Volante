@@ -65,3 +65,8 @@ number they use in `evidence`, never give medical advice, never claim what the s
 `arena/kit/tests/data/twins_vector.imu.bin` (identity mount, `started_at` 2026-10-17T18:00:00Z, source `pod`, fw `unknown`, no heart
 rate) gives `tools/strokes/data/report_vector.json`. Implementations must match it exactly after the 3-significant-digit rounding
 (`tools/strokes/test_report.py` checks the Python side, `StyleProfileTests`/`SessionReportTests` the Swift side).
+
+## 6. Storage
+When the user is signed in to the Arena in the app, the app also sends each report (no raw motion data) to the server with
+`PUT /api/me/sessions/<id>`. The server validates and stores it for the owner's private web dashboard only (`/account/dashboard`); it is
+never shown to other users and the owner can delete it (`DELETE /api/me/sessions`). Reports are limited to 16 KB.
