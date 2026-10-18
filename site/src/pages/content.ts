@@ -104,13 +104,14 @@ export function privacy(root: HTMLElement) {
     h("p", null, "We store your GitHub user id, login and avatar URL, the models you upload and the matches they play, and, if you use the Volante app, your session summaries and style profile (see Your dashboard below)."),
     h("p", null, "Sign-in uses a session cookie. There are no trackers or third-party analytics on this site."),
     h("h2", null, "Volante Twins"),
-    h("p", null, "Your raw pod sessions stay on your computer or phone. Only the style profile (a few numbers: speeds, tempo, counts) is uploaded, inside the model file."),
+    h("p", null, "Your raw pod sessions stay on your computer or phone. For a Twin, the style profile (a few numbers: speeds, tempo, counts) goes inside the model file, which is public on the model's page. Separately, if you sign in in the app, it stores your session summaries and your style profile privately for your dashboard (see below)."),
     h("p", null, "The profile contains no name, no pod ID and no timestamps except its creation time. It is shown publicly on the model's page. Deleting the model or your account deletes it."),
     h("p", null, "Delete your account any time from the account menu: your account is removed."),
     h("h2", null, "Your dashboard"),
     h("p", null, "If you sign in to the Arena in the Volante app, it sends a summary of each session (counts, estimated speeds, rhythm, heart-rate averages, experimental stroke groups) so you can see your stats under Account → Dashboard. No raw motion data leaves your phone."),
     h("p", null, "Only you can see these summaries: they are never public and never shown to other users."),
-    h("p", null, "To delete them, use \"Delete my web data\" in the app's settings, or delete your account here (Settings), which removes them with it. Turning sync off in the app stops new uploads."),
+    h("p", null, "To delete them, use \"Delete my web data\" in the app's settings (it also removes your stored style profile), or delete your account here (Settings), which removes them with it. Turning sync off in the app stops new uploads."),
+    h("p", null, "Deleted data can remain in the nightly server backups for up to 14 days, after which those backups are overwritten."),
     h("p", { class: "muted small" }, "Draft text, set by the project owner."),
   );
 }

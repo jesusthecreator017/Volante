@@ -21,6 +21,7 @@ CREATE INDEX IF NOT EXISTS pods_user ON pods(user_id);
 CREATE TABLE IF NOT EXISTS app_sessions (
   user_id INTEGER NOT NULL REFERENCES users(id), id TEXT NOT NULL, started_at TEXT NOT NULL, source TEXT NOT NULL,
   report TEXT NOT NULL, received_at TEXT NOT NULL, PRIMARY KEY (user_id, id));
+CREATE INDEX IF NOT EXISTS app_sessions_time ON app_sessions(user_id, started_at, id);
 CREATE TABLE IF NOT EXISTS app_style (
   user_id INTEGER PRIMARY KEY REFERENCES users(id), profile TEXT NOT NULL, received_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS app_codes (

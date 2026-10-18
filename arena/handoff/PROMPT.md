@@ -392,7 +392,7 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `GET /api/me/sessions/<id>` | **200** `SessionDetail`; **404**. `no-store`. |
 | `DELETE /api/me/sessions/<id>` | CSRF header. **204**; **404**. |
 | `DELETE /api/me/sessions` | CSRF header. "Delete my web data": all the caller's app sessions and the style profile. **204**. |
-| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 8 KB: the profile's own limit; 8-16 KB -> **400** `invalid_profile`, over 16 KB -> **413**): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
+| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 8 KB: the profile's own limit; 8-16 KB -> **400** `invalid_profile`, over 16 KB -> **413** `too_large`): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
 | `GET /api/me/dashboard` | **200** `Dashboard`, aggregated on read from the stored reports (sessions, weekly volume, trends, bests, stroke groups, style, the active twin id). `no-store`. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 

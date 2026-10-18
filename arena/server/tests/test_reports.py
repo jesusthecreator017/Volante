@@ -49,6 +49,13 @@ def test_validator_rejects_malformed():
         mut(lambda r: r["insights"].append({"id": "x", "severity": "info", "title": "t", "body": "b" * 100_000, "evidence": {}})),
         mut(lambda r: r["session"].update(source="phone")),
         mut(lambda r: r["timeline"].extend([r["timeline"][0]] * 600)),
+        mut(lambda r: r["session"].update(started_at="2026-13-45T25:61:61Z")),
+        mut(lambda r: r["session"].update(duration_s=1e308)),
+        mut(lambda r: r["session"].update(active_s=86401)),
+        mut(lambda r: r["swings"].update(count=10**7)),
+        mut(lambda r: r["speed"].update(max_kmh=1e308)),
+        mut(lambda r: r.update(heart_rate={"avg_bpm": 120, "max_bpm": 301})),
+        mut(lambda r: r["timeline"][0].update(t_min=1441)),
         [], "x", None,
     ]
     for r in bad:
@@ -65,6 +72,7 @@ def test_migrate_adds_tables_and_column():
     names = {r["name"] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"app_sessions", "app_style"} <= names
     assert "app_linked_at" in {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+    assert con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='app_sessions_time'").fetchone()
 
 
 def test_validator_rejects_type_and_format_edge_cases():

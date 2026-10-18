@@ -2,9 +2,9 @@
 // /account/dashboard is the overview, /account/dashboard/sessions/:id one session. Speeds say "estimated", strokes "experimental",
 // watch sessions "wrist" (the watch measures hand speed, never mixed with racquet speed).
 
-import { api, loginUrl, me } from "../api";
+import { ApiError, api, loginUrl, me } from "../api";
 import { barChart, lineChart, mixBar, sparkline } from "../charts";
-import { fmtDate, load, moreLink } from "../components";
+import { empty, fmtDate, load, moreLink } from "../components";
 import { h, link } from "../dom";
 import { icon, type IconName } from "../icons";
 import type { Best, Dashboard, GroupShares, SessionReport, SessionSummary, StrokeGroup } from "../types";
@@ -300,7 +300,9 @@ export async function sessionPage(root: HTMLElement, params: Record<string, stri
   if (!(await gate(root))) return;
   const slot = h("div");
   root.append(slot);
-  await load(slot, () => api.mySession(params.id), (d) => {
+  const get = () => api.mySession(params.id).catch((e) => (e instanceof ApiError && e.status === 404 ? null : Promise.reject(e)));
+  await load(slot, get, (d) => {
+    if (!d) return void slot.append(empty("Session not found — it may have been deleted from the app."));
     const r = d.report;
     title.replaceChildren(fmtDate(r.session.started_at), " ", sourceTag(r.session.source === "watch"));
     slot.append(...report(r));

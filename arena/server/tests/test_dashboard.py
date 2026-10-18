@@ -118,3 +118,13 @@ def test_weeks_cross_the_year():
     d = dashboard.aggregate([{"id": "a", "report": rep("2025-12-29T10:00:00Z")}], None, None, date(2026, 1, 4))
     assert d["weekly"][-1] == {"week": "2026-W01", "sessions": 1, "swings": 10, "active_min": 10.0}
     assert d["weekly"][-2]["week"] == "2025-W52"
+
+
+def test_dashboard_skips_rows_that_fail_validation():
+    """Rows stored before the stricter validator (bad date, absurd numbers) are skipped, not a 500."""
+    bad_date = copy.deepcopy(rep("2026-10-17T09:30:00Z"))
+    bad_date["session"]["started_at"] = "2026-13-45T25:61:61Z"
+    huge = copy.deepcopy(rep("2026-10-16T09:30:00Z"))
+    huge["session"]["active_s"] = 1e308
+    rows = fixture() + [{"id": "bad1", "report": bad_date}, {"id": "bad2", "report": huge}, {"id": "bad3", "report": None}]
+    assert dashboard.aggregate(rows, None, None, TODAY) == dashboard.aggregate(fixture(), None, None, TODAY)

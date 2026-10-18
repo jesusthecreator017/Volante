@@ -10,7 +10,7 @@ export interface Me {
   user: User | null;
   csrf: string;
   uploads_left_today?: number;
-  /** true once the oso phone/watch app has synced a session (GET /api/me) */
+  /** true once the Volante app has signed in to the Arena (set at the app sign-in exchange, not on sync; GET /api/me) */
   app_linked?: boolean;
 }
 

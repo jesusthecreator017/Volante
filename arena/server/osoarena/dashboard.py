@@ -1,6 +1,11 @@
 """GET /api/me/dashboard aggregates (spec section 3): a pure function over a user's stored volante-report/1 reports.
 Pod (racquet) and watch (wrist) speeds are never mixed: speed numbers come from pod sessions only."""
+import logging
 from datetime import date, timedelta
+
+from . import reports
+
+log = logging.getLogger(__name__)
 
 GROUPS = ("power", "mid", "touch", "not_a_hit", "unclassified")
 
@@ -34,7 +39,13 @@ def _shares(groups):
 
 def aggregate(rows, style, twin_model_id, today):
     """rows: [{"id", "report"}] (validated reports, any order). -> the Dashboard shape of GET /api/me/dashboard."""
-    items = sorted(((x["id"], x["report"]) for x in rows), key=lambda t: (t[1]["session"]["started_at"], t[0]))
+    ok = []
+    for x in rows:  # rows stored before the stricter validator: skip one bad row rather than 500 the whole dashboard
+        try:
+            ok.append((x["id"], reports.validate_report(x["report"])))
+        except ValueError as e:
+            log.warning("dashboard: skipping stored session %s: %s", x["id"], e)
+    items = sorted(ok, key=lambda t: (t[1]["session"]["started_at"], t[0]))
     pod = [t for t in items if t[1]["session"]["source"] == "pod"]
     watch = [t for t in items if t[1]["session"]["source"] == "watch"]
 

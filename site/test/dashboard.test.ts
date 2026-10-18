@@ -124,7 +124,8 @@ describe("dashboard pages", () => {
     expect(bare.querySelector(".timeline .dbar")).not.toBeNull();
     const missing = root();
     await sessionPage(missing, { id: "nope" });
-    expect(missing.querySelector(".error-box")).not.toBeNull();
+    expect(missing.querySelector(".error-box")).toBeNull();
+    expect(missing.textContent).toContain("Session not found — it may have been deleted from the app.");
   });
 
   test("test_wrist_sessions_labelled", async () => {
