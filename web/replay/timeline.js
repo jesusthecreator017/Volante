@@ -54,9 +54,14 @@ export function setupTimeline(oso) {
     oso.oso_set_speed(parseFloat(e.target.value));
     canvas.focus();
   });
-  for (const b of bar.querySelectorAll("[data-preset]")) {
+  const presets = [...bar.querySelectorAll("[data-preset]")];
+  for (const b of presets) {
     b.addEventListener("click", () => oso.oso_preset(Number(b.dataset.preset)));
   }
+  // Presets glide unless the user asked for reduced motion
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  oso.oso_set_reduced_motion(reduced.matches);
+  reduced.addEventListener("change", (e) => oso.oso_set_reduced_motion(e.matches));
 
   // Dragging pauses playback and resumes afterwards if it was playing
   const endDrag = () => {
@@ -200,8 +205,11 @@ export function setupTimeline(oso) {
         set("has_shuttle", s.has_shuttle, (v) => { $("big-shuttle").hidden = !v; });
         set("big_shuttle", s.big_shuttle, (v) => $("big-shuttle").setAttribute("aria-pressed", String(v)));
         set("cameras", s.cameras, (n) => {
-          bar.querySelector('[data-preset="4"]').disabled = n < 1;
-          bar.querySelector('[data-preset="5"]').disabled = n < 2;
+          bar.querySelector('[data-preset="4"]').hidden = n < 1;
+          bar.querySelector('[data-preset="5"]').hidden = n < 2;
+        });
+        set("preset", s.preset, (v) => {
+          for (const b of presets) b.setAttribute("aria-pressed", String(Number(b.dataset.preset) === v));
         });
         if (s.stroke_count > 0 && !rows.length) {
           duration = s.duration;

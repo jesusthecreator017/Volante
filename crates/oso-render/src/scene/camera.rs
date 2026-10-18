@@ -35,7 +35,7 @@ impl Camera {
     }
 
     // Camera placed at `eye`, looking at `target`. Not clamped: calibrated cameras may sit outside the
-    // drag limits; the next drag or scroll clamps as usual.
+    // orbit limits.
     pub fn look_from(eye: [f32; 3], target: [f32; 3]) -> Self {
         let d = cgmath::Vector3::from(eye) - cgmath::Vector3::from(target);
         let horizontal = (d.x * d.x + d.z * d.z).sqrt();
@@ -120,6 +120,10 @@ impl Projection {
 
     pub fn set_fovy(&mut self, fovy: impl Into<cgmath::Rad<f32>>) {
         self.fovy = fovy.into();
+    }
+
+    pub fn fovy(&self) -> cgmath::Rad<f32> {
+        self.fovy
     }
 
     pub fn matrix(&self) -> cgmath::Matrix4<f32> {

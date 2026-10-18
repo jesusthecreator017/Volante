@@ -5,9 +5,9 @@ import { fetchReplay } from "./fetch-replay.js";
 import { setupTimeline } from "./timeline.js";
 
 const STATUS_FIELDS = ["loaded", "time", "duration", "playing", "speed", "fps", "frame", "frame_count",
-  "skeleton", "big_shuttle", "has_shuttle", "cameras", "stroke_count"];
+  "skeleton", "big_shuttle", "has_shuttle", "cameras", "preset", "stroke_count"];
 const STATUS_DEFAULTS = { loaded: false, time: 0, duration: 0, playing: false, speed: 1, fps: 60, frame: 0,
-  frame_count: 0, skeleton: false, big_shuttle: false, has_shuttle: false, cameras: 0, stroke_count: 0 };
+  frame_count: 0, skeleton: false, big_shuttle: false, has_shuttle: false, cameras: 0, preset: 1, stroke_count: 0 };
 const COMMANDS = ["oso_seek", "oso_set_playing", "oso_toggle_play", "oso_step", "oso_set_speed", "oso_preset",
   "oso_toggle_skeleton", "oso_toggle_big_shuttle", "oso_next_stroke", "oso_prev_stroke"];
 
@@ -70,9 +70,6 @@ window.oso_ready.catch(() => {});
 const $ = (id) => document.getElementById(id);
 const el = { status: $("ov-status"), progress: $("ov-progress"), error: $("ov-error"), drop: $("ov-drop"),
   overlay: $("overlay"), canvas: $("canvas"), corner: $("status") };
-
-// 2. right-drag looks around; no browser menu
-el.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // Overlay helpers
 function show(statusText, { progress = false, value = null, drop = false } = {}) {

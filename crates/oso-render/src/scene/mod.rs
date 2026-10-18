@@ -2,7 +2,7 @@
 
 pub mod body;
 pub mod camera;
-pub mod camera_controller;
+pub mod camera_transition;
 pub mod components;
 pub mod court;
 pub mod hall;

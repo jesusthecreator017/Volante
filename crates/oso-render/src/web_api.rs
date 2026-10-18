@@ -9,6 +9,7 @@ use crate::playback::Command;
 thread_local! {
     // wasm is single-threaded, so a thread_local is a global
     static QUEUE: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
+    static REDUCED_MOTION: Cell<bool> = const { Cell::new(false) };
     static STATUS: Cell<Status> = const { Cell::new(Status::EMPTY) };
     static REPLAY_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -29,6 +30,8 @@ pub struct Status {
     pub big_shuttle: bool,
     pub has_shuttle: bool,
     pub cameras: u32,
+    /// Selected camera preset, 1-5
+    pub preset: u32,
     pub stroke_count: u32,
 }
 
@@ -46,6 +49,7 @@ impl Status {
         big_shuttle: false,
         has_shuttle: false,
         cameras: 0,
+        preset: 1,
         stroke_count: 0,
     };
 }
@@ -101,6 +105,16 @@ pub fn oso_step(n: i32) {
 #[wasm_bindgen]
 pub fn oso_set_speed(s: f32) {
     push(Command::SetSpeed(s));
+}
+
+/// Page's `prefers-reduced-motion`: camera presets jump instead of gliding. Call at startup and when it changes.
+#[wasm_bindgen]
+pub fn oso_set_reduced_motion(on: bool) {
+    REDUCED_MOTION.with(|c| c.set(on));
+}
+
+pub fn reduced_motion() -> bool {
+    REDUCED_MOTION.with(|c| c.get())
 }
 
 #[wasm_bindgen]
