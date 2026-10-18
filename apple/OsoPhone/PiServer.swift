@@ -8,7 +8,10 @@ import OsoKit
 @MainActor
 @Observable
 final class PiServer {
-    static let defaultURL = "http://pi5server-1.tail05420e.ts.net:8090"
+    /// HTTPS from `tailscale serve` (tailnet only, a real certificate): encrypted traffic is never sent through iCloud Private
+    /// Relay, which breaks plain http to the Pi on cellular. The old http address keeps working on the tailnet.
+    static let defaultURL = "https://pi5server-1.tail05420e.ts.net:8444"
+    static let oldDefaults = ["http://raspberrypi.local:8080", "http://pi5server-1.tail05420e.ts.net:8090", "http://100.103.93.45:8090"]
     var baseURL: String {
         didSet { UserDefaults.standard.set(baseURL, forKey: "oso.pi.url"); reachable = nil }
     }
@@ -26,7 +29,7 @@ final class PiServer {
     init() {
         // The team Pi over Tailscale (works anywhere Tailscale is on); the old LAN default is replaced.
         let saved = UserDefaults.standard.string(forKey: "oso.pi.url")
-        baseURL = saved == nil || saved == "http://raspberrypi.local:8080" ? Self.defaultURL : saved!
+        baseURL = saved.map { Self.oldDefaults.contains($0) ? Self.defaultURL : $0 } ?? Self.defaultURL
     }
 
     private func url(_ path: String) throws -> URL {
@@ -63,7 +66,9 @@ final class PiServer {
         } catch {
             // Tailscale up but its DNS off ("Use Tailscale DNS"): the ts.net name doesn't resolve, the Pi's tailnet IP still works
             // (and IP connections are exempt from ATS). Switch to it when it answers.
-            if let e = error as? URLError, [.cannotFindHost, .dnsLookupFailed].contains(e.code), baseURL == Self.defaultURL,
+            // Also when the name resolves publicly (Tailscale DNS off: the Funnel record answers, and 8444 is tailnet-only there).
+            if let e = error as? URLError, [.cannotFindHost, .dnsLookupFailed, .timedOut, .cannotConnectToHost, .networkConnectionLost,
+                                            .secureConnectionFailed].contains(e.code), baseURL == Self.defaultURL,
                let d = try? expectOK(await probe(Self.fallbackURL)),
                (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["app"] as? String == "oso" {
                 baseURL = Self.fallbackURL
@@ -76,7 +81,8 @@ final class PiServer {
         }
     }
 
-    /// The team Pi's Tailscale IP (stable for the node), for phones whose Tailscale DNS is off.
+    /// The team Pi's Tailscale IP (stable for the node), for phones whose Tailscale DNS is off. Plain http, since the
+    /// certificate is for the name; it only travels inside the WireGuard tunnel.
     static let fallbackURL = "http://100.103.93.45:8090"
 
     private func probe(_ base: String) async throws -> (Data, Int) {
