@@ -188,9 +188,8 @@ struct PodView: View {
                 Divider()
                 ForEach(pod.liveSwings.suffix(4).reversed()) { s in
                     HStack {
-                        Circle().fill(Theme.stroke(s.stroke)).frame(width: 10, height: 10).accessibilityHidden(true)
-                        Text(s.stroke.rawValue.capitalized).font(.subheadline.weight(.semibold))
-                        if s.impact { Image(systemName: "circle.fill").font(.system(size: 5)).foregroundStyle(.secondary).accessibilityLabel("hit") }
+                        Circle().fill(s.impact ? Theme.hot : Theme.group(.unclassified)).frame(width: 10, height: 10).accessibilityHidden(true)
+                        Text(s.impact ? "Hit" : "No contact").font(.subheadline.weight(.semibold))
                         Spacer(minLength: 8)
                         Text(String(format: "%.1f m/s", s.headSpeed)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                     }

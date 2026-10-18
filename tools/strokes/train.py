@@ -523,6 +523,11 @@ def main(argv=None):
             gp, gmeta = export_model(gm, "a_of", d, gres["group4"]["threshold"], gres["group4"], data_hash(a.root, npz), a.out, a.seed,
                                      EVAL_NOTE[mode], group=True)
             print(f"  group model (a_of): parity class {gp['max_abs_class']:.2e}, side {gp['max_abs_side']:.2e}, groups {gmeta['output_class_ids']}")
+        import export_trees as X  # the phone's pure-Swift models: a_of trees (11-class + group), display thresholds, test vectors
+        ex = X.export_all(d, a.out, a.seed, data_hash(a.root, npz), EVAL_NOTE[mode])
+        print(f"  trees: evaluator vs sklearn max abs diff {max(ex['parity'].values()):.1e}; display thresholds group "
+              f"{ex['display_group']['threshold']:.4f} (coverage {ex['display_group']['coverage']:.2f}), class {ex['display_class']['threshold']:.4f} "
+              f"(coverage {ex['display_class']['coverage']:.2f})")
         for f in sorted(a.out.glob("*v0*")):
             print(f"  {f.relative_to(REPO) if f.is_relative_to(REPO) else f}: {f.stat().st_size / 1024:.1f} KiB")
 

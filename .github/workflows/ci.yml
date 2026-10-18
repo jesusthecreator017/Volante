@@ -75,6 +75,8 @@ jobs:
               - *shared
               - apple/**
               - app/public/sample/imu.bin # bundled into OsoPhone
+              - models/strokes/*.trees.json # stroke models bundled into OsoKit
+              - models/strokes/test_vectors_trees_v0.json
 
   rust:
     name: Rust (build, test, clippy)
@@ -165,6 +167,7 @@ jobs:
           python tools/strokes/test_dataset.py # Phase 16.2 dataset pipeline (synthetic sessions)
           python tools/strokes/test_review.py # Phase 16.4a label policy and review server
           python tools/strokes/test_train.py # Phase 16.4a features, augmentation, tiny GBM + CNN, ONNX parity
+          python tools/strokes/test_export_trees.py # Phase 22 tree export: JSON evaluator == sklearn, schema, committed models in sync
 
   site:
     name: site (vitest, build)

@@ -13,6 +13,8 @@ struct ShareCardView: View {
     let date: Date
     /// Whether this session holds a personal best.
     var personalBest = false
+    /// Stroke groups (experimental), racquet sessions; nil hides the mix.
+    var breakdown: StrokeBreakdown?
 
     private var s: SessionSummary { analysis.summary }
     private let ink = Color.white
@@ -82,15 +84,15 @@ struct ShareCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var mix: some View {
-        let counts = StrokeType.allCases.compactMap { k in s.strokeCounts[k].flatMap { $0 > 0 ? (k, $0) : nil } }
+    @ViewBuilder private var mix: some View {
+        let counts = (breakdown?.rows ?? []).map { ($0.group, $0.stat.count) }
         let total = max(1, counts.reduce(0) { $0 + $1.1 })
-        return VStack(alignment: .leading, spacing: 18) {
-            Text("Stroke mix").font(.system(size: 34, weight: .semibold, design: .rounded)).foregroundStyle(soft)
+        if !counts.isEmpty { VStack(alignment: .leading, spacing: 18) {
+            Text("Stroke groups (beta)").font(.system(size: 34, weight: .semibold, design: .rounded)).foregroundStyle(soft)
             GeometryReader { geo in
                 HStack(spacing: 6) {
                     ForEach(counts, id: \.0) { k, n in
-                        RoundedRectangle(cornerRadius: 14).fill(Theme.stroke(k))
+                        RoundedRectangle(cornerRadius: 14).fill(Theme.group(k))
                             .frame(width: max(14, (geo.size.width - 6 * CGFloat(counts.count - 1)) * CGFloat(n) / CGFloat(total)))
                     }
                 }
@@ -99,12 +101,12 @@ struct ShareCardView: View {
             HStack(spacing: 28) {
                 ForEach(counts.prefix(4), id: \.0) { k, n in
                     HStack(spacing: 10) {
-                        Circle().fill(Theme.stroke(k)).frame(width: 22, height: 22)
-                        Text("\(k.rawValue.capitalized) \(n)").font(.system(size: 32, weight: .semibold, design: .rounded)).foregroundStyle(ink).lineLimit(1).minimumScaleFactor(0.6)
+                        Circle().fill(Theme.group(k)).frame(width: 22, height: 22)
+                        Text("\(k.title) \(n)").font(.system(size: 32, weight: .semibold, design: .rounded)).foregroundStyle(ink).lineLimit(1).minimumScaleFactor(0.6)
                     }
                 }
             }
-        }
+        } }
     }
 }
 
@@ -152,8 +154,8 @@ private struct Court: Shape {
 // MARK: sharing
 
 @MainActor
-func renderShareCard(_ analysis: SessionAnalysis, date: Date, personalBest: Bool) -> Data? {
-    let r = ImageRenderer(content: ShareCardView(analysis: analysis, date: date, personalBest: personalBest))
+func renderShareCard(_ analysis: SessionAnalysis, date: Date, personalBest: Bool, breakdown: StrokeBreakdown? = nil) -> Data? {
+    let r = ImageRenderer(content: ShareCardView(analysis: analysis, date: date, personalBest: personalBest, breakdown: breakdown))
     r.scale = 1 // 1 pt = 1 px: exactly 1080x1350
     r.isOpaque = true
     return r.uiImage?.pngData()
@@ -164,10 +166,11 @@ struct SessionCardImage: Transferable, Sendable {
     let analysis: SessionAnalysis
     let date: Date
     let personalBest: Bool
+    var breakdown: StrokeBreakdown?
 
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .png) { card in
-            guard let data = await renderShareCard(card.analysis, date: card.date, personalBest: card.personalBest) else {
+            guard let data = await renderShareCard(card.analysis, date: card.date, personalBest: card.personalBest, breakdown: card.breakdown) else {
                 throw CocoaError(.fileWriteUnknown)
             }
             return data

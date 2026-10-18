@@ -13,9 +13,7 @@ extension Swing {
         return "\(timing) \(Int(abs(d).rounded())) ms"
     }
 
-    var strokeTitle: String { stroke.rawValue.capitalized }
-
-    /// "Swing 3, smash, 19.0 metres per second, impact on peak"
+    /// "Swing 3, 19.0 metres per second, impact on peak"
     var spoken: String {
         let impact: String
         switch (timing, impactLabel) {
@@ -23,7 +21,7 @@ extension Swing {
         case ("on peak", _): impact = "impact on peak"
         case (_, let l?): impact = "impact \(l.replacingOccurrences(of: " ms", with: " milliseconds"))"
         }
-        return String(format: "Swing %d, %@, %.1f metres per second, ", index, stroke.rawValue, headSpeed) + impact
+        return String(format: "Swing %d, %.1f metres per second, ", index, headSpeed) + impact
     }
 
     /// The analysis' confidence reasons in plain words.
