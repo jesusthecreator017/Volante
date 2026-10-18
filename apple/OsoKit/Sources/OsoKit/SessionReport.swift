@@ -47,7 +47,12 @@ public struct SessionReport: Equatable, Sendable {
 
     // MARK: JSON (the layout of Python's json.dumps(indent=2), so the parity vector compares byte for byte)
 
-    public func json() -> String {
+    public func json() -> String { tree().pretty("") + "\n" }
+
+    /// The body of `PUT /api/me/sessions/{id}` on the Arena server: `{"report": <this report>}`, compact (same numbers as `json()`).
+    public func uploadBody() -> Data { Data(J.obj([("report", tree())]).compact().utf8) }
+
+    func tree() -> J {
         func n(_ x: Double?) -> J { x.map { .num($0) } ?? .null }
         let insightsJ: J = .arr(insights.map { i in
             .obj([("id", .str(i.id)), ("severity", .str(i.severity.rawValue)), ("title", .str(i.title)), ("body", .str(i.body)),
@@ -68,13 +73,22 @@ public struct SessionReport: Equatable, Sendable {
             ("insights", insightsJ),
             ("model", strokes == nil ? .null : .obj([("name", .str("stroke_group_v0")), ("version", .str("0"))])),
         ])
-        return root.pretty("") + "\n"
+        return root
     }
 }
 
 /// Ordered JSON, printed like Python's json.dumps(indent=2).
 indirect enum J {
     case num(Double), int(Int), str(String), bool(Bool), null, arr([J]), obj([(String, J)])
+
+    /// No whitespace at all (json.dumps(separators=(",", ":"))).
+    func compact() -> String {
+        switch self {
+        case .arr(let xs): return "[" + xs.map { $0.compact() }.joined(separator: ",") + "]"
+        case .obj(let kv): return "{" + kv.map { jsonString($0.0) + ":" + $0.1.compact() }.joined(separator: ",") + "}"
+        default: return pretty("")
+        }
+    }
 
     func pretty(_ ind: String) -> String {
         switch self {

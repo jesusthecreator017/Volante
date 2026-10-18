@@ -5,13 +5,14 @@ import SwiftUI
 
 @main
 struct OsoPhoneApp: App {
-    @State private var store = SessionStore()
+    @State private var store: SessionStore
     @State private var pod = PodLink()
     @State private var watch = WatchReceiver()
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
     @State private var router = Router()
-    @State private var arena = ArenaClient()
+    @State private var arena: ArenaClient
+    @State private var webSync: WebSync
     @AppStorage("oso.onboarded") private var onboarded = false
     /// DEBUG: -osoOnboarding shows the intro even when it was seen, until it ends.
     @State private var forceIntro = DebugOverrides.forcesIntro
@@ -21,6 +22,10 @@ struct OsoPhoneApp: App {
         let pi = PiServer()
         _pi = State(initialValue: pi)
         _fitbit = State(initialValue: FitbitLink(pi: pi))
+        let store = SessionStore(), arena = ArenaClient()
+        _store = State(initialValue: store)
+        _arena = State(initialValue: arena)
+        _webSync = State(initialValue: WebSync(store: store, arena: arena))
     }
 
     var body: some Scene {
@@ -38,6 +43,7 @@ struct OsoPhoneApp: App {
             .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
             .environment(router)
             .environment(arena)
+            .environment(webSync)
             .environment(store)
             .environment(pod)
             .environment(watch)
@@ -45,8 +51,11 @@ struct OsoPhoneApp: App {
             .environment(pi)
             .onAppear(perform: wire)
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
+                if phase == .active { pod.refreshAuthorization(); syncHeartRate(); webSync.kick() }
             }
+            // a new session, heart rate added later, or a sign-in: send what volante web doesn't have yet
+            .onChange(of: store.sessions.map { "\($0.id):\($0.heartRate.count)" }) { webSync.kick() }
+            .onChange(of: arena.user?.id) { webSync.kick() }
         }
     }
 
@@ -83,6 +92,7 @@ struct OsoPhoneApp: App {
         }
         watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
         syncHeartRate()
+        if arena.hasSession { Task { _ = try? await arena.refreshMe(); webSync.kick() } }
         #if DEBUG
         applyLaunchArguments()
         #endif
