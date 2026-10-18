@@ -31,6 +31,7 @@ export function match(path: string): { route: Route; params: Params } | null {
 /** Pre-/arena paths (the Arena used to own the site root): client-side 301s so old links keep working. */
 const LEGACY = /^\/(ladder|models\/\d+|matches\/\d+|tournaments(\/\d+)?|my-models|get-started)\/?$/;
 export function redirectFor(path: string): string | null {
+  if (/^\/arena\/twins\/?$/.test(path)) return "/arena/ladder?ladder=twins"; // the Twins ladder is a switch on the Ladder page
   return LEGACY.test(path) ? "/arena" + path.replace(/\/$/, "") : null;
 }
 
@@ -59,7 +60,9 @@ export async function render(root: HTMLElement) {
   let url = new URL(location.href);
   const to = redirectFor(url.pathname);
   if (to) {
-    history.replaceState(null, "", to + url.search + url.hash);
+    const t = new URL(to, location.origin);
+    for (const [k, v] of url.searchParams) if (!t.searchParams.has(k)) t.searchParams.set(k, v);
+    history.replaceState(null, "", t.pathname + t.search + url.hash);
     url = new URL(location.href);
   }
   const m = match(url.pathname);

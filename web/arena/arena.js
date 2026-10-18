@@ -85,7 +85,7 @@ function setPhase(phase) {
   if (state.phase === "ready" || state.phase === "error") return;
   state.phase = phase;
   if (phase === "waiting") show("", { drop: true });
-  else if (phase === "preparing") show("Preparing match...", { progress: true });
+  else if (phase === "preparing") show("Preparing the replay, up to a minute the first time...", { progress: true });
   else if (phase === "downloading") showProgress();
   else if (phase === "loading") show("Loading replay...", { progress: true });
   else if (phase === "ready") { el.overlay.hidden = true; readyResolve(); }

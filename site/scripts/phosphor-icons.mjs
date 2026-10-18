@@ -6,11 +6,15 @@ import { join } from "node:path";
 /** name -> weights used */
 const ICONS = {
   "arrow-right": ["regular"], "arrow-square-out": ["regular"], "caret-down": ["bold"], "caret-left": ["bold"], "caret-right": ["bold"],
-  "caret-up": ["bold"], "chart-line-up": ["regular"], "check-circle": ["fill"], "copy": ["regular"], "desktop": ["regular"],
+  "caret-up": ["bold"], "chart-line-up": ["regular"], "check-circle": ["fill"], "copy": ["regular"], 
   "gauge": ["regular"], "github-logo": ["regular"], "house": ["fill"], "lightning": ["regular"], "list": ["regular"],
   "list-checks": ["regular"], "moon": ["regular"], "play": ["fill"], "sign-out": ["regular"], "sun": ["regular"],
   "target": ["regular"], "trophy": ["fill"], "warning-circle": ["regular"], "x": ["regular"], "bluetooth": ["regular"],
   "cube": ["regular"], "users-three": ["regular"], "calendar-blank": ["regular"], "robot": ["regular"], "upload-simple": ["regular"],
+  "sparkle": ["fill"], "trend-down": ["regular"], "trend-up": ["regular"], "timer": ["regular"], "device-mobile": ["regular"],
+  "file-csv": ["regular"], "lock-simple": ["regular"], "ranking": ["regular"], "waveform": ["regular"], "info": ["regular"],
+  "seal-check": ["regular"], "terminal-window": ["regular"], "sliders-horizontal": ["regular"], "book-open": ["regular"],
+  "racquet": ["regular"], "bluetooth-connected": ["regular"], "arrow-clockwise": ["regular"], "crosshair": ["regular"],
 };
 
 const pkg = new URL("../node_modules/@phosphor-icons/core/", import.meta.url).pathname; // the package exports no package.json

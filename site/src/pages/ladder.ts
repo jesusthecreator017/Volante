@@ -1,14 +1,18 @@
 import { api } from "../api";
-import { buildBars, load, modelLink, ownerChip, provisional } from "../components";
+import { buildBars, load, modelLink, ownerChip } from "../components";
 import { append, h, replace } from "../dom";
 import { navigate } from "../router";
 import type { Ladder, LadderItem, LadderName, Season } from "../types";
 import { icon } from "../icons";
 import { dataVolume, fidelityBadge, ladderOf, ladderToggle, TWINS_EMPTY, TWINS_INTRO } from "../twins";
 
-/** The Twins ladder's own address (docs/twins-site.md); /arena/ladder?ladder=twins works too. */
-export const twinsLadder = (root: HTMLElement, p: unknown, q: URLSearchParams) => ladder(root, p, new URLSearchParams([...q, ["ladder", "twins"]]));
-const ladderPath = (l: LadderName) => (l === "twins" ? "/arena/twins" : "/arena/ladder");
+/** One page for both ladders: ?ladder=twins switches (old /arena/twins links redirect here). */
+function ladderUrl(l: LadderName, params: Record<string, string | number | undefined> = {}): string {
+  const q = new URLSearchParams();
+  if (l === "twins") q.set("ladder", "twins");
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) q.set(k, String(v));
+  return `/arena/ladder${q.size ? `?${q}` : ""}`;
+}
 
 const PAGE = 50;
 type SortKey = "rank" | "name" | "rating" | "games" | "wins";
@@ -23,7 +27,7 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
   let asc = true;
   const picker = h("div", { class: "row" });
   const table = h("div");
-  const keep = (l: LadderName) => ladderPath(l) + (season ? `?season=${season}` : "");
+  const keep = (l: LadderName) => ladderUrl(l, { season });
   append(root, [
     h("div", { class: "page-head" }, h("h1", null, twins ? "Twins ladder" : "Ladder"), ladderToggle(lad, keep)),
     twins ? h("p", { class: "lead" }, TWINS_INTRO) : null,
@@ -72,7 +76,7 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
                       ? h("td", { class: "hide-sm" }, it.model.twin ? h("div", { class: "cell-twin" }, h("span", { class: "small" }, dataVolume(it.model.twin.profile)), fidelityBadge(it.model.twin, true)) : h("span", { class: "muted small" }, "House player"))
                       : null,
                     h("td", { class: "hide-sm" }, buildBars(it.model.build)),
-                    h("td", { class: it.provisional ? "num rating provisional" : "num rating" }, it.rating.toFixed(0), it.provisional ? provisional(0) : null),
+                    h("td", { class: it.provisional ? "num rating provisional" : "num rating", title: it.provisional ? "Provisional: fewer than 20 games" : null }, it.rating.toFixed(0)),
                     h("td", { class: "num hide-sm" }, it.games),
                     h("td", { class: "num" }, `${it.wins}–${it.losses}`),
                   ),
@@ -88,7 +92,7 @@ export function ladder(root: HTMLElement, _p: unknown, q: URLSearchParams) {
 
   function pager(l: Ladder) {
     if (l.total <= PAGE) return null;
-    const go = (o: number) => () => navigate(`${ladderPath(lad)}?${new URLSearchParams({ ...(season ? { season: String(season) } : {}), offset: String(o) })}`);
+    const go = (o: number) => () => navigate(ladderUrl(lad, { season, offset: o }));
     return h(
       "nav",
       { class: "pager", "aria-label": "Ladder pages" },
@@ -119,7 +123,7 @@ function renderPicker(el: HTMLElement, seasons: Season[], current?: number, lad:
   const active = seasons.find((s) => s.active)?.id;
   const sel = h(
     "select",
-    { id: "season", onchange: (e: Event) => navigate(`${ladderPath(lad)}?season=${(e.target as HTMLSelectElement).value}`) },
+    { id: "season", onchange: (e: Event) => navigate(ladderUrl(lad, { season: (e.target as HTMLSelectElement).value })) },
     seasons.map((s) => h("option", { value: s.id, selected: (current ?? active) === s.id }, `Season ${s.id}${s.active ? " (current)" : ""}`)),
   );
   el.append(h("label", { for: "season" }, "Season "), sel);

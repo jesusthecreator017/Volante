@@ -4,7 +4,8 @@ import { PLAY_STYLES, checkUploadFile, suggestStyle } from "../src/arena";
 import { buildBars, ratingChart } from "../src/components";
 import { h } from "../src/dom";
 import { getStarted } from "../src/pages/content";
-import { FEATURES, SESSION, exampleSwings, landing } from "../src/pages/landing";
+import { howItWorks } from "../src/pages/how";
+import { FEATURES, landing } from "../src/pages/landing";
 import "../src/routes";
 import { match, redirectFor, route } from "../src/router";
 
@@ -48,6 +49,7 @@ describe("DOM safety", () => {
 
 describe("get started copy", () => {
   test("tells the truth about installing the kit and the coach skill", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: null, csrf: "x" })));
     const root = document.createElement("div");
     getStarted(root);
     const text = root.textContent ?? "";
@@ -76,17 +78,16 @@ describe("routes", () => {
     const titles: Record<string, string> = {
       "/": "Racquet pod",
       "/settings": "Settings",
-      "/terms": "Terms",
+      "/how-it-works": "How it works",
       "/privacy": "Privacy",
       "/arena": "Arena",
       "/arena/ladder": "Ladder · Arena",
-      "/arena/twins": "Twins · Arena",
       "/arena/models/7": "Model · Arena",
       "/arena/matches/905": "Match · Arena",
       "/arena/tournaments": "Tournaments · Arena",
       "/arena/tournaments/3": "Tournament · Arena",
-      "/arena/my-models": "My models · Arena",
-      "/arena/get-started": "Get started · Arena",
+      "/arena/my-models": "Train & upload · Arena",
+      "/arena/get-started": "Train & upload · Arena",
       "/arena/": "Arena",
     };
     for (const [path, title] of Object.entries(titles)) expect(match(path)?.route.title, path).toBe(title);
@@ -108,7 +109,8 @@ describe("routes", () => {
       expect(redirectFor(from), from).toBe(to);
       expect(match(to), to).not.toBeNull();
     }
-    for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/terms", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
+    for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/how-it-works", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
+    expect(redirectFor("/arena/twins")).toBe("/arena/ladder?ladder=twins");
   });
   test("unknown paths are 404", () => {
     for (const p of ["/nope", "/arena/nope", "/arena/models/abc", "/settings/x"]) expect(match(p), p).toBeNull();
@@ -117,23 +119,30 @@ describe("routes", () => {
 
 describe("landing", () => {
   afterEach(() => vi.unstubAllGlobals());
-  test("statuses are honest and the page has no inline styles", () => {
+  test("unshipped features say so, no status chips, no inline styles", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], next_before: null })));
-    const status = Object.fromEntries(FEATURES.map((f) => [f.id, f.status]));
-    expect(status).toEqual({ hits: "Available", speed: "Available", strokes: "In development", insights: "In development" });
+    const soon = Object.fromEntries(FEATURES.map((f) => [f.id, f.soon]));
+    expect(soon).toEqual({ hits: false, speed: false, insights: false, strokes: true });
     const root = document.createElement("div");
     landing(root);
-    expect(root.querySelectorAll("[style], script").length).toBe(0);
+    expect(root.querySelectorAll("[style], script, .chip").length).toBe(0);
     expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
-    expect(root.querySelector('a[href="/#how"]')).not.toBeNull();
+    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(1);
+    expect(root.querySelector('a[href="/how-it-works#insights"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/how-it-works"]')).not.toBeNull();
     expect(root.querySelector('a[href="/arena"]')).not.toBeNull();
-    expect(root.textContent).toContain("Example");
+    expect(root.querySelector('a[href="/arena/ladder?ladder=twins"]')).not.toBeNull();
+    expect(root.querySelector(".collage, .proofs")).toBeNull();
   });
-  test("example series matches the real session's mean and max", () => {
-    const v = exampleSwings();
-    expect(v.length).toBe(SESSION.smashes);
-    expect(Math.max(...v)).toBeCloseTo(SESSION.maxKmh, 6);
-    expect(v.reduce((a, b) => a + b, 0) / v.length).toBeCloseTo(SESSION.meanKmh, 6);
+  test("how it works: four steps, the example report with insights, a CSV drop zone", () => {
+    const root = document.createElement("div");
+    howItWorks(root);
+    expect(root.querySelectorAll(".step").length).toBe(4);
+    expect(root.querySelectorAll(".swing-chart .sbar").length).toBe(41);
+    expect(root.querySelectorAll(".insight").length).toBeGreaterThanOrEqual(3);
+    expect(root.textContent).toContain("estimates");
+    expect(root.querySelector('input[type="file"][accept*=".csv"]')).not.toBeNull();
+    expect(root.querySelectorAll("[style], script").length).toBe(0);
   });
 });
 

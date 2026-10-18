@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from osoarena import config, db, ladder, tournament
+from osoarena import config, db, ladder, replays, tournament
 from osoarena.config import LIMITS
 
 RESULT_MAX = 8 << 20
@@ -197,6 +197,9 @@ def process(con, job):
                     ("failed" if err else "done", str(err)[:300] if err else None, db.now(), round(wall_s, 2),
                      cpu if isinstance(cpu, (int, float)) else None, job["id"]))
     shutil.rmtree(jd, ignore_errors=True)
+    if job["kind"] == "match" and not err:
+        # Build the replay now (lowest queue priority, after checks and matches) so the first viewer doesn't wait for it.
+        replays.request(con, job["ref_id"])
     print(f"job {job['id']} {job['kind']} {job['ref_id']}: {'error ' + str(err)[:120] if err else 'ok'} "
           f"wall {wall_s:.1f}s cpu {(res or {}).get('cpu_s')}s", flush=True)
 

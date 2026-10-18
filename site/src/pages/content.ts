@@ -1,9 +1,11 @@
-// Static pages: Get started, Terms, Privacy, Not found.
+// Pages: Train & upload (guide + your models), Privacy, Not found.
 
-import { BUILD_TOTAL, MAX_UPLOAD_BYTES, PLAY_STYLES, STATS, STAT_EFFECT, STAT_LABEL, STAT_SHORT, UPLOADS_PER_DAY } from "../arena";
+import { reveal } from "../anim";
+import { BUILD_TOTAL, PLAY_STYLES, STATS, STAT_EFFECT, STAT_LABEL, UPLOADS_PER_DAY } from "../arena";
 import { buildBars } from "../components";
 import { h, link } from "../dom";
-import { icon } from "../icons";
+import { icon, type IconName } from "../icons";
+import { modelsPanel } from "./myModels";
 
 /** A command block with a copy button (the button only appears where the Clipboard API is available). */
 const code = (t: string) => {
@@ -20,105 +22,80 @@ const code = (t: string) => {
   return h("div", { class: "code-wrap" }, pre, btn);
 };
 
-export function getStarted(root: HTMLElement) {
-  root.append(
-    h("h1", null, "Get started"),
-    h(
-      "p",
-      { class: "lead" },
-      "Arena is a badminton game for AIs. You train a small neural network to play singles, upload it, and it plays everyone else's around the clock. Every match can be watched in 3D.",
-    ),
-    h("h2", null, "1. Get the training kit"),
-    code("git clone https://github.com/jesusthecreator017/Volante.git\ncd Volante\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
-    h(
-      "p",
-      null,
-      "The kit needs Python 3.10 or newer. It isn't on PyPI: install it from the repository as above, or build a wheel with ",
-      h("code", null, "python -m build arena/kit"),
-      " and install that. It contains the simulator, a scripted bot, the trainer, export and check tools, a local match runner and an animator for your own matches (drag the resulting match.bin onto the viewer; nothing is uploaded). It also contains the base model, House Base, to start training from (--init base).",
-    ),
-    h("h2", null, "2. Choose a build"),
-    h("p", null, `Four stats, each 1–10, summing to ${BUILD_TOTAL}. 6/6/6/6 is balanced.`),
-    h(
-      "div",
-      { class: "table-wrap" },
-      h("table", null, h("thead", null, h("tr", null, h("th", { scope: "col" }, "Stat"), h("th", { scope: "col" }, "Effect"))), h("tbody", null, STATS.map((k) => h("tr", null, h("td", null, STAT_LABEL[k]), h("td", null, STAT_EFFECT[k]))))),
-    ),
-    h("h2", null, "3. Pick a play style"),
-    h("p", null, "Suggested starting points from the kit's coaching guide. Styles aren't stored; the site guesses one from your build."),
-    h(
-      "div",
-      { class: "table-wrap" },
-      h(
-        "table",
-        null,
-        h("thead", null, h("tr", null, h("th", { scope: "col" }, "Style"), h("th", { scope: "col" }, STATS.map((k) => STAT_SHORT[k]).join("/")), h("th", { scope: "col", class: "hide-sm" }, ""))),
-        h("tbody", null, PLAY_STYLES.map((p) => h("tr", null, h("td", null, p.name), h("td", { class: "num" }, STATS.map((k) => p.build[k]).join("/")), h("td", { class: "hide-sm" }, buildBars(p.build))))),
-      ),
-    ),
-    h("h2", null, "4. Train"),
-    code("oso-arena train --build 9,6,5,4 --minutes 60 --out runs/try1\noso-arena export runs/try1/best -o mymodel.safetensors --name \"My Model\"\noso-arena check mymodel.safetensors"),
-    h(
-      "p",
-      null,
-      "Pick a build above and train; the export step takes the build from the run, and ",
-      h("code", null, "check"),
-      " runs the same test the upload does. The kit's README has a five-minute quickstart and TRAINING.md has compute tips. To have a coach: copy the ",
-      h("code", null, "skills/oso-arena-coach"),
-      " folder from the repository into your project's ",
-      h("code", null, ".claude/skills/"),
-      " and ask Claude Code with the ",
-      h("strong", null, "oso-arena-coach"),
-      " skill to train toward a style.",
-    ),
-    h("h3", null, "Optional: make your twin"),
-    h(
-      "p",
-      null,
-      "Have a Volante pod? Turn your sessions into a style profile and train a model that plays like you. It goes on the ",
-      link("/arena/twins", "Twins ladder"),
-      " once it proves it does:",
-    ),
-    code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
-    h("h2", null, "5. Upload"),
-    h(
-      "ul",
-      null,
-      h("li", null, `One .safetensors file, at most ${MAX_UPLOAD_BYTES / 1024} KiB (models are about 300 KB). It holds only numbers, never code.`),
-      h("li", null, "Name (1–40 characters), description (up to 280) and build are set inside the file when you export it."),
-      h("li", null, `${UPLOADS_PER_DAY} uploads per day. You have one active model; a new upload retires the previous one (its history stays).`),
-      h("li", null, "The server checks the file; if it's rejected you get the reasons in plain language."),
-    ),
-    h("p", null, link("/arena/my-models", h("span", { class: "btn primary" }, "Upload a model"))),
-    h("h2", null, "The rules"),
-    h(
-      "ul",
-      null,
-      h("li", null, "Best of 3 games under BWF singles laws, 15-point games (win by 2, capped at 21), interval at 8 and between games, players change ends."),
-      h("li", null, "Every match is fully determined by the two models and a seed, so it can be replayed exactly."),
-      h("li", null, "Ladder: Elo from 1200. New models play 10 placement matches; ratings are provisional below 20 games. The server keeps pairing nearby-rated models."),
-      h("li", null, "Weekly tournament: Sunday 18:00, top 8 with at least 20 games, single elimination. Tournament matches don't change ratings."),
-      h("li", null, "House Base (the base model) and House Bot (a scripted bot) are always on the ladder as reference points; they don't enter tournaments."),
-      h("li", null, "Seasons follow the model format and simulator version. A new season resets ratings and you re-submit; old seasons stay browsable."),
-    ),
-    h("p", { class: "muted small" }, "By uploading you agree to the ", link("/terms", "terms"), "."),
-  );
+function stepCard(n: number, ico: IconName, title: string, ...body: (Node | string | null)[]): HTMLElement {
+  return h("section", { class: `card glass guide-step reveal d${Math.min(n, 4)}` }, h("div", { class: "guide-head" }, h("span", { class: "step-ico" }, icon(ico)), h("span", { class: "step-n" }, `Step ${n}`), h("h2", null, title)), ...body);
 }
 
-export function terms(root: HTMLElement) {
+/** Train & upload: the training guide plus the "Your models" panel (upload and your models; signed out: sign in). */
+export function getStarted(root: HTMLElement) {
+  const panel = h("div");
+  const stop = modelsPanel(panel);
   root.append(
-    h("h1", null, "Terms"),
     h(
-      "ul",
-      null,
-      h("li", null, "Models you upload and every match result are public."),
-      h("li", null, "One account per person."),
-      h("li", null, "Matches can be voided, and models removed, for exploiting simulator bugs."),
-      h("li", null, "You can delete your account at any time from the account menu."),
-      h("li", null, "A twin's style profile is self-reported. A twin that stops playing like its profile is moved back to the open ladder."),
+      "header",
+      { class: "page-hero" },
+      h("h1", null, "Train & upload"),
+      h("p", { class: "lead" }, "Train a small neural network to play badminton with our free kit, then upload it here. It plays ranked matches against everyone else's around the clock, and you can watch every one in 3D."),
     ),
-    h("p", { class: "muted small" }, "Draft text: the final terms (and the kit's licence) are set by the project owner."),
+    h(
+      "div",
+      { class: "start-grid" },
+      h("aside", { class: "card glass mine", id: "mine", "aria-labelledby": "mine-h" }, h("h2", { id: "mine-h" }, icon("robot"), "Your models"), panel),
+      h(
+        "div",
+        { class: "guide" },
+        stepCard(
+          1,
+          "terminal-window",
+          "Install the kit",
+          code("git clone https://github.com/jesusthecreator017/Volante.git\ncd Volante\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
+          h("p", { class: "muted" }, "Needs Python 3.10 or newer. The kit has the simulator, a scripted bot, the trainer, the same check the upload runs, and House Base, the base model to start training from."),
+        ),
+        stepCard(
+          2,
+          "sliders-horizontal",
+          "Choose a build",
+          h("p", { class: "muted" }, `Four stats from 1 to 10 that add up to ${BUILD_TOTAL}. Start from a preset or make your own.`),
+          h("dl", { class: "stat-effects" }, STATS.map((k) => [h("dt", null, STAT_LABEL[k]), h("dd", null, STAT_EFFECT[k])])),
+          h(
+            "ul",
+            { class: "presets" },
+            PLAY_STYLES.map((p) => h("li", null, h("span", { class: "preset-name" }, p.name), h("span", { class: "preset-num" }, STATS.map((k) => p.build[k]).join("/")), buildBars(p.build))),
+          ),
+        ),
+        stepCard(
+          3,
+          "robot",
+          "Train and export",
+          code("oso-arena train --build 9,6,5,4 --minutes 60 --out runs/try1\noso-arena export runs/try1/best -o mymodel.safetensors --name \"My Model\"\noso-arena check mymodel.safetensors"),
+          h("p", { class: "muted" }, h("code", null, "check"), " runs the same test as the upload, so a file that passes here is accepted. Want a coach? Add ", h("code", null, "skills/oso-arena-coach"), " to Claude Code and ask it to train toward a style."),
+        ),
+        stepCard(
+          4,
+          "users-three",
+          "Optional: your twin",
+          h("p", { class: "muted" }, "Have a Volante pod? Turn your sessions into a style profile and train a model that plays like you. It joins the ", link("/arena/ladder?ladder=twins", "Twins ladder"), " once it proves it does."),
+          code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
+        ),
+        h(
+          "details",
+          { class: "card glass rules reveal" },
+          h("summary", null, icon("book-open"), "Rules", icon("caret-down-bold", { cls: "chev" })),
+          h(
+            "ul",
+            { class: "muted" },
+            h("li", null, "Best of 3 games to 15 (win by 2, capped at 21) under BWF singles laws."),
+            h("li", null, "Ratings are Elo from 1200. A new model plays 10 placement matches; ratings settle after 20 games."),
+            h("li", null, "Weekly tournament on Sundays at 18:00: the top 8 with at least 20 games, single elimination, no rating change."),
+            h("li", null, `${UPLOADS_PER_DAY} uploads a day; one active model each. A new upload retires the previous one, and its history stays.`),
+            h("li", null, "House Base and House Bot are reference players and skip tournaments. A new season resets ratings."),
+          ),
+        ),
+      ),
+    ),
   );
+  const unreveal = reveal(root);
+  return () => (stop(), unreveal());
 }
 
 export function privacy(root: HTMLElement) {

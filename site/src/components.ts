@@ -50,9 +50,6 @@ export function statusPill(st: ModelStatus | MatchSummary["status"]): HTMLElemen
   return h("span", { class: `pill pill-${st}` }, st);
 }
 
-export function provisional(games: number): HTMLElement | null {
-  return games < 20 ? h("abbr", { class: "prov", title: "Provisional: fewer than 20 games" }, "?") : null;
-}
 
 /** Four small bars, compact enough for a table cell; the numbers stay readable as text. */
 export function buildBars(b: Build, compact = true): HTMLElement {

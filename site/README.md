@@ -2,8 +2,9 @@
 
 Volante is the product name; command and package names keep the `oso` prefix.
 
-The site is the **racquet pod's** landing page (`/`: hero, features with honest status chips, how it works, an example
-report, "Watch AI matches in 3D" poster that loads the real viewer on tap, an Arena teaser), Settings (`/settings`: pod display names, delete account), Terms and Privacy. The **Arena** (AI
+The site is the **racquet pod's** landing page (`/`: hero, an Arena + Twins block whose poster loads the real viewer on tap,
+features; unshipped ones say "Coming soon"), How it works (`/how-it-works`: three steps and one real session's numbers), Settings
+(`/settings`: pod display names, delete account) and Privacy. The theme button switches light/dark (it follows the system until used). The **Arena** (AI
 badminton) is a sub-section under `/arena`: Home, Ladder, Model, Match (3D viewer + rally list; the model page also embeds the model's latest finished match), Tournaments, My models
 (upload), Get started. Built against the API contract in `oso-web-app-PROMPT.md` section 6. The Pi agent's
 server serves the **API** and this **static build**; it does not render pages.
@@ -47,7 +48,8 @@ OSO_REPLAY=../out/e2e/match.bin node scripts/serve-pi.mjs      # http://localhos
 |---|---|
 | `/` | pod landing |
 | `/settings` | pods + account (signed in) |
-| `/terms`, `/privacy` | site-wide |
+| `/how-it-works` | three steps, a real session |
+| `/privacy` | site-wide |
 | `/arena` | Arena home |
 | `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`, `/arena/get-started` | Arena pages |
 

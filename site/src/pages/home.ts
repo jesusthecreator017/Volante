@@ -1,69 +1,70 @@
 import { api, ApiError } from "../api";
-import { moreLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
-import { append, h, link, s } from "../dom";
+import { reveal } from "../anim";
+import { moreLink, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip } from "../components";
+import { icon } from "../icons";
+import { append, h, link } from "../dom";
 import type { LadderName, Tournament, TournamentSummary } from "../types";
 import { ladderToggle } from "../twins";
 
 export function arenaHome(root: HTMLElement) {
-  const featured = h("section", { class: "card featured", "aria-labelledby": "feat-h" });
+  const featured = h("section", { class: "card glass featured reveal", "aria-labelledby": "feat-h" });
   const top = h("div");
   const latest = h("div");
   // Top 10 with an Open | Twins switch that swaps the list in place (no navigation)
-  const topHead = h("div", { class: "section-head" }, h("h2", null, "Top 10"));
-  const topMore = h("div");
+  const topHead = h("div", { class: "section-head" });
+  const topMore = h("div", { class: "list-foot" });
   const showTop = (lad: LadderName) => {
-    const sw = ladderToggle(lad, (l) => (l === "twins" ? "/arena/twins" : "/arena/ladder"), "Top 10");
+    const sw = ladderToggle(lad, (l) => (l === "twins" ? "/arena/ladder?ladder=twins" : "/arena/ladder"), "Top 10");
     for (const a of sw.querySelectorAll("a")) {
       a.removeAttribute("data-nav");
       a.addEventListener("click", (e) => (e.preventDefault(), showTop(a.textContent === "Twins" ? "twins" : "open")));
     }
-    topHead.replaceChildren(h("h2", null, "Top 10"), sw);
-    topMore.replaceChildren(moreLink(lad === "twins" ? "/arena/twins" : "/arena/ladder", lad === "twins" ? "Full Twins ladder" : "Full ladder"));
+    topHead.replaceChildren(h("h2", null, icon("ranking"), "Top 10"), sw);
+    topMore.replaceChildren(moreLink(lad === "twins" ? "/arena/ladder?ladder=twins" : "/arena/ladder", lad === "twins" ? "Full Twins ladder" : "Full ladder"));
     top.replaceChildren();
     void loadTop(lad);
   };
   root.append(
     h(
-      "section",
-      { class: "hero" },
-      court(),
-      h("h1", null, "Train a badminton AI. Watch it play."),
-      h(
-        "p",
-        { class: "lead" },
-        "Train a player from our base model, upload it, and watch it play the ladder in 3D.",
-      ),
-      h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
+      "header",
+      { class: "page-hero arena-hero" },
+      h("div", null, h("h1", null, "Arena"), h("p", { class: "lead" }, "AI badminton players, trained by the community with our free kit, play ranked matches around the clock. Open any match to watch it in 3D.")),
+      h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, icon("upload-simple"), "Train your own")), link("/arena/ladder", h("span", { class: "btn" }, "Ladder"))),
     ),
     featured,
-    h("div", { class: "grid2" }, h("section", null, topHead, top, topMore), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h(
+      "div",
+      { class: "grid2" },
+      h("section", { class: "card glass list-card reveal d1" }, topHead, top, topMore),
+      h("section", { class: "card glass list-card reveal d2" }, h("div", { class: "section-head" }, h("h2", null, icon("play-fill"), "Latest matches")), latest),
+    ),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
   const loadTop = (lad: LadderName) => load(top, () => api.ladder(undefined, 0, 10, lad), (l) => {
     if (!l.items.length || (lad === "twins" && l.items.every((it) => "house" in it.model.owner)))
-      return top.append(h("p", { class: "muted" }, lad === "twins" ? "No twins yet." : "No rated models yet. Be the first."));
+      return top.append(h("p", { class: "muted empty-row" }, lad === "twins" ? "No twins yet." : "No rated models yet. Be the first."));
     top.append(
       h(
-        "ol",
-        { class: "top10" },
+        "ul",
+        { class: "match-list" },
         l.items.map((it) =>
           h(
             "li",
-            { class: it.rank <= 3 ? "podium" : null },
-            h("span", { class: "rank" }, it.rank),
-            h("span", { class: "t10-name" }, modelLink(it.model), ownerChip(it.model.owner)),
-            buildBars(it.model.build),
-            h("span", { class: "rating" }, fmtRating(it.rating), provisional(it.games)),
+            { class: it.rank <= 3 ? "rank-row podium" : "rank-row" },
+            h("span", { class: "rank-badge" }, it.rank),
+            h("span", { class: "rr-name" }, modelLink(it.model), ownerChip(it.model.owner)),
+            h("span", { class: "rr-rating" }, h("span", { class: "rating" }, fmtRating(it.rating)), h("span", { class: "mr-meta" }, `${it.wins}–${it.losses} · ${it.games} games`)),
           ),
         ),
       ),
     );
   });
   showTop("open");
-  void load(latest, () => api.matches({ limit: 8 }), (p) => {
-    latest.append(p.items.length ? h("ul", { class: "match-list" }, p.items.map((m) => matchRow(m))) : h("p", { class: "muted" }, "No matches yet."));
+  void load(latest, () => api.matches({ limit: 10 }), (p) => {
+    latest.append(p.items.length ? h("ul", { class: "match-list" }, p.items.map((m) => matchRow(m))) : h("p", { class: "muted empty-row" }, "No matches yet."));
   });
+  return reveal(root);
 }
 
 /** The current tournament if it has a final, else the latest finished one. */
@@ -82,17 +83,16 @@ async function featuredTournament(): Promise<Tournament | null> {
 function renderFeatured(el: HTMLElement, t: Tournament | null) {
   if (!t) {
     el.append(
-      h("h2", { id: "feat-h" }, "Weekly tournament"),
-      h("p", null, "Every Sunday at 18:00 the top 8 models with at least 20 games play a single-elimination bracket. The first one hasn't happened yet."),
+      h("div", { class: "feat-head" }, h("h2", { id: "feat-h" }, icon("trophy-fill"), "Weekly tournament"), h("span", { class: "badge" }, "Sundays 18:00")),
+      h("p", { class: "muted" }, "The top 8 models with at least 20 games play a best-of-3 knockout. Ratings don't change, and house players sit it out."),
     );
     return;
   }
   const final = t.rounds[t.rounds.length - 1]?.[0];
   const champ = final?.winner ? (final.winner === "a" ? final.a : final.b) : null;
   append(el, [
-    h("h2", { id: "feat-h" }, t.status === "done" ? "Latest tournament final" : "Tournament in progress"),
-    h("p", { class: "muted" }, fmtDate(t.starts_at)),
-    h("h3", null, final?.winner ? "Final" : "Final (not played yet)"),
+    h("div", { class: "feat-head" }, h("h2", { id: "feat-h" }, icon("trophy-fill"), t.status === "done" ? "Latest tournament" : "Tournament in progress"), h("span", { class: "muted small" }, fmtDate(t.starts_at))),
+    h("h3", null, final?.winner ? "Final" : "Final, not played yet"),
     final?.a && final?.b
       ? h(
           "div",
@@ -110,24 +110,4 @@ function renderFeatured(el: HTMLElement, t: Tournament | null) {
       link(`/arena/tournaments/${t.id}`, h("span", { class: "btn" }, "Bracket")),
     ),
   ]);
-}
-
-/** Decorative top-down badminton court (half-court view): thin lines, themed by CSS classes. */
-export function court(): SVGSVGElement {
-  // 6.1 x 13.4 m court; 1 unit = 0.1 m. Singles 5.18 wide, doubles-long service line 0.76 m inside the back line.
-  const line = (x1: number, y1: number, x2: number, y2: number, cls = "court-line") => s("line", { x1, y1, x2, y2, class: cls });
-  return s(
-    "svg",
-    { viewBox: "-6 -6 73 146", class: "court", "aria-hidden": "true", focusable: "false" },
-    s("rect", { x: 0, y: 0, width: 61, height: 134, class: "court-line" }),
-    line(4.5, 0, 4.5, 134),
-    line(56.5, 0, 56.5, 134),
-    line(0, 7.6, 61, 7.6),
-    line(0, 126.4, 61, 126.4),
-    line(0, 46.9, 61, 46.9),
-    line(0, 87.1, 61, 87.1),
-    line(30.5, 46.9, 30.5, 0),
-    line(30.5, 87.1, 30.5, 134),
-    line(-4, 67, 65, 67, "court-net"),
-  );
 }

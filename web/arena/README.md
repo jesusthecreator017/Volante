@@ -33,7 +33,7 @@ No inline script or style. Needs `script-src 'self' 'wasm-unsafe-eval'; style-sr
 `?match=<url>` is resolved against the page URL; only `http:`/`https:` are accepted. Without it (and without a
 stashed drop) the page shows "Drop a match.bin here" and fetches no replay.
 
-- `202` (e.g. `{"status":"building"}`): shows "Preparing match..." and retries after `Retry-After` seconds
+- `202` (e.g. `{"status":"building"}`): shows "Preparing the replay, up to a minute the first time..." and retries after `Retry-After` seconds
   (integer, default 3, clamped to 1-30), with no retry cap.
 - Other non-2xx: shows JSON `detail`, else `error`, else `HTTP <status>`. Network failure: "Network error".
 - `200`: streamed; shows MB received. A percentage and a determinate `<progress>` appear only when `Content-Length`
