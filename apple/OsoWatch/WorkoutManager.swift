@@ -296,7 +296,7 @@ extension WorkoutManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate
     nonisolated func workoutSession(_ s: HKWorkoutSession, didChangeTo to: HKWorkoutSessionState, from: HKWorkoutSessionState, date: Date) {
         if to == .ended || to == .stopped {
             // ended from the phone's mirrored session (or by the system): wrap up and send like the End button
-            DispatchQueue.main.async { MainActor.assumeIsolated { Task { await self.finish() } } }
+            Task { @MainActor in await self.finish() }
             return
         }
         guard to == .running else { return }
