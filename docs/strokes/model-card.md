@@ -48,7 +48,24 @@ or has a generalisation estimate: the only clean data is one drill session (352 
   same drill data (leaky: neighbouring reps of one block are near-duplicates) gives 0.92 accuracy / macro-F1 for 11 classes with variant a,
   so the features separate blocks easily; they do not yet carry a class across sides or blocks.
 
-## Results (grouped block 5-fold, seed 0, drill only, macro-F1 over classes present in the fold)
+## Retrain 2026-10-18: two drill sessions, leave-one-session-out (current models)
+Data: 4 sessions of P01 (2 drill: 20261017-220845, 20261018-024644; 2 rally, unused for training), 1,568 swings, 973 labelled,
+692 drill swings in the two test folds. With two drill sessions `--eval auto` switches to **leave-one-session-out**: train on one drill
+session, test on the other. This is the first honest cross-session number (still one player).
+
+| Variant | 10-stroke macro-F1 | 10-stroke acc | FH/BH acc | 4-group macro-F1 | 4-group acc |
+|---|---|---|---|---|---|
+| a (GBM, all features) | 0.425 | 0.495 | 0.830 | 0.762 | 0.881 |
+| a_of (GBM, orientation-free; **on the iPhone**) | 0.511 | 0.565 | 0.672 | 0.755 | 0.889 |
+| b (CNN, ±10°) | 0.495 | 0.561 | 0.767 | 0.744 | 0.875 |
+| b30 (CNN, ±30°; exported ONNX winner) | 0.536 | 0.593 | 0.749 | 0.752 | 0.874 |
+
+Previous run (one drill session, block 5-fold): 10-stroke macro-F1 0.20-0.23, groups 0.44-0.75. The group model now also outputs
+`not_a_hit` (the new session has that block). Display thresholds re-picked by the same rule: group 0.508 and 10-stroke 0.179, both at
+100 % coverage (out-of-fold accuracy meets 0.80 / 0.50 without dropping swings; tuned on the reported predictions, so optimistic).
+Targets (macro-F1 ≥ 0.80, not_a_hit precision ≥ 0.90) are still not met; more drill sessions and other players are the path.
+
+## Earlier results (one drill session, grouped block 5-fold, seed 0, drill only, macro-F1 over classes present in the fold)
 11 classes:
 
 | variant | mean macro-F1 | mean acc | mean side acc | per-fold macro-F1 |

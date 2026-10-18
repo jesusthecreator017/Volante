@@ -1,8 +1,8 @@
 {
   "version": "v0",
   "created": "2026-10-17",
-  "candidate": "b",
-  "architecture": "1D-CNN, 4 strided conv blocks, mean+max pool, class and side heads, mount-rotation augmentation +-10 deg",
+  "candidate": "b30",
+  "architecture": "1D-CNN, 4 strided conv blocks, mean+max pool, class and side heads, mount-rotation augmentation +-30 deg",
   "n_params": 46941,
   "classes": [
     "not_a_hit",
@@ -75,57 +75,58 @@
   "preprocessing": {
     "normalisation": "applied inside the ONNX graph: (x - mean) / std per channel",
     "mean": [
-      -0.6526907086372375,
-      0.5747014284133911,
-      -0.35170671343803406,
-      22.965707778930664,
-      -12.137369155883789,
-      -34.86922836303711,
-      339.96539306640625,
-      2.8243227005004883,
+      -0.48946413397789,
+      0.5630612373352051,
+      -0.2103978395462036,
+      14.29174518585205,
+      -19.634227752685547,
+      -29.691102981567383,
+      337.29840087890625,
+      2.835693359375,
       0.0,
       0.0
     ],
     "std": [
-      2.457644462585449,
-      3.019279956817627,
-      2.7818334102630615,
-      408.1501770019531,
-      301.5830078125,
-      346.02520751953125,
-      513.4512329101562,
-      3.974797010421753,
+      2.5610482692718506,
+      3.050208806991577,
+      2.8764188289642334,
+      393.9897766113281,
+      310.5920104980469,
+      349.7301940917969,
+      511.6739196777344,
+      4.086624622344971,
       1.0,
       1.0
     ],
     "note": "saturation channels have mean 0, std 1 (raw)"
   },
   "mount_convention": "racquet frame: +Y shaft toward the tip, +Z string-face normal, +X = Y x Z; acc in g, gyro in dps",
-  "uncertainty_threshold": 0.9897,
+  "uncertainty_threshold": 0.999,
   "uncertainty_rule": "max class probability < threshold -> report 'unclassified'",
-  "threshold_met_targets": false,
-  "threshold_coverage": 0.20170454545454544,
-  "threshold_accuracy": 0.4507042253521127,
-  "training_data_sha256": "5a5fbe7a7e9f7d18af74c740fae4df5a08fb23a3c18db45ffb6ca4601c0c0e3e",
+  "threshold_met_targets": true,
+  "threshold_coverage": 0.11705202312138728,
+  "threshold_accuracy": 0.9012345679012346,
+  "training_data_sha256": "06a2fbb2c6ed734f55eec29e4ceb4ba33e96015dbd0bdef9f11f6437fd7e5224",
   "training_context": "drill",
-  "n_swings": 352,
+  "n_swings": 692,
   "players": [
     "P01"
   ],
   "sessions": [
-    "20261017-220845-P01"
+    "20261017-220845-P01",
+    "20261018-024644-P01"
   ],
   "seed": 0,
   "metrics": {
-    "eval": "WITHIN-SESSION grouped 5-fold over drill blocks (a block never split): optimistic, not a generalisation estimate",
-    "mean_macro_f1": 0.23260172669074022,
-    "mean_accuracy": 0.250355638102117,
-    "mean_side_accuracy": 0.5399187013975746,
+    "eval": "leave-one-session-out over drill sessions",
+    "mean_macro_f1": 0.5355031636842158,
+    "mean_accuracy": 0.5933925554892552,
+    "mean_side_accuracy": 0.7489098264478731,
     "mean_not_a_hit_precision": null
   },
   "parity": {
-    "max_abs_class": 4.76837158203125e-07,
-    "max_abs_side": 2.980232238769531e-07,
-    "n": 352
+    "max_abs_class": 8.940696716308594e-07,
+    "max_abs_side": 4.76837158203125e-07,
+    "n": 692
   }
 }

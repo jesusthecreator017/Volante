@@ -18,6 +18,7 @@
     "not_a_hit"
   ],
   "output_class_ids": [
+    0,
     1,
     2,
     3
@@ -37,9 +38,7 @@
     "block_push": "touch",
     "serve_short": "touch"
   },
-  "groups_not_modelled": [
-    "not_a_hit"
-  ],
+  "groups_not_modelled": [],
   "note": "not_a_hit has no drill training data, so it is not modelled: this model never outputs it",
   "window": {
     "pre_s": 0.6,
@@ -70,7 +69,7 @@
     "note": "the listed features of the window"
   },
   "outputs": {
-    "probabilities": "[batch, 3] softmax over output_class_ids",
+    "probabilities": "[batch, 4] softmax over output_class_ids",
     "side_probabilities": "[batch, 2] FH, BH (ignore for not_a_hit)"
   },
   "preprocessing": {
@@ -130,31 +129,32 @@
     "note": "features.full_features(window)[feature_names order]; features.py is part of the model contract; no scaling"
   },
   "mount_convention": "racquet frame: +Y shaft toward the tip, +Z string-face normal, +X = Y x Z; acc in g, gyro in dps",
-  "uncertainty_threshold": 0.9992,
+  "uncertainty_threshold": 0.6213,
   "uncertainty_rule": "max class probability < threshold -> report 'unclassified'",
-  "threshold_met_targets": false,
-  "threshold_coverage": 0.21022727272727273,
-  "threshold_accuracy": 0.8243243243243243,
-  "training_data_sha256": "5a5fbe7a7e9f7d18af74c740fae4df5a08fb23a3c18db45ffb6ca4601c0c0e3e",
+  "threshold_met_targets": true,
+  "threshold_coverage": 0.9841040462427746,
+  "threshold_accuracy": 0.9001468428781204,
+  "training_data_sha256": "06a2fbb2c6ed734f55eec29e4ceb4ba33e96015dbd0bdef9f11f6437fd7e5224",
   "training_context": "drill",
-  "n_swings": 352,
+  "n_swings": 692,
   "players": [
     "P01"
   ],
   "sessions": [
-    "20261017-220845-P01"
+    "20261017-220845-P01",
+    "20261018-024644-P01"
   ],
   "seed": 0,
   "metrics": {
-    "eval": "WITHIN-SESSION grouped 5-fold over drill blocks (a block never split): optimistic, not a generalisation estimate",
-    "mean_macro_f1": 0.7479841594688993,
-    "mean_accuracy": 0.7792617683462754,
-    "mean_side_accuracy": 0.4296525909906192,
+    "eval": "leave-one-session-out over drill sessions",
+    "mean_macro_f1": 0.7547918091451555,
+    "mean_accuracy": 0.88927361812635,
+    "mean_side_accuracy": 0.6719847288138561,
     "mean_not_a_hit_precision": null
   },
   "parity": {
-    "max_abs_class": 1.2283251682454477e-07,
-    "max_abs_side": 8.314047039714723e-08,
-    "n": 352
+    "max_abs_class": 1.6034947936116595e-07,
+    "max_abs_side": 8.529993000827574e-08,
+    "n": 692
   }
 }
