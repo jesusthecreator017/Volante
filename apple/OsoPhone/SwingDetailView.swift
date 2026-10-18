@@ -6,11 +6,14 @@ import SwiftUI
 
 struct SwingDetailView: View {
     let analysis: SessionAnalysis
+    /// Stroke results aligned with `analysis.swings` (nil for wrist sessions or before they are computed).
+    let strokes: [StrokeResult]?
     @State private var index: Int
 
     /// `start` is the swing's `index` (1-based) in `analysis.swings`.
-    init(analysis: SessionAnalysis, start: Int) {
+    init(analysis: SessionAnalysis, start: Int, strokes: [StrokeResult]? = nil) {
         self.analysis = analysis
+        self.strokes = strokes
         _index = State(initialValue: max(0, min(analysis.swings.count - 1, analysis.swings.firstIndex { $0.index == start } ?? 0)))
     }
 
@@ -19,7 +22,7 @@ struct SwingDetailView: View {
     var body: some View {
         Screen {
             if swings.indices.contains(index) {
-                SwingDetailBody(analysis: analysis, swing: swings[index], position: index, count: swings.count, go: go)
+                SwingDetailBody(analysis: analysis, swing: swings[index], position: index, count: swings.count, stroke: strokes?[safe: index], go: go)
                     .id(index)
                     .transition(.opacity)
             }
@@ -49,12 +52,14 @@ struct SwingDetailBody: View {
     let swing: Swing
     let position: Int
     let count: Int
+    var stroke: StrokeResult?
     var go: (Int) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 16) {
             pager
             numbers
+            if let stroke { strokeCard(stroke) }
             trace
             facts
             if swing.confidence < 0.8 { lowConfidence }
@@ -68,12 +73,8 @@ struct SwingDetailBody: View {
             HStack(spacing: 12) {
                 step("chevron.left", "Previous swing", enabled: position > 0, delta: -1)
                 VStack(spacing: 2) {
-                    HStack(spacing: 8) {
-                        Circle().fill(Theme.stroke(swing.stroke)).frame(width: 12, height: 12)
-                            .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1.5))
-                            .accessibilityHidden(true)
-                        Text(swing.strokeTitle).font(.system(.title2, design: .rounded, weight: .heavy))
-                    }
+                    Text(stroke.map(StrokeChip.text) ?? "Swing \(swing.index)")
+                        .font(.system(.title2, design: .rounded, weight: .heavy)).lineLimit(2).minimumScaleFactor(0.7)
                     Text("Swing \(swing.index) of \(count) · at \(clock(swing.start))")
                         .font(.footnote).foregroundStyle(.white.opacity(0.85))
                 }
@@ -118,6 +119,21 @@ struct SwingDetailBody: View {
                     .font(.footnote).foregroundStyle(.secondary)
                     // Wrap instead of truncating the number at large text sizes
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: stroke (experimental)
+
+    private func strokeCard(_ r: StrokeResult) -> some View {
+        Card("Stroke (experimental)", systemImage: "figure.badminton") {
+            HStack(spacing: 8) {
+                StrokeChip(result: r)
+                Spacer(minLength: 0)
+            }
+            BetaGuessLine(result: r)
+            if r.group == .unclassified {
+                Text("Not sure about this one. The model needs a clean, complete swing.").font(.footnote).foregroundStyle(.secondary)
             }
         }
     }
@@ -169,8 +185,7 @@ struct SwingDetailBody: View {
     private var facts: some View {
         Card("Racquet", systemImage: "figure.badminton") {
             VStack(spacing: 8) {
-                LabeledContent("Stroke", value: swing.strokeTitle)
-                if let side = swing.side { LabeledContent("Side", value: side.capitalized) }
+                if let side = swing.side { LabeledContent("Side (from rotation)", value: side.capitalized) }
                 if let o = swing.overhead { LabeledContent("Height", value: o ? "Overhead" : "Below the shoulder") }
                 if let tilt = swing.handleTiltDeg { LabeledContent("Handle tilt", value: String(format: "%.0f°", tilt)) }
                 if let face = swing.faceAngleDeg { LabeledContent("Face angle", value: String(format: "%.0f°", face)) }
@@ -209,7 +224,7 @@ struct TraceChart: View {
     static func color(_ p: SwingTrace.Band.Phase) -> Color {
         switch p {
         case .backswing: Color(light: 0x6B7580, dark: 0xA3AEB8)
-        case .forward, .swing: Theme.stroke(.smash)
+        case .forward, .swing: Theme.hot
         case .follow: Theme.courtInk
         }
     }
@@ -248,7 +263,7 @@ struct TraceChart: View {
                     }
             }
             PointMark(x: .value("Forward peak", trace.fwdPeakMs), y: .value("Forward peak dps", trace.fwdPeakDps))
-                .symbolSize(110).foregroundStyle(Theme.stroke(.smash))
+                .symbolSize(110).foregroundStyle(Theme.hot)
                 .annotation(position: .topTrailing, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                     Text("forward peak" + (impactLabel.map { " · \($0)" } ?? ""))
                         .font(.caption2.weight(.bold)).foregroundStyle(.primary)

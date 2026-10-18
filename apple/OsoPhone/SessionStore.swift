@@ -22,8 +22,11 @@ final class SessionStore {
         var meanSpeed: Double?
         var activeS = 0.0
         var rallies = 0
-        var strokeCounts: [StrokeType: Int] = [:]
+        /// Stroke groups (experimental); nil for wrist sessions and while not classified yet.
+        var breakdown: StrokeBreakdown?
     }
+    /// Per-swing stroke results by session id (aligned with the analysis' swings); racquet sessions only.
+    private(set) var strokes: [String: SessionStrokes] = [:]
     private(set) var rowSummaries: [String: RowSummary] = [:]
     /// Personal bests across the saved sessions (sample sessions excluded), refreshed whenever a summary lands or a session is deleted.
     private(set) var bests = PersonalBests()
@@ -81,6 +84,7 @@ final class SessionStore {
         try? FileManager.default.removeItem(at: folder(id))
         cache[id] = nil
         rowSummaries[id] = nil
+        strokes[id] = nil
         unreadable.remove(id)
         reload()
         refreshBests()
@@ -113,9 +117,11 @@ final class SessionStore {
         inFlight.insert(id)
         defer { inFlight.remove(id) }
         let url = imuURL(id), settings = settings
-        let a = await Task.detached(priority: .userInitiated) { () -> SessionAnalysis? in
-            guard let d = try? Data(contentsOf: url), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
-            return analyzeSession(cap, settings: settings)
+        let cacheURL = strokesURL(id)
+        let (a, st) = await Task.detached(priority: .userInitiated) { () -> (SessionAnalysis?, SessionStrokes?) in
+            guard let d = try? Data(contentsOf: url), let cap = try? ImuFile.parse([UInt8](d)) else { return (nil, nil) }
+            let a = analyzeSession(cap, settings: settings)
+            return (a, Self.strokeResults(a, cacheURL: cacheURL))
         }.value
         guard let a else {
             unreadable.insert(id)
@@ -128,8 +134,32 @@ final class SessionStore {
             readable: true, swings: a.summary.swingCount, durationS: a.summary.durationS,
             maxSpeed: a.summary.maxSpeed, longestRally: a.summary.longestRally, mount: a.mount,
             hits: a.summary.hitCount, meanSpeed: a.summary.meanSpeed, activeS: a.summary.activeS,
-            rallies: a.summary.rallyCount, strokeCounts: a.summary.strokeCounts)
+            rallies: a.summary.rallyCount, breakdown: st.map { StrokeBreakdown(swings: a.swings, results: $0.results) })
+        strokes[id] = st
         refreshBests()
+    }
+
+    func strokesURL(_ id: String) -> URL { folder(id).appendingPathComponent("strokes.json") }
+
+    /// The stroke results for an analysis: the cached file when it is for the current models and swings, else classified now
+    /// (and cached). nil for wrist sessions (the models are racquet-only) or if the bundled models cannot load. Runs off the main actor.
+    nonisolated static func strokeResults(_ a: SessionAnalysis, cacheURL: URL) -> SessionStrokes? {
+        guard a.mount == .racquet, let c = StrokeClassifier.shared else { return nil }
+        if let d = try? Data(contentsOf: cacheURL), let cached = try? JSONDecoder().decode(SessionStrokes.self, from: d), cached.valid(for: a, classifier: c) {
+            return cached
+        }
+        let fresh = SessionStrokes(modelVersion: c.modelVersion, results: c.classify(a))
+        if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
+        return fresh
+    }
+
+    /// Fills `strokes` for a session whose detail is open (a no-op once the list row has done it).
+    @MainActor
+    func loadStrokes(_ meta: SessionMeta) async {
+        guard strokes[meta.id] == nil, let a = analysis(meta), a.mount == .racquet else { return }
+        let url = strokesURL(meta.id)
+        let st = await Task.detached(priority: .userInitiated) { Self.strokeResults(a, cacheURL: url) }.value
+        if strokes[meta.id] == nil { strokes[meta.id] = st }
     }
 
     /// Makes sure every saved session has a summary (each parsed and analysed off the main actor), so the personal bests are complete.

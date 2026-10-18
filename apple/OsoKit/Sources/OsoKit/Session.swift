@@ -25,7 +25,6 @@ public struct SessionSummary: Sendable {
     public var meanSpeed: Double?
     public var rallyCount: Int
     public var longestRally: Int
-    public var strokeCounts: [StrokeType: Int]
     public var lossPct: Double
     public var saturatedGyro: Int
 }
@@ -96,15 +95,13 @@ func summarize(_ swings: [Swing], cap: Capture, wDps: [Double], t0: Double, t1: 
         last = t
     }
     let speeds = swings.map(\.headSpeed)
-    var counts: [StrokeType: Int] = [:]
-    for sw in swings { counts[sw.stroke, default: 0] += 1 }
     let st = cap.stats
     return SessionSummary(
         durationS: duration, activeS: active, swingCount: swings.count, hitCount: hits.count,
         hitsPerMin: duration > 0 ? Double(hits.count) / (duration / 60) : 0,
         peakDps: wDps.max(), maxSpeed: speeds.max(),
         meanSpeed: speeds.isEmpty ? nil : speeds.reduce(0, +) / Double(speeds.count),
-        rallyCount: rallies.count, longestRally: rallies.max() ?? 0, strokeCounts: counts,
+        rallyCount: rallies.count, longestRally: rallies.max() ?? 0,
         lossPct: st.unique + st.lost > 0 ? 100 * Double(st.lost) / Double(st.unique + st.lost) : 0,
         saturatedGyro: cap.samples.filter(\.saturated).count
     )
@@ -162,7 +159,7 @@ public struct LiveAnalyzer: Sendable {
                 ended.append(Swing(
                     index: swingCount, tStart: sw.tStart, tEnd: sw.tEnd, start: sw.tStart, durationMs: (sw.tEnd - sw.tStart) * 1000,
                     peakDps: swingPeak, tPeak: sw.tStart, fwdPeakDps: swingPeak, tFwdPeak: sw.tStart, headSpeed: speed,
-                    peakAccG: 0, impact: swingSawImpact, stroke: swingSawImpact ? .unclassified : .noContact,
+                    peakAccG: 0, impact: swingSawImpact,
                     saturatedSamples: 0, lostPackets: 0, confidence: 1, confidenceReasons: []
                 ))
             }
@@ -189,12 +186,12 @@ public struct LiveAnalyzer: Sendable {
 extension Swing {
     /// Memberwise init with the optional fields defaulted (live swings).
     init(index: Int, tStart: Double, tEnd: Double, start: Double, durationMs: Double, peakDps: Double, tPeak: Double,
-         fwdPeakDps: Double, tFwdPeak: Double, headSpeed: Double, peakAccG: Double, impact: Bool, stroke: StrokeType,
+         fwdPeakDps: Double, tFwdPeak: Double, headSpeed: Double, peakAccG: Double, impact: Bool,
          saturatedSamples: Int, lostPackets: Int, confidence: Double, confidenceReasons: [String]) {
         self.init(index: index, tStart: tStart, tEnd: tEnd, start: start, durationMs: durationMs, backswingMs: nil,
                   forwardMs: nil, followMs: nil, peakDps: peakDps, tPeak: tPeak, fwdPeakDps: fwdPeakDps, tFwdPeak: tFwdPeak,
                   headSpeed: headSpeed, peakAccG: peakAccG, impact: impact, impactG: nil, tImpact: nil, impactVsPeakMs: nil,
-                  timing: nil, handleTiltDeg: nil, faceAngleDeg: nil, overhead: nil, side: nil, stroke: stroke,
+                  timing: nil, handleTiltDeg: nil, faceAngleDeg: nil, overhead: nil, side: nil,
                   saturatedSamples: saturatedSamples, lostPackets: lostPackets, confidence: confidence,
                   confidenceReasons: confidenceReasons, heartRate: nil)
     }

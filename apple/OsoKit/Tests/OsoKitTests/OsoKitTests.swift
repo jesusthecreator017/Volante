@@ -152,7 +152,7 @@ func sampleBytes() -> [UInt8] {
         #expect(a.fused?.window != nil) // 3 s still: calibrated even at 200 Hz
         #expect(a.swings.count == 1)
         #expect(abs(a.swings[0].peakDps - 900) < 5)
-        #expect(a.swings[0].impact && a.swings[0].stroke == .unclassified)
+        #expect(a.swings[0].impact )
         #expect(a.swings[0].overhead == nil)
     }
 }

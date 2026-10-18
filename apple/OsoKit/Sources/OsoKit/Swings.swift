@@ -66,13 +66,6 @@ public func detectSwings(t: [Double], wDps: [Double], th: SwingThresholds = Swin
     return out
 }
 
-public enum StrokeType: String, Sendable, CaseIterable {
-    case smash, clear, drop, drive, lift, net
-    case noContact = "no contact"
-    /// wrist sensor: contact detected, but the stroke rules need the racquet's axes
-    case unclassified
-}
-
 public enum Handedness: String, Sendable { case right, left }
 
 public struct Swing: Sendable, Identifiable {
@@ -99,7 +92,6 @@ public struct Swing: Sendable, Identifiable {
     public var faceAngleDeg: Double?
     public var overhead: Bool?
     public var side: String?
-    public var stroke: StrokeType
     public var saturatedSamples: Int
     public var lostPackets: Int
     public var confidence: Double
@@ -203,9 +195,6 @@ public func analyzeSwing(_ c: SwingContext, _ w: SwingWindow, index: Int) -> Swi
         peakDps: peakDps, tPeak: s[iPeak].t, fwdPeakDps: wd[iFwd], tFwdPeak: tFwd, headSpeed: headSpeed,
         peakAccG: peakAcc, impact: imp != nil, impactG: imp?.peakG, tImpact: imp?.t, impactVsPeakMs: impactVsPeakMs,
         timing: timing, handleTiltDeg: tilt, faceAngleDeg: face, overhead: overhead, side: side,
-        stroke: c.racquetFrame
-            ? classifyStroke(headSpeed: headSpeed, overhead: overhead, tiltDeg: tilt, impact: imp != nil, saturated: sat > 0)
-            : imp != nil ? .unclassified : .noContact,
         saturatedSamples: sat, lostPackets: lost, confidence: max(0.1, min(1, conf)), confidenceReasons: reasons
     )
 }
@@ -218,15 +207,4 @@ private func nearestQ(_ tr: Track, _ t: Double) -> Quat? {
         if tr.t[m] < t { lo = m + 1 } else { hi = m }
     }
     return tr.q[lo]
-}
-
-/// Stroke type HEURISTIC (rotation-only head speed tops out near 18.5 m/s at gyro saturation).
-public func classifyStroke(headSpeed: Double, overhead: Bool?, tiltDeg: Double?, impact: Bool, saturated: Bool) -> StrokeType {
-    guard impact else { return .noContact }
-    if overhead == true {
-        if saturated || headSpeed >= 15 { return .smash }
-        return headSpeed >= 10 ? .clear : .drop
-    }
-    if (tiltDeg ?? 0) > -25 { return headSpeed >= 9 ? .drive : .net }
-    return headSpeed >= 8 ? .lift : .net
 }
