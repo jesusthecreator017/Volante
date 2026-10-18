@@ -17,10 +17,11 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 LAN_USER=itsfrosty
 LAN_APP_DIR=/home/itsfrosty/oso-b/app
 LAN_UNIT=oso-replay.service
-LAN_HEALTH_URL=http://127.0.0.1:8090/health
+LAN_HEALTH_URL=http://127.0.0.1:8090/
 ARENA_VENV=/opt/oso-arena/venv
 ARENA_HEALTH_URL=http://127.0.0.1:8701/healthz
 ARENA_SITE_URL=http://127.0.0.1:8700/
+ARENA_UNITS="oso-arena-web.service oso-arena-scheduler.service oso-arena-supervisor@1.service oso-arena-supervisor@2.service"
 INPUT_ROOT=/var/lib/volante-ci          # inputs must be regular files under here (the runner's home, where its _temp lives)
 STAGING_ROOT=/var/lib/volante-deploy/releases
 LOG_FILE=/var/log/volante-deploy.log
@@ -95,6 +96,15 @@ cp -- "$INPUT" "$REL/input"
 [ "$(sha256sum "$REL/input" | cut -c1-12)" = "$SHA" ] || die "input changed while copying"
 log "$CMD deploy of $(basename "$INPUT") (sha256 $SHA...), staged in $REL$([ "$DRY" = 1 ] && echo " [dry-run]")"
 
+# install.sh must not inherit our umask 077: pip would write the venv root-only and the services (run as oso-arena) could
+# not import it (the 2026-10-18 outage). Staging stays root-only; installs run with 022.
+install_bundle() { (cd "$1" && umask 022 && bash server/deploy/install.sh "$1"); }
+services_up() { # the web health check doesn't cover the workers: they must be running (not crash-looping) a few seconds later
+  local u
+  sleep 5
+  for u in $ARENA_UNITS; do systemctl is-active --quiet "$u" || { log "$u is not active"; return 1; }; done
+}
+
 http_ok() { # url: retry until 200 (also while the port still refuses connections)
   local code
   code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 2 --retry-connrefused --max-time 10 "$1") || return 1
@@ -162,7 +172,7 @@ arena_deploy() {
   log "plan: run server/deploy/install.sh on the bundle; check $ARENA_HEALTH_URL and $ARENA_SITE_URL; roll back to the previous release on failure"
   if [ "$DRY" = 1 ]; then log "dry-run: nothing installed"; return 0; fi
 
-  if (cd "$bundle" && bash server/deploy/install.sh "$bundle") && http_ok "$ARENA_HEALTH_URL" && http_ok "$ARENA_SITE_URL"; then
+  if install_bundle "$bundle" && http_ok "$ARENA_HEALTH_URL" && http_ok "$ARENA_SITE_URL" && services_up; then
     touch "$REL/.ok"; log "arena deployed, healthy (kit $new_kit)"
     prune
     return 0
@@ -176,7 +186,7 @@ arena_deploy() {
   if [ -z "$prev" ]; then fail "no previous successful release to roll back to"; fi
   b=$(find "$prev/x" -mindepth 1 -maxdepth 1)
   log "re-installing $prev"
-  (cd "$b" && bash server/deploy/install.sh "$b") || log "the rollback install also failed"
+  install_bundle "$b" || log "the rollback install also failed"
   if http_ok "$ARENA_HEALTH_URL"; then log "rolled back, healthy again"; else log "STILL UNHEALTHY after rollback: check the Pi by hand"; fi
   fail "new release was unhealthy"
 }
@@ -201,8 +211,9 @@ lan_deploy() {
   [ -d "$LAN_APP_DIR" ] || die "$LAN_APP_DIR does not exist: the friend's layout is expected" 1
   local ex=(--exclude=/data/ --exclude=/node_modules/)
   rsync -a "${ex[@]}" "$LAN_APP_DIR"/ "$REL/prev-app/"
-  restart() { systemctl --user -M "$LAN_USER"@ restart "$LAN_UNIT"; }
-  if rsync -a --delete "${ex[@]}" --chown="$LAN_USER": "$REL/x"/ "$LAN_APP_DIR"/ && restart && http_ok "$LAN_HEALTH_URL"; then
+  # systemctl --user -M needs systemd-machined, which Raspberry Pi OS lacks: talk to the user's manager directly
+  restart() { runuser -u "$LAN_USER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$LAN_USER")" systemctl --user restart "$LAN_UNIT"; }
+  if rsync -a --delete "${ex[@]}" --chown="$LAN_USER": --chmod=D755,F644 "$REL/x"/ "$LAN_APP_DIR"/ && restart && http_ok "$LAN_HEALTH_URL"; then
     touch "$REL/.ok"; log "lan server deployed, healthy"
     prune
     return 0
