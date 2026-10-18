@@ -23,10 +23,8 @@ const NAV: [string, string][] = [
 const ARENA_NAV: [string, string][] = [
   ["/arena", "Home"],
   ["/arena/ladder", "Ladder"],
-  ["/arena/twins", "Twins"],
   ["/arena/tournaments", "Tournaments"],
-  ["/arena/my-models", "My models"],
-  ["/arena/get-started", "Get started"],
+  ["/arena/get-started", "Train & upload"],
 ];
 
 // ---------------------------------------------------------------- theme (per-viewer convenience only)
@@ -143,7 +141,7 @@ function shell(): HTMLElement {
 
 function renderAccount(el: HTMLElement, m: Me | null) {
   if (!m?.user) {
-    replace(el, h("a", { href: loginUrl(), class: "btn small with-icon" }, icon("github-logo"), "Sign in"));
+    replace(el, h("a", { href: loginUrl(), class: "btn small with-icon signin", "aria-label": "Sign in with GitHub" }, icon("github-logo"), h("span", { class: "signin-label" }, "Sign in")));
     return;
   }
   const u = m.user;
@@ -151,7 +149,7 @@ function renderAccount(el: HTMLElement, m: Me | null) {
     "div",
     { class: "menu", role: "menu", hidden: true },
     link("/settings", "Settings"),
-    link("/arena/my-models", "My models"),
+    link("/arena/get-started#mine", "My models"),
     h("button", { type: "button", role: "menuitem", onclick: () => void signOut() }, icon("sign-out"), "Sign out"),
   );
   const btn = h(

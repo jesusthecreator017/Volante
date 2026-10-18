@@ -1,63 +1,95 @@
-// "/how-it-works": three steps and one real session's numbers (estimates from the sensor).
+// "/how-it-works": the four steps, an example session report with insights, and "try it with your own swings.csv" (read
+// in the browser; nothing is uploaded).
 
-import { h, link, s } from "../dom";
+import { reveal } from "../anim";
+import { h } from "../dom";
+import { icon, type IconName } from "../icons";
+import { analyze, exampleSession, parseSwingsCsv } from "../insights";
+import { sessionReport } from "../report";
 
-// Numbers from the 2026-10-17 smash session analysis (estimates from the sensor).
-export const SESSION = { smashes: 41, meanKmh: 69, maxKmh: 95 };
+export { SESSION } from "../insights";
 
-/** The pod: a small rounded body clipped to a racquet grip, with a status LED. */
-function podArt(): SVGSVGElement {
-  return s(
-    "svg",
-    { viewBox: "0 0 120 80", class: "step-art", "aria-hidden": "true", focusable: "false" },
-    s("path", { d: "M8 40h32M80 40h32", class: "art-line" }),
-    s("rect", { x: 40, y: 26, width: 40, height: 28, rx: 8, class: "art-body" }),
-    s("circle", { cx: 52, cy: 40, r: 3.5, class: "art-led" }),
-    s("path", { d: "M62 36h10M62 44h6", class: "art-line" }),
-  );
+const STEPS: [IconName, string, string][] = [
+  ["racquet", "Clip it on", "The pod sits just above the grip. Calibrate once by holding the racquet still, tip up and then flat; it remembers the mount until you move it."],
+  ["waveform", "Play", "A six-axis motion sensor samples the racquet 500 times a second and keeps up to 12 minutes of play on the pod. No phone needed on court."],
+  ["bluetooth-connected", "Sync", "Afterwards the Volante app pulls the session over Bluetooth and finds every swing: when it started, when you hit and how fast the racquet head moved."],
+  ["sparkle-fill", "Improve", "Insights compare your swings: your top speed, how repeatable your power is, whether you tired, and how well you timed your hits."],
+];
+
+function step([ico, title, text]: [IconName, string, string], i: number): HTMLElement {
+  return h("li", { class: `step card glass lift reveal d${i}` }, h("span", { class: "step-ico" }, icon(ico)), h("span", { class: "step-n" }, `Step ${i + 1}`), h("h3", null, title), h("p", null, text));
 }
 
-function swingArt(): SVGSVGElement {
-  return s(
-    "svg",
-    { viewBox: "0 0 120 80", class: "step-art", "aria-hidden": "true", focusable: "false" },
-    s("path", { d: "M20 64A52 52 0 0 1 96 20", class: "art-line art-dash" }),
-    s("path", { d: "M90 14l8 5-9 4", class: "art-line" }),
-    s("circle", { cx: 22, cy: 62, r: 5, class: "art-led" }),
+/** The CSV drop zone: a styled file input that also accepts drag and drop. */
+function dropZone(onFile: (f: File) => void): HTMLElement {
+  const input = h("input", { type: "file", accept: ".csv,text/csv", class: "sr-only", id: "swings-file" });
+  input.addEventListener("change", () => input.files?.[0] && onFile(input.files[0]));
+  const zone = h(
+    "label",
+    { class: "drop glass", for: "swings-file" },
+    input,
+    h("span", { class: "drop-ico" }, icon("file-csv")),
+    h("strong", null, "Drop your swings.csv here, or choose a file"),
+    h("span", { class: "muted small" }, icon("lock-simple"), " Export it from the Volante app's Export page. It's read in your browser and never uploaded."),
   );
-}
-
-function reportArt(): SVGSVGElement {
-  return s(
-    "svg",
-    { viewBox: "0 0 120 80", class: "step-art", "aria-hidden": "true", focusable: "false" },
-    s("rect", { x: 30, y: 8, width: 60, height: 64, rx: 6, class: "art-body" }),
-    [44, 56, 68].map((x, i) => s("rect", { x, y: 60 - [14, 26, 18][i], width: 8, height: [14, 26, 18][i], rx: 2, class: "art-led" })),
-  );
-}
-
-function step(n: number, art: SVGSVGElement, title: string, text: string): HTMLElement {
-  return h("li", { class: "step" }, art, h("h3", null, h("span", { class: "step-n" }, n), title), h("p", null, text));
+  zone.addEventListener("dragover", (e) => (e.preventDefault(), zone.classList.add("over")));
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("over");
+    const f = e.dataTransfer?.files?.[0];
+    if (f) onFile(f);
+  });
+  return zone;
 }
 
 export function howItWorks(root: HTMLElement) {
-  const stat = (v: string, l: string) => h("div", { class: "stat" }, h("strong", null, v), h("span", null, l));
+  const example = () => sessionReport(analyze(exampleSession()), "Smash session", "Example");
+  const slot = h("div", { class: "report-slot" }, example());
+  const note = h("p", { class: "muted small foot" }, "Totals from a real 41-smash session; the swing-by-swing detail is simulated around them. All speeds are estimates from the sensor.");
+  const status = h("p", { class: "small", role: "status" });
+  const back = h("button", { type: "button", class: "btn small", hidden: true }, icon("arrow-clockwise"), "Back to the example");
+  back.addEventListener("click", () => {
+    slot.replaceChildren(example());
+    note.hidden = false;
+    back.hidden = true;
+    status.textContent = "";
+  });
+  const load = async (f: File) => {
+    status.className = "small";
+    status.textContent = `Reading ${f.name}…`;
+    try {
+      if (f.size > 5_000_000) throw new Error("That file is too large for a swings.csv.");
+      const rep = analyze(parseSwingsCsv(await f.text()));
+      slot.replaceChildren(sessionReport(rep, "Your session", f.name));
+      reveal(slot);
+      note.hidden = true;
+      back.hidden = false;
+      status.textContent = "";
+      slot.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      status.className = "small error";
+      status.textContent = e instanceof Error ? e.message : String(e);
+    }
+  };
+
   root.append(
-    h("h1", null, "How it works"),
     h(
-      "ol",
-      { class: "steps" },
-      step(1, podArt(), "Attach", "Clip the pod onto your racquet."),
-      step(2, swingArt(), "Play", "It records up to 12 minutes of swings on its own."),
-      step(3, reportArt(), "Review", "Sync to see every swing counted, with its head speed."),
+      "header",
+      { class: "page-hero" },
+      h("h1", null, "How it works"),
+      h("p", { class: "lead" }, "Volante is a small motion sensor that clips onto your racquet. It records every swing while you play, then turns the session into numbers and tips you can use at your next practice."),
     ),
+    h("ol", { class: "steps" }, STEPS.map(step)),
     h(
       "section",
-      { class: "session", "aria-labelledby": "session-h" },
-      h("h2", { id: "session-h" }, "A real session"),
-      h("div", { class: "session-stats" }, stat(String(SESSION.smashes), "smashes"), stat(`${SESSION.meanKmh} km/h`, "average speed"), stat(`${SESSION.maxKmh} km/h`, "top speed")),
-      h("p", { class: "muted small" }, "Speeds are estimates from the sensor."),
+      { class: "l-sec", id: "insights", "aria-labelledby": "insights-h", tabindex: "-1" },
+      h("h2", { id: "insights-h" }, "Read a session at a glance"),
+      h("p", { class: "sec-lead" }, "Every swing becomes a bar you can inspect. Insights then point out what went well and what to work on next."),
+      slot,
+      note,
+      h("div", { class: "try" }, h("h3", null, "Try it with your own session"), dropZone((f) => void load(f)), status, back),
     ),
-    h("p", { class: "row" }, link("/#features", h("span", { class: "btn" }, "Features")), link("/arena", h("span", { class: "btn" }, "Arena"))),
   );
+  return reveal(root);
 }

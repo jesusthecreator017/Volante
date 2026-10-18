@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { STATS, STAT_EFFECT, STAT_LABEL } from "../arena";
-import { buildRadar, fmtDate, fmtRating, load, matchRow, ownerChip, provisional, ratingChart, statusPill, styleGuess } from "../components";
+import { buildRadar, fmtDate, fmtRating, load, matchRow, ownerChip, ratingChart, statusPill, styleGuess } from "../components";
 import { append, h, link } from "../dom";
 import type { MatchSummary, ModelDetail } from "../types";
 import { mountViewer } from "../viewer";
@@ -47,7 +47,7 @@ function render(root: HTMLElement, m: ModelDetail) {
         "section",
         { class: "card" },
         h("h2", null, m.ladder === "twins" ? "Twins rating" : "Rating"),
-        h("p", { class: "big" }, fmtRating(m.rating), provisional(m.games), h("span", { class: "muted small" }, ` after ${m.games} games`)),
+        h("p", { class: "big" }, fmtRating(m.rating), h("span", { class: "muted small" }, ` after ${m.games} game${m.games === 1 ? "" : "s"}${m.games < 20 ? " (provisional)" : ""}`)),
         ratingChart(m.rating_history),
         h("p", { class: "muted small" }, `Uploaded ${fmtDate(m.created_at)}`, m.retired_at ? ` · retired ${fmtDate(m.retired_at)}` : ""),
       ),

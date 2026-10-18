@@ -49,6 +49,7 @@ describe("DOM safety", () => {
 
 describe("get started copy", () => {
   test("tells the truth about installing the kit and the coach skill", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: null, csrf: "x" })));
     const root = document.createElement("div");
     getStarted(root);
     const text = root.textContent ?? "";
@@ -81,13 +82,12 @@ describe("routes", () => {
       "/privacy": "Privacy",
       "/arena": "Arena",
       "/arena/ladder": "Ladder · Arena",
-      "/arena/twins": "Twins · Arena",
       "/arena/models/7": "Model · Arena",
       "/arena/matches/905": "Match · Arena",
       "/arena/tournaments": "Tournaments · Arena",
       "/arena/tournaments/3": "Tournament · Arena",
-      "/arena/my-models": "My models · Arena",
-      "/arena/get-started": "Get started · Arena",
+      "/arena/my-models": "Train & upload · Arena",
+      "/arena/get-started": "Train & upload · Arena",
       "/arena/": "Arena",
     };
     for (const [path, title] of Object.entries(titles)) expect(match(path)?.route.title, path).toBe(title);
@@ -110,6 +110,7 @@ describe("routes", () => {
       expect(match(to), to).not.toBeNull();
     }
     for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/how-it-works", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
+    expect(redirectFor("/arena/twins")).toBe("/arena/ladder?ladder=twins");
   });
   test("unknown paths are 404", () => {
     for (const p of ["/nope", "/arena/nope", "/arena/models/abc", "/settings/x"]) expect(match(p), p).toBeNull();
@@ -121,23 +122,26 @@ describe("landing", () => {
   test("unshipped features say so, no status chips, no inline styles", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], next_before: null })));
     const soon = Object.fromEntries(FEATURES.map((f) => [f.id, f.soon]));
-    expect(soon).toEqual({ hits: false, speed: false, strokes: true, insights: true });
+    expect(soon).toEqual({ hits: false, speed: false, insights: false, strokes: true });
     const root = document.createElement("div");
     landing(root);
     expect(root.querySelectorAll("[style], script, .chip").length).toBe(0);
     expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
-    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(2);
+    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(1);
+    expect(root.querySelector('a[href="/how-it-works#insights"]')).not.toBeNull();
     expect(root.querySelector('a[href="/how-it-works"]')).not.toBeNull();
     expect(root.querySelector('a[href="/arena"]')).not.toBeNull();
-    expect(root.querySelector('a[href="/arena/twins"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/arena/ladder?ladder=twins"]')).not.toBeNull();
+    expect(root.querySelector(".collage, .proofs")).toBeNull();
   });
-  test("how it works: three steps and the session's real numbers", () => {
+  test("how it works: four steps, the example report with insights, a CSV drop zone", () => {
     const root = document.createElement("div");
     howItWorks(root);
-    expect(root.querySelectorAll(".step").length).toBe(3);
-    expect(root.textContent).toContain("41");
-    expect(root.textContent).toContain("95 km/h");
+    expect(root.querySelectorAll(".step").length).toBe(4);
+    expect(root.querySelectorAll(".swing-chart .sbar").length).toBe(41);
+    expect(root.querySelectorAll(".insight").length).toBeGreaterThanOrEqual(3);
     expect(root.textContent).toContain("estimates");
+    expect(root.querySelector('input[type="file"][accept*=".csv"]')).not.toBeNull();
     expect(root.querySelectorAll("[style], script").length).toBe(0);
   });
 });

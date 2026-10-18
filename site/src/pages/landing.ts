@@ -2,7 +2,9 @@
 // Features that haven't shipped say so in their text: flip `soon` in FEATURES when something ships. How it works: pages/how.ts.
 
 import { api } from "../api";
+import { reveal } from "../anim";
 import { h, link, s } from "../dom";
+import { analyze, exampleSession } from "../insights";
 import { navigate } from "../router";
 import { mountViewer } from "../viewer";
 import { icon, type IconName } from "../icons";
@@ -14,23 +16,21 @@ interface Feature {
   icon: IconName;
   title: string;
   text: string;
-  /** Not shipped yet: the card is dashed and the text ends with "Coming soon." */
+  /** Not shipped yet: the card is dashed and says "Coming soon". */
   soon: boolean;
   viz: Viz;
+  /** where the card's "Try it" link goes */
+  href?: string;
 }
 
 export const FEATURES: Feature[] = [
-  { id: "hits", icon: "target", title: "Hit tracking", text: "Every swing detected and timestamped.", soon: false, viz: "hits" },
-  { id: "speed", icon: "gauge", title: "Swing speed", text: "Estimated racquet head speed for each swing.", soon: false, viz: "gauge" },
-  { id: "strokes", icon: "list-checks", title: "Stroke recognition", text: "Smash, clear, drop and drive, named automatically.", soon: true, viz: "tags" },
-  { id: "insights", icon: "chart-line-up", title: "Insights", text: "Session reports that show what to work on.", soon: true, viz: "bars" },
+  { id: "hits", icon: "target", title: "Hit tracking", text: "Every swing is detected and timestamped, so you can see when you hit and how often.", soon: false, viz: "hits" },
+  { id: "speed", icon: "gauge", title: "Swing speed", text: "Estimated racquet head speed for every swing, worked out from the gyro.", soon: false, viz: "gauge" },
+  { id: "insights", icon: "sparkle-fill", title: "Insights", text: "Tips from each session: your top speed, consistency, fatigue and timing.", soon: false, viz: "bars", href: "/how-it-works#insights" },
+  { id: "strokes", icon: "list-checks", title: "Stroke recognition", text: "Smash, clear, drop and drive, named automatically for every swing.", soon: true, viz: "tags" },
 ];
 
 // ---------------------------------------------------------------- imagery
-
-const STILLS = {
-  ready: [new URL("../assets/ready.webp", import.meta.url).href, new URL("../assets/ready.png", import.meta.url).href],
-} as const;
 
 /** Our own render. Width/height reserve the space (CLS); below-the-fold images load lazily. */
 function picture(webp: string, png: string, alt: string, w: number, hgt: number): HTMLElement {
@@ -70,35 +70,6 @@ export function arenaWatch(): HTMLElement {
   return box;
 }
 
-/** Hero collage: our own racquet render layered over the shape kit. The diagonal bar and the dotted arc are the
- *  shuttle's flight path; the orange circle is the shuttle. Pure SVG, classes only (CSP). */
-function collage(): HTMLElement {
-  const g = (cls: string, ...kids: SVGElement[]) => s("g", { class: cls }, kids);
-  return h(
-    "figure",
-    { class: "collage" },
-    s(
-      "svg",
-      { viewBox: "0 0 600 640", role: "img", "aria-label": "Collage: our rendered racquet, a shuttle flying along a dotted arc, over a diagonal bar, circles and a triangle." },
-      g("cl-par1", s("circle", { cx: 360, cy: 270, r: 200, class: "f-paper" })),
-      g("cl-in cl-d1", s("rect", { x: -60, y: 395, width: 740, height: 64, class: "f-sage", transform: "rotate(-36 300 427)" })),
-      g(
-        "cl-par2 cl-in cl-d2",
-        s("rect", { x: 300, y: 40, width: 270, height: 300, class: "f-accent" }),
-        s("image", { href: STILLS.ready[1], x: 300, y: 82, width: 270, height: 216, preserveAspectRatio: "xMidYMid slice" }),
-        s("rect", { x: 300.5, y: 40.5, width: 269, height: 299, class: "f-none s-line" }),
-      ),
-      s("rect", { x: 40, y: 170, width: 130, height: 130, class: "f-none s-line s-dot" }),
-      g("cl-in cl-d3", s("polygon", { points: "60,130 150,130 60,40", class: "f-accent" })),
-      s("polygon", { points: "76,146 166,146 76,56", class: "f-none s-line" }),
-      s("circle", { cx: 470, cy: 470, r: 112, class: "f-none s-line" }),
-      s("path", { d: "M110 610C230 400 380 330 468 458", class: "f-none s-line s-arc" }),
-      s("g", { transform: "translate(470 470) rotate(-36)" }, s("circle", { r: 14, class: "f-hot" }), s("path", { d: "M-14 0-46-16M-14 0H-46M-14 0-46 16", class: "f-none s-hot s-2" })),
-      s("path", { d: "M20 612h16M28 604v16M572 28h16M580 20v16", class: "f-none s-line" }),
-    ),
-  );
-}
-
 // ---------------------------------------------------------------- feature visuals (decorative)
 
 function viz(kind: Viz): HTMLElement {
@@ -115,13 +86,33 @@ function viz(kind: Viz): HTMLElement {
   return h("div", { class: "viz" }, svg(hs.map((v, i) => s("rect", { x: 14 + i * 24, y: 52 - v, width: 14, height: v, rx: 2, class: i === 5 ? "viz-fill-bar" : "viz-bar" }))));
 }
 
-function feature(f: Feature): HTMLElement {
+function feature(f: Feature, i: number): HTMLElement {
   return h(
     "article",
-    { class: f.soon ? "feature reveal soon" : "feature reveal" },
-    h("div", { class: "feature-head" }, icon(f.icon, { cls: "feature-ico" }), h("h3", null, f.title)),
+    { class: `feature card glass lift reveal d${i}${f.soon ? " soon" : ""}` },
+    h("div", { class: "feature-head" }, h("span", { class: "feature-ico" }, icon(f.icon)), h("h3", null, f.title)),
     h("p", null, f.text, f.soon ? h("span", { class: "soon-note" }, "Coming soon") : null),
     viz(f.viz),
+    f.href ? link(f.href, h("span", { class: "act more" }, "Try it", icon("arrow-right"))) : null,
+  );
+}
+
+/** Hero readout: the example session's headline numbers in a glass card, with its swing bars as a backdrop. */
+function readout(): HTMLElement {
+  const r = analyze(exampleSession());
+  const n = r.swings.length;
+  const bars = s(
+    "svg",
+    { viewBox: `0 0 ${n * 10} 60`, class: "readout-bars", "aria-hidden": "true", preserveAspectRatio: "none" },
+    r.swings.map((sw, i) => s("rect", { x: i * 10 + 2, y: 60 - ((sw.kmh - 30) / 70) * 60, width: 6, height: ((sw.kmh - 30) / 70) * 60, rx: 2, class: i === r.topIndex ? "top" : null })),
+  );
+  const fig = (v: string, l: string) => h("div", null, h("strong", null, v), h("span", null, l));
+  return h(
+    "figure",
+    { class: "readout glass", "aria-label": `Example session: ${n} smashes, average ${Math.round(r.meanKmh)} km/h, top ${Math.round(r.topKmh)} km/h.` },
+    h("figcaption", null, icon("waveform"), "Example session"),
+    h("div", { class: "readout-figs" }, fig(String(n), "smashes"), fig(`${Math.round(r.meanKmh)}`, "km/h average"), fig(`${Math.round(r.topKmh)}`, "km/h top")),
+    bars,
   );
 }
 
@@ -131,20 +122,20 @@ function feature(f: Feature): HTMLElement {
 function arenaStrip(): HTMLElement {
   return h(
     "section",
-    { class: "l-sec arena-strip", "aria-labelledby": "arena-h" },
+    { class: "l-sec arena-strip card glass reveal", "aria-labelledby": "arena-h" },
     arenaWatch(),
     h(
       "div",
       { class: "arena-copy" },
-      h("h2", { id: "arena-h" }, "Arena"),
-      h("p", null, "Train a small badminton AI, upload it and watch it climb the ladder."),
-      h("p", null, link("/arena", h("span", { class: "btn primary" }, "Explore the Arena"))),
+      h("span", { class: "eyebrow" }, icon("robot"), "Arena"),
+      h("h2", { id: "arena-h" }, "Train an AI. Watch it play."),
+      h("p", null, "Train a small badminton AI with our free kit, upload it, and it plays ranked matches around the clock. Every match can be replayed in 3D."),
+      h("p", { class: "row" }, link("/arena", h("span", { class: "btn primary" }, "Explore the Arena", icon("arrow-right"))), link("/arena/get-started", h("span", { class: "btn" }, "Train your own"))),
       h(
         "p",
         { class: "twin-line" },
-        h("strong", null, "Twins. "),
-        "Turn your pod sessions into an AI that plays like you. ",
-        link("/arena/twins", "Twins ladder"),
+        icon("users-three"),
+        h("span", null, h("strong", null, "Twins. "), "Turn your pod sessions into an AI that plays like you, on its own ", link("/arena/ladder?ladder=twins", "Twins ladder"), "."),
       ),
     ),
   );
@@ -156,31 +147,19 @@ export function landing(root: HTMLElement) {
     h(
       "section",
       { class: "l-hero" },
-      h(
-        "div",
-        { class: "l-hero-copy" },
-        h("h1", { class: "display" }, h("span", { class: "lt" }, "Every swing,"), h("br"), h("span", { class: "hv" }, "measured.")),
-        h("p", { class: "lead" }, "A small pod for your racquet that counts every swing and measures its speed."),
-        h("div", { class: "row cta" }, link("/how-it-works", h("span", { class: "btn primary" }, "How it works")), link("/arena", h("span", { class: "btn" }, "Arena"))),
-      ),
-      collage(),
+      h("h1", { class: "display" }, h("span", { class: "lt" }, "Every swing,"), " ", h("span", { class: "hv grad" }, "measured.")),
+      h("p", { class: "lead" }, "Volante is a small sensor that clips onto your badminton racquet. It counts every swing, estimates how fast your racquet head moves, and turns each session into insights you can act on."),
+      h("div", { class: "row cta" }, link("/how-it-works", h("span", { class: "btn primary" }, "How it works", icon("arrow-right"))), link("/arena", h("span", { class: "btn" }, icon("robot"), "Arena"))),
+      readout(),
     ),
     arenaStrip(),
-    h("section", { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" }, h("h2", { id: "features-h" }, "Features"), h("div", { class: "features" }, FEATURES.map(feature))),
+    h(
+      "section",
+      { class: "l-sec", id: "features", "aria-labelledby": "features-h", tabindex: "-1" },
+      h("h2", { id: "features-h" }, "Features"),
+      h("p", { class: "sec-lead" }, "Built for players who want to know what each session actually did."),
+      h("div", { class: "features" }, FEATURES.map(feature)),
+    ),
   );
-
-  // Section reveal: transform/opacity only, and CSS only hides anything when motion is allowed.
-  const els = [...root.querySelectorAll<HTMLElement>(".reveal")];
-  if (!("IntersectionObserver" in window)) {
-    for (const el of els) el.classList.add("in");
-    return;
-  }
-  const io = new IntersectionObserver(
-    (es) => {
-      for (const e of es) if (e.isIntersecting) (e.target.classList.add("in"), io.unobserve(e.target));
-    },
-    { rootMargin: "0px 0px -8% 0px" },
-  );
-  for (const el of els) io.observe(el);
-  return () => io.disconnect();
+  return reveal(root);
 }

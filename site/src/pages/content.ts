@@ -1,9 +1,11 @@
-// Static pages: Get started, Privacy, Not found.
+// Pages: Train & upload (guide + your models), Privacy, Not found.
 
-import { BUILD_TOTAL, MAX_UPLOAD_BYTES, PLAY_STYLES, STATS, STAT_EFFECT, STAT_LABEL, UPLOADS_PER_DAY } from "../arena";
+import { reveal } from "../anim";
+import { BUILD_TOTAL, PLAY_STYLES, STATS, STAT_EFFECT, STAT_LABEL, UPLOADS_PER_DAY } from "../arena";
 import { buildBars } from "../components";
 import { h, link } from "../dom";
-import { icon } from "../icons";
+import { icon, type IconName } from "../icons";
+import { modelsPanel } from "./myModels";
 
 /** A command block with a copy button (the button only appears where the Clipboard API is available). */
 const code = (t: string) => {
@@ -20,59 +22,80 @@ const code = (t: string) => {
   return h("div", { class: "code-wrap" }, pre, btn);
 };
 
+function stepCard(n: number, ico: IconName, title: string, ...body: (Node | string | null)[]): HTMLElement {
+  return h("section", { class: `card glass guide-step reveal d${Math.min(n, 4)}` }, h("div", { class: "guide-head" }, h("span", { class: "step-ico" }, icon(ico)), h("span", { class: "step-n" }, `Step ${n}`), h("h2", null, title)), ...body);
+}
+
+/** Train & upload: the training guide plus the "Your models" panel (upload and your models; signed out: sign in). */
 export function getStarted(root: HTMLElement) {
+  const panel = h("div");
+  const stop = modelsPanel(panel);
   root.append(
-    h("h1", null, "Get started"),
-    h("p", { class: "lead" }, "Train a model with the kit, upload it, and it plays the ladder around the clock."),
-    h("h2", null, "1. Install the kit"),
-    code("git clone https://github.com/jesusthecreator017/Volante.git\ncd Volante\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
-    h("p", { class: "muted" }, "Python 3.10 or newer. The kit has the simulator, the trainer, the check tool and the base model, House Base."),
-    h("h2", null, "2. Choose a build"),
-    h("p", { class: "muted" }, `Four stats from 1 to 10 that add up to ${BUILD_TOTAL}.`),
+    h(
+      "header",
+      { class: "page-hero" },
+      h("h1", null, "Train & upload"),
+      h("p", { class: "lead" }, "Train a small neural network to play badminton with our free kit, then upload it here. It plays ranked matches against everyone else's around the clock, and you can watch every one in 3D."),
+    ),
     h(
       "div",
-      { class: "table-wrap" },
-      h("table", null, h("thead", null, h("tr", null, h("th", { scope: "col" }, "Stat"), h("th", { scope: "col" }, "Effect"))), h("tbody", null, STATS.map((k) => h("tr", null, h("td", null, STAT_LABEL[k]), h("td", null, STAT_EFFECT[k]))))),
-    ),
-    h("h3", null, "Presets"),
-    h(
-      "ul",
-      { class: "presets" },
-      PLAY_STYLES.map((p) => h("li", null, h("span", { class: "preset-name" }, p.name), h("span", { class: "preset-num" }, STATS.map((k) => p.build[k]).join("/")), buildBars(p.build))),
-    ),
-    h("h2", null, "3. Train"),
-    code("oso-arena train --build 9,6,5,4 --minutes 60 --out runs/try1\noso-arena export runs/try1/best -o mymodel.safetensors --name \"My Model\"\noso-arena check mymodel.safetensors"),
-    h(
-      "p",
-      { class: "muted" },
-      h("code", null, "check"),
-      " runs the same test as the upload. Want a coach? Add ",
-      h("code", null, "skills/oso-arena-coach"),
-      " to Claude Code.",
-    ),
-    h("h3", null, "Optional: your twin"),
-    h("p", { class: "muted" }, "Have a pod? Train a model that plays like you. It joins the ", link("/arena/twins", "Twins ladder"), " once it proves it does."),
-    code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
-    h("h2", null, "4. Upload"),
-    h(
-      "ul",
-      { class: "muted" },
-      h("li", null, `One .safetensors file, up to ${MAX_UPLOAD_BYTES / 1024} KiB. It holds only numbers, never code.`),
-      h("li", null, "Name, description and build come from the file."),
-      h("li", null, `${UPLOADS_PER_DAY} uploads a day. A new upload replaces your active model.`),
-    ),
-    h("p", null, link("/arena/my-models", h("span", { class: "btn primary" }, "Upload a model"))),
-    h("h2", null, "Rules"),
-    h(
-      "ul",
-      { class: "muted" },
-      h("li", null, "Best of 3 games to 15 (win by 2, capped at 21), BWF singles laws."),
-      h("li", null, "Elo from 1200. 10 placement matches; provisional under 20 games."),
-      h("li", null, "Weekly tournament on Sundays at 18:00: the top 8 with at least 20 games, no rating change."),
-      h("li", null, "House Base and House Bot are reference players and skip tournaments."),
-      h("li", null, "A new season resets ratings."),
+      { class: "start-grid" },
+      h("aside", { class: "card glass mine", id: "mine", "aria-labelledby": "mine-h" }, h("h2", { id: "mine-h" }, icon("robot"), "Your models"), panel),
+      h(
+        "div",
+        { class: "guide" },
+        stepCard(
+          1,
+          "terminal-window",
+          "Install the kit",
+          code("git clone https://github.com/jesusthecreator017/Volante.git\ncd Volante\npython3 -m venv .venv && source .venv/bin/activate\npip install \"./arena/kit[train]\""),
+          h("p", { class: "muted" }, "Needs Python 3.10 or newer. The kit has the simulator, a scripted bot, the trainer, the same check the upload runs, and House Base, the base model to start training from."),
+        ),
+        stepCard(
+          2,
+          "sliders-horizontal",
+          "Choose a build",
+          h("p", { class: "muted" }, `Four stats from 1 to 10 that add up to ${BUILD_TOTAL}. Start from a preset or make your own.`),
+          h("dl", { class: "stat-effects" }, STATS.map((k) => [h("dt", null, STAT_LABEL[k]), h("dd", null, STAT_EFFECT[k])])),
+          h(
+            "ul",
+            { class: "presets" },
+            PLAY_STYLES.map((p) => h("li", null, h("span", { class: "preset-name" }, p.name), h("span", { class: "preset-num" }, STATS.map((k) => p.build[k]).join("/")), buildBars(p.build))),
+          ),
+        ),
+        stepCard(
+          3,
+          "robot",
+          "Train and export",
+          code("oso-arena train --build 9,6,5,4 --minutes 60 --out runs/try1\noso-arena export runs/try1/best -o mymodel.safetensors --name \"My Model\"\noso-arena check mymodel.safetensors"),
+          h("p", { class: "muted" }, h("code", null, "check"), " runs the same test as the upload, so a file that passes here is accepted. Want a coach? Add ", h("code", null, "skills/oso-arena-coach"), " to Claude Code and ask it to train toward a style."),
+        ),
+        stepCard(
+          4,
+          "users-three",
+          "Optional: your twin",
+          h("p", { class: "muted" }, "Have a Volante pod? Turn your sessions into a style profile and train a model that plays like you. It joins the ", link("/arena/ladder?ladder=twins", "Twins ladder"), " once it proves it does."),
+          code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
+        ),
+        h(
+          "details",
+          { class: "card glass rules reveal" },
+          h("summary", null, icon("book-open"), "Rules", icon("caret-down-bold", { cls: "chev" })),
+          h(
+            "ul",
+            { class: "muted" },
+            h("li", null, "Best of 3 games to 15 (win by 2, capped at 21) under BWF singles laws."),
+            h("li", null, "Ratings are Elo from 1200. A new model plays 10 placement matches; ratings settle after 20 games."),
+            h("li", null, "Weekly tournament on Sundays at 18:00: the top 8 with at least 20 games, single elimination, no rating change."),
+            h("li", null, `${UPLOADS_PER_DAY} uploads a day; one active model each. A new upload retires the previous one, and its history stays.`),
+            h("li", null, "House Base and House Bot are reference players and skip tournaments. A new season resets ratings."),
+          ),
+        ),
+      ),
     ),
   );
+  const unreveal = reveal(root);
+  return () => (stop(), unreveal());
 }
 
 export function privacy(root: HTMLElement) {
