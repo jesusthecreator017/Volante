@@ -74,6 +74,7 @@ def test_dashboard_aggregates():
     s = d["strokes"]
     assert s["sessions"] == 2 and s["experimental"] is True
     assert s["groups"] == {"power": 0.25, "mid": 0.4167, "touch": 0.25, "not_a_hit": 0.05, "unclassified": 0.0333}
+    assert s["overall"] == s["groups"]  # every stroked session is within the last 10
     assert d["style"] == {"schema": "volante-style/1"} and d["twin_model_id"] == 7
     json.dumps(d, allow_nan=False)
 
@@ -83,6 +84,16 @@ def test_dashboard_strokes_last_10_only():
             for i in range(12)]
     s = dashboard.aggregate(rows, None, None, TODAY)["strokes"]
     assert s["sessions"] == 10 and s["groups"]["touch"] == 1.0 and s["groups"]["power"] == 0.0
+    assert s["overall"] == {"power": 0.1667, "mid": 0.0, "touch": 0.8333, "not_a_hit": 0.0, "unclassified": 0.0}
+
+
+def test_dashboard_stroke_shares_sum_to_one():
+    rows = [{"id": "a", "report": rep("2026-10-01T10:00:00Z", groups={"power": 1, "mid": 1, "touch": 1})}]
+    s = dashboard.aggregate(rows, None, None, TODAY)["strokes"]
+    for mix in (s["groups"], s["overall"]):
+        assert abs(sum(mix.values()) - 1) < 1e-9 and mix["power"] == 0.3334 and mix["mid"] == mix["touch"] == 0.3333
+    zero = [{"id": "z", "report": rep("2026-10-01T10:00:00Z", groups={"power": 0})}]
+    assert dashboard.aggregate(zero, None, None, TODAY)["strokes"] is None
 
 
 def test_dashboard_watch_only():

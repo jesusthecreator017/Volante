@@ -3,7 +3,7 @@ import math
 import re
 
 MAX_BYTES = 16384
-_TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 _FW = re.compile(r"[A-Za-z0-9._ ,-]{1,64}")
 _ID = re.compile(r"[a-z_]{1,40}")
 
@@ -85,7 +85,7 @@ def validate_report(r):
     if r["schema"] != "volante-report/1":
         _bad("schema", "must be volante-report/1")
     s = _obj(r["session"], "session", ("started_at", "duration_s", "active_s", "source", "pod_fw"))
-    _str(s["started_at"], "session.started_at", _TS)
+    _str(s["started_at"], "session.started_at", TS)
     _num(s["duration_s"], "session.duration_s", 0)
     _num(s["active_s"], "session.active_s", 0)
     if s["source"] not in ("pod", "watch"):

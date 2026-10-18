@@ -694,7 +694,13 @@ def create_app():
             raise ApiError(429, "rate_limited", "Too many uploads. Try again in a minute.", {"retry-after": str(wait)})
 
     async def body_capped(request, cap):
-        """The raw body, refused with 413 as soon as it passes `cap` bytes (before any JSON parsing)."""
+        """The raw body, refused with 413 when its declared length or the bytes read pass `cap` (before any JSON parsing)."""
+        try:
+            declared = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            raise ApiError(400, "bad_request", "Bad Content-Length.") from None
+        if declared > cap:
+            raise ApiError(413, "too_large", f"The body is over the {cap}-byte limit.", {"connection": "close"})
         raw = bytearray()
         async for chunk in request.stream():
             raw += chunk
@@ -709,10 +715,13 @@ def create_app():
     async def put_app_session(sid: str, request: Request):
         """Body {"report": <volante-report/1>} (<= 16 KB). Idempotent upsert by (user, id) -> 200 {"id", "started_at"}.
         Errors: 400 invalid_report | bad_request | too_many_sessions, 413 too_large, 429 rate_limited."""
-        u = require_user(request)
+        u = await asyncio.to_thread(require_user, request)
         app_put_limit(u)
         app_session_id(sid)
         raw = await body_capped(request, reports.MAX_BYTES)
+        return await asyncio.to_thread(store_app_session, u, sid, raw)
+
+    def store_app_session(u, sid, raw):
         try:
             body = json.loads(raw, parse_constant=_no_constant)
             if not isinstance(body, dict) or set(body) != {"report"}:
@@ -734,19 +743,23 @@ def create_app():
 
     @app.get("/api/me/sessions")
     def list_app_sessions(request: Request):
-        """?before=<ISO started_at>&limit=1-100 (default 20), newest first -> {"items": [SessionSummary], "next_before": str | null}.
+        """?before=<cursor>&limit=1-100 (default 20), newest first -> {"items": [SessionSummary], "next_before": str | null}.
         SessionSummary = {id, started_at, source, duration_s, active_s, swings, p90_kmh, max_kmh, rallies, longest_rally, hr_avg,
-        has_strokes}. next_before is the cursor for the next (older) page, null on the last page."""
+        has_strokes}. next_before is the opaque cursor for the next (older) page ("<started_at>~<id>"), null on the last page;
+        a bare started_at like 2026-10-17T18:00:00Z is accepted too (sessions strictly before it)."""
         u = require_user(request, csrf=False)
         before, limit = request.query_params.get("before"), request.query_params.get("limit", "20")
-        if not re.fullmatch(r"\d{1,3}", limit) or not 1 <= int(limit) <= 100 or (before is not None and not reports._TS.fullmatch(before)):
-            raise ApiError(400, "bad_request", "limit is 1-100 and before is a started_at like 2026-10-17T18:00:00Z.")
+        t, _, after_id = (before or "9999-12-31T23:59:59Z~").partition("~")
+        if (not re.fullmatch(r"\d{1,3}", limit) or not 1 <= int(limit) <= 100 or not reports.TS.fullmatch(t)
+                or (after_id and not APP_SESSION_ID.fullmatch(after_id)) or (before and "~" in before and not after_id)):
+            raise ApiError(400, "bad_request", "limit is 1-100 and before is a next_before cursor or a started_at like 2026-10-17T18:00:00Z.")
         n = int(limit)
-        # ponytail: a started_at cursor skips a session that starts in the same second as the page's last one; add id to the cursor if that bites
-        rows = conn().execute("SELECT id, report FROM app_sessions WHERE user_id=? AND started_at<? ORDER BY started_at DESC, id DESC "
-                              "LIMIT ?", (u["id"], before or "9999", n + 1)).fetchall()
+        # a bare timestamp means "before that second"; "" sorts below every id, so (t, "") excludes the whole second
+        rows = conn().execute("SELECT id, started_at, report FROM app_sessions WHERE user_id=? AND (started_at, id) < (?, ?) "
+                              "ORDER BY started_at DESC, id DESC LIMIT ?", (u["id"], t, after_id, n + 1)).fetchall()
         items = [{"id": x["id"], **reports.summary_of(json.loads(x["report"]))} for x in rows[:n]]
-        return no_store({"items": items, "next_before": items[-1]["started_at"] if len(rows) > n else None})
+        last = rows[n - 1] if len(rows) > n else None
+        return no_store({"items": items, "next_before": f"{last['started_at']}~{last['id']}" if last else None})
 
     @app.get("/api/me/sessions/{sid}")
     def get_app_session(sid: str, request: Request):
@@ -782,9 +795,12 @@ def create_app():
     @app.put("/api/me/style")
     async def put_app_style(request: Request):
         """Body = a volante-style/1 profile (oso_arena.style rules, <= 8 KB) -> 200 {"ok": true}. 400 invalid_profile."""
-        u = require_user(request)
+        u = await asyncio.to_thread(require_user, request)
         app_put_limit(u)
         raw = await body_capped(request, reports.MAX_BYTES)
+        return await asyncio.to_thread(store_app_style, u, raw)
+
+    def store_app_style(u, raw):
         from oso_arena import style
         try:
             profile = style.parse_profile(raw.decode())
@@ -803,8 +819,9 @@ def create_app():
         trends:[{id, started_at, p90_kmh, swings_per_min, median_gap_s, hr_avg}] (pod sessions, last 50, oldest first),
         wrist:{sessions, swings},
         bests:{max_kmh, most_swings, longest_rally, best_rate} each {value, session_id, started_at} | null (max_kmh: pod only),
-        strokes:{groups:{power, mid, touch, not_a_hit, unclassified} shares over the last 10 sessions with strokes, sessions:int,
-                 experimental:true} | null,
+        strokes:{groups:{power, mid, touch, not_a_hit, unclassified} shares over the last 10 sessions with strokes,
+                 overall:{same keys} shares over all sessions with strokes, sessions:int (of the last 10), experimental:true}
+                 | null (no sessions with strokes, or no strokes counted); shares are rounded to 4 decimals and sum to 1,
         style: StyleProfile | null, twin_model_id: int | null}"""
         u = require_user(request, csrf=False)
         con = conn()

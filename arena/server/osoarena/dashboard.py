@@ -20,6 +20,18 @@ def _best(items, value):
     return best
 
 
+def _shares(groups):
+    """Summed group counts -> shares rounded to 4 decimals that sum to 1 (the remainder goes to the largest group); None if no strokes."""
+    sums = {g: sum(x.get(g, 0) for x in groups) for g in GROUPS}
+    total = sum(sums.values())
+    if not total:
+        return None
+    out = {g: round(v / total, 4) for g, v in sums.items()}
+    top = max(GROUPS, key=lambda g: sums[g])
+    out[top] = round(1 - sum(v for g, v in out.items() if g != top), 4)
+    return out
+
+
 def aggregate(rows, style, twin_model_id, today):
     """rows: [{"id", "report"}] (validated reports, any order). -> the Dashboard shape of GET /api/me/dashboard."""
     items = sorted(((x["id"], x["report"]) for x in rows), key=lambda t: (t[1]["session"]["started_at"], t[0]))
@@ -35,13 +47,9 @@ def aggregate(rows, style, twin_model_id, today):
             w[1] += r["swings"]["count"]
             w[2] += r["session"]["active_s"]
 
-    stroked = [r["strokes"]["groups"] for _, r in items if r["strokes"] is not None][-10:]
-    strokes = None
-    if stroked:
-        sums = {g: sum(s.get(g, 0) for s in stroked) for g in GROUPS}
-        total = sum(sums.values())
-        strokes = {"groups": {g: round(v / total, 4) if total else 0.0 for g, v in sums.items()}, "sessions": len(stroked),
-                   "experimental": True}
+    stroked = [r["strokes"]["groups"] for _, r in items if r["strokes"] is not None]
+    recent, overall = _shares(stroked[-10:]), _shares(stroked)
+    strokes = recent and {"groups": recent, "overall": overall, "sessions": len(stroked[-10:]), "experimental": True}
 
     return {
         "totals": {"sessions": len(items), "swings": sum(r["swings"]["count"] for _, r in items),

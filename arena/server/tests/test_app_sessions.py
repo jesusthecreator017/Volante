@@ -64,7 +64,7 @@ def test_put_get_list_delete_roundtrip(app):
         assert g.status_code == 200 and g.headers["cache-control"] == "no-store"
         assert g.json() == {"id": "p2", "report": fixture()[1]["report"]}
         page = c.get("/api/me/sessions?limit=3").json()
-        assert [i["id"] for i in page["items"]] == ["p5", "w2", "p4"] and page["next_before"] == "2026-10-12T18:00:00Z"
+        assert [i["id"] for i in page["items"]] == ["p5", "w2", "p4"] and page["next_before"] == "2026-10-12T18:00:00Z~p4"
         assert page["items"][0] == {"id": "p5", "started_at": "2026-10-17T09:30:00Z", "source": "pod", "duration_s": 960.0,
                                     "active_s": 900, "swings": 150, "p90_kmh": 62.0, "max_kmh": 91.0, "rallies": 15,
                                     "longest_rally": 20, "hr_avg": 150, "has_strokes": False}
@@ -85,6 +85,27 @@ def test_put_get_list_delete_roundtrip(app):
         for m, p in (("get", "/api/me/sessions"), ("get", "/api/me/sessions/p1"), ("get", "/api/me/dashboard"),
                      ("delete", "/api/me/sessions"), ("put", "/api/me/style")):
             assert getattr(anon, m)(p).status_code == 401
+
+
+def test_cursor_keeps_same_second_sessions(app):
+    with TestClient(app) as c:
+        signed_in(c)
+        for sid in ("x1", "x2", "x3"):
+            assert c.put(f"/api/me/sessions/{sid}", json={"report": rep("2026-10-01T18:00:00Z")}).status_code == 200
+        assert c.put("/api/me/sessions/old", json={"report": rep("2026-09-01T18:00:00Z")}).status_code == 200
+        seen, before = [], None
+        while True:
+            q = "limit=1" + (f"&before={before}" if before else "")
+            page = c.get(f"/api/me/sessions?{q}").json()
+            seen += [i["id"] for i in page["items"]]
+            before = page["next_before"]
+            if before is None:
+                break
+        assert seen == ["x3", "x2", "x1", "old"]
+        assert [i["id"] for i in c.get("/api/me/sessions?before=2026-10-01T18:00:00Z~x2").json()["items"]] == ["x1", "old"]
+        assert [i["id"] for i in c.get("/api/me/sessions?before=2026-10-01T18:00:01Z").json()["items"]] == ["x3", "x2", "x1", "old"]
+        for bad in ("2026-10-01T18:00:00Z~", "2026-10-01T18:00:00Z~a b", "x~x1", "2026-10-01T18:00:00Z~x1~x2"):
+            assert c.get(f"/api/me/sessions?before={bad}").status_code == 400, bad
 
 
 def test_put_is_idempotent_by_id(app):
@@ -114,6 +135,8 @@ def test_put_rejects_invalid_and_oversize(app):
         big = json.dumps({"report": good}).encode() + b" " * 16384
         res = c.put("/api/me/sessions/x", content=big, headers={"content-type": "application/json"})
         assert res.status_code == 413 and res.json()["error"] == "too_large"
+        res = c.put("/api/me/sessions/x", content=b"{}", headers={"content-type": "application/json", "content-length": "20000"})
+        assert res.status_code == 413  # a declared Content-Length over the cap is refused before reading
         assert rows(c.uid) == []
 
 
