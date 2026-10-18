@@ -27,15 +27,13 @@ enum Theme {
 
     static let banner = LinearGradient(colors: [courtTop, courtBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
 
-    static func stroke(_ s: StrokeType) -> Color {
-        switch s {
-        case .smash: Theme.hot
-        case .clear: Color(light: 0x2F6FDE, dark: 0x6AA2FF)
-        case .drop: Color(light: 0x14A39A, dark: 0x3FD6CB)
-        case .drive: Color(light: 0xD79A00, dark: 0xFFC83D)
-        case .lift: Color(light: 0x8A4FD6, dark: 0xB78CFF)
-        case .net: Color(light: 0xD6407E, dark: 0xFF7FB0)
-        case .noContact, .unclassified: Color(light: 0x7A8680, dark: 0x9AA8A1)
+    /// Stroke-group colours (experimental classifier): power, mid, touch; grey for the rest.
+    static func group(_ g: StrokeGroup) -> Color {
+        switch g {
+        case .power: Theme.hot
+        case .mid: Color(light: 0xB07C00, dark: 0xFFC83D)
+        case .touch: Color(light: 0x0E8C84, dark: 0x3FD6CB)
+        case .notAHit, .unclassified: Color(light: 0x6F7B75, dark: 0x9AA8A1)
         }
     }
 }

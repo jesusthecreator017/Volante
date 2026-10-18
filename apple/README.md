@@ -4,7 +4,7 @@ Native SwiftUI apps next to the web/Capacitor app in `../app/` (which stays the 
 
 | Piece | What it does | Sensors / data |
 |---|---|---|
-| **OsoKit** (`OsoKit/`, Swift package, pure Swift) | Everything that is math: BLE protocol constants and the 24-byte status, `imu.bin` read/write and packet accounting, Madgwick fusion, spikes/claps, swing detection + per-swing metrics, session summary, wrist-sample encoding, heart-rate alignment, Google Health query building. Unit tested with `swift test`. | — |
+| **OsoKit** (`OsoKit/`, Swift package, pure Swift) | Everything that is math: BLE protocol constants and the 24-byte status, `imu.bin` read/write and packet accounting, Madgwick fusion, spikes/claps, swing detection + per-swing metrics, on-device stroke models, session summary, wrist-sample encoding, heart-rate alignment, Google Health query building. Unit tested with `swift test`. | — |
 | **iPhone app** (`OsoPhone/`, sideloaded) | Pod over CoreBluetooth (stream, record, upload + mark uploaded, sync marker, sleep/wake), live swings, saved sessions, receives watch sessions, uploads sessions to the Pi and fetches replays, Fitbit sign-in + heart-rate overlay, share `imu.bin`. | racquet pod 500 Hz accel + gyro |
 | **Watch app** (`OsoWatch/`) | Starts a HealthKit **badminton** workout, records the wrist IMU with `CMBatchedSensorManager` (device motion 200 Hz: rotation rate + gravity + user acceleration), counts swings live on the wrist, heart rate + calories from the workout, sends the session to the phone. | wrist 200 Hz accel + gyro, heart rate, energy |
 | **Raspberry Pi server** (`../app/server`, `../deploy/pi`) | Hosts the web app, the session exchange with the video pipeline, and the Fitbit proxy (keeps the Google token, calls the Google Health API). | — |
@@ -83,6 +83,14 @@ cd apple/OsoKit && swift test
 Health API, and add your Google account as a test user. Put the client ID and its reversed form in
 `OsoPhone/Config.xcconfig` (`GOOGLE_CLIENT_ID`, `GOOGLE_REDIRECT_SCHEME`). You sign in once on the phone, the
 refresh token goes to the Pi, and every Google Health API call runs on the Pi after that.
+
+## Stroke models (experimental)
+OsoKit runs two gradient-boosted tree models on the phone, pure Swift (`StrokeWindow` -> `StrokeFeatures` -> `TreeEnsemble` ->
+`StrokeClassifier`): the power/mid/touch group (its FH/BH head is parsed but not shown: near chance) and a 10-stroke "beta" guess, both on the 24 orientation-free
+features. Racquet sessions only; results are cached per session in `strokes.json` and recomputed when the model version changes.
+The models are `OsoKit/Sources/OsoKit/Resources/*.trees.json`, copies of `models/strokes/`. To update them:
+`tools/.venv/bin/python tools/strokes/export_trees.py` (or `train.py --final`), then `apple/scripts/sync-models.sh`, then commit both.
+`swift test` and `tools/strokes/test_export_trees.py` fail if the copies drift. Details: `docs/strokes/model-card.md`.
 
 ## Status
 

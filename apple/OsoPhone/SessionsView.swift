@@ -94,13 +94,14 @@ struct SessionDetailView: View {
 
     var body: some View {
         let a = store.analysis(meta)
+        let st = a.flatMap { a in store.strokes[meta.id].flatMap { $0.results.count == a.swings.count ? $0 : nil } }
         Screen {
             if let a {
                 SessionHeaderView(meta: meta, analysis: a, bests: store.bests)
-                speedChart(a)
-                strokeMix(a)
+                speedChart(a, st)
+                if let st { StrokeBreakdownCard(breakdown: StrokeBreakdown(swings: a.swings, results: st.results)) }
                 if !meta.heartRate.isEmpty, let anchor = meta.anchor { heartRateChart(a, anchor) }
-                swings(a)
+                swings(a, st)
                 details(a)
             } else {
                 Card { Text("This file could not be read.") }
@@ -116,17 +117,18 @@ struct SessionDetailView: View {
             if let a, !a.swings.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(
-                        item: SessionCardImage(analysis: a, date: meta.createdAt, personalBest: !store.bests.kinds(for: meta.id).isEmpty),
+                        item: SessionCardImage(analysis: a, date: meta.createdAt, personalBest: !store.bests.kinds(for: meta.id).isEmpty,
+                                               breakdown: st.map { StrokeBreakdown(swings: a.swings, results: $0.results) }),
                         preview: SharePreview("Volante session, \(meta.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     ) { Label("Share session image", systemImage: "square.and.arrow.up") }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) { actionsMenu(a) }
         }
-        .task { await store.loadAllSummaries() }
+        .task { await store.loadStrokes(meta); await store.loadAllSummaries() }
         #if DEBUG
         .navigationDestination(isPresented: $debugSwingOpen) {
-            if let a, !a.swings.isEmpty { SwingDetailView(analysis: a, start: debugSwingStart) }
+            if let a, !a.swings.isEmpty { SwingDetailView(analysis: a, start: debugSwingStart, strokes: st?.results) }
         }
         .onAppear { if a != nil, debugSwingStart > 0 { debugSwingOpen = true } }
         #endif
@@ -154,18 +156,19 @@ struct SessionDetailView: View {
         }
     }
 
-    private func speedChart(_ a: SessionAnalysis) -> some View {
-        let present = StrokeType.allCases.filter { k in a.swings.contains { $0.stroke == k } }
+    private func speedChart(_ a: SessionAnalysis, _ st: SessionStrokes?) -> some View {
+        let group = { (s: Swing) in st?.results[safe: s.index - 1]?.group ?? .unclassified }
+        let present = StrokeGroup.allCases.filter { g in a.swings.contains { group($0) == g } }
         return Card("Swing speed", systemImage: "speedometer") {
             if a.swings.isEmpty {
                 Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
             } else {
                 Chart(a.swings) { s in
                     PointMark(x: .value("Time", s.tStart - a.t0), y: .value("m/s", s.headSpeed))
-                        .foregroundStyle(by: .value("Stroke", s.stroke.rawValue))
+                        .foregroundStyle(by: .value("Stroke group", group(s).title))
                         .symbolSize(s.impact ? 70 : 36)
                 }
-                .chartForegroundStyleScale(domain: present.map(\.rawValue), range: present.map { Theme.stroke($0) })
+                .chartForegroundStyleScale(domain: present.map(\.title), range: present.map { Theme.group($0) })
                 .chartLegend(.hidden)
                 .chartXScale(domain: 0...duration(a))
                 .chartXAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let t = v.as(Double.self) { Text(clock(t)).font(.caption2) } } } }
@@ -175,35 +178,6 @@ struct SessionDetailView: View {
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .accessibilityLabel("Swing speed over time")
                 .accessibilityValue("\(a.swings.count) swings, best \(String(format: "%.1f", a.summary.maxSpeed ?? 0)) metres per second")
-            }
-        }
-    }
-
-    private func strokeMix(_ a: SessionAnalysis) -> some View {
-        let counts = StrokeType.allCases.compactMap { k in a.summary.strokeCounts[k].flatMap { $0 > 0 ? (k, $0) : nil } }
-        return Card("Stroke mix", systemImage: "chart.pie") {
-            if counts.isEmpty {
-                Text("No strokes to classify.").font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                Chart(counts, id: \.0) { k, n in
-                    SectorMark(angle: .value("Swings", n), innerRadius: .ratio(0.62), angularInset: 1.5)
-                        .cornerRadius(4)
-                        .foregroundStyle(Theme.stroke(k))
-                }
-                .chartLegend(.hidden)
-                .frame(height: 160)
-                .frame(maxWidth: .infinity)
-                StatGrid(minimum: 130) {
-                    ForEach(counts, id: \.0) { k, n in
-                        HStack(spacing: 8) {
-                            Circle().fill(Theme.stroke(k)).frame(width: 12, height: 12).accessibilityHidden(true)
-                            Text(k.rawValue.capitalized).font(.subheadline)
-                            Spacer(minLength: 4)
-                            Text("\(n)").font(.score(.headline))
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
             }
         }
     }
@@ -234,48 +208,20 @@ struct SessionDetailView: View {
 
     // MARK: swings and details
 
-    private func swings(_ a: SessionAnalysis) -> some View {
+    private func swings(_ a: SessionAnalysis, _ st: SessionStrokes?) -> some View {
         Card("Swings", systemImage: "figure.badminton") {
             if a.swings.isEmpty {
                 Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
             }
             LazyVStack(spacing: 0) {
                 ForEach(a.swings) { s in
-                    NavigationLink { SwingDetailView(analysis: a, start: s.index) } label: { swingRow(s) }
+                    NavigationLink { SwingDetailView(analysis: a, start: s.index, strokes: st?.results) } label: { SwingRow(swing: s, result: st?.results[safe: s.index - 1]) }
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens the swing detail")
                     if s.id != a.swings.last?.id { Divider() }
                 }
             }
         }
-    }
-
-    private func swingRow(_ s: Swing) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(Theme.stroke(s.stroke)).frame(width: 12, height: 12).padding(.top, 6).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("#\(s.index) \(s.stroke.rawValue.capitalized)").font(.subheadline.weight(.semibold))
-                Text([
-                    String(format: "%.0f dps", s.peakDps),
-                    s.timing.map { "impact \($0)" },
-                    s.side,
-                    s.handleTiltDeg.map { String(format: "tilt %.0f°", $0) },
-                    s.heartRate.map { String(format: "%.0f bpm", $0) },
-                    s.confidence < 0.8 ? "low confidence" : nil,
-                ].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(String(format: "%.1f", s.headSpeed)).font(.score(.title3))
-                Text("m/s").font(.caption2).foregroundStyle(.secondary)
-            }
-            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 8)
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
     }
 
     private func details(_ a: SessionAnalysis) -> some View {
@@ -354,5 +300,42 @@ struct SessionDetailView: View {
         } catch {
             message = error.localizedDescription
         }
+    }
+}
+
+struct SwingRow: View {
+    let swing: Swing
+    var result: StrokeResult?
+
+    var body: some View {
+        let s = swing, r = result
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(r.map { Theme.group($0.group) } ?? Theme.group(.unclassified)).frame(width: 12, height: 12).padding(.top, 6).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text("#\(s.index)").font(.subheadline.weight(.semibold))
+                    if let r { StrokeChip(result: r) }
+                }
+                if let r { BetaGuessLine(result: r, showInfo: false) }
+                Text([
+                    String(format: "%.0f dps", s.peakDps),
+                    s.timing.map { "impact \($0)" },
+                    s.handleTiltDeg.map { String(format: "tilt %.0f°", $0) },
+                    s.heartRate.map { String(format: "%.0f bpm", $0) },
+                    s.confidence < 0.8 ? "low confidence" : nil,
+                ].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(String(format: "%.1f", s.headSpeed)).font(.score(.title3))
+                Text("m/s").font(.caption2).foregroundStyle(.secondary)
+            }
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 8)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }

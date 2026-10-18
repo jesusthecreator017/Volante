@@ -113,3 +113,20 @@ Personal v0: the group model for rough intensity breakdowns of the owner's own s
   winner on the 11-class mean macro-F1; ~2 min). Reports go to `~/Datasets/oso-strokes/reports/`.
 - What would change the picture: more drill sessions (>= 2 switches the evaluation to leave-one-session-out), more players, drill
   blocks that cover both sides of each class, and reviewed rally swings as the real-play test set.
+
+## On-device trees (iPhone app, Phase 22)
+The phone does not run the ONNX models. `tools/strokes/export_trees.py` (also called by `train.py --final`) retrains the **a_of** GBMs
+on all drill swings and writes `models/strokes/stroke_group_v0.trees.json` (power/mid/touch + the FH/BH head),
+`stroke_class_v0.trees.json` (10 classes; the 11-class a_of GBM, macro-F1 0.220 vs the CNN's 0.233: noise, so one tree evaluator serves
+both) and `test_vectors_trees_v0.json` (20 swings: |w|, |a|, saturation, expected features and probabilities, plus a raw-packet window
+fixture). Schema `volante-trees/1`: preorder trees (`f` feature, `v` threshold or leaf, `r` right child, `m` missing-left), float32
+thresholds rounded down, softmax or sigmoid. The pure-Python evaluator equals sklearn to 6e-8 on all 352 drill swings; Swift equals the
+vectors to 5e-7 relative (features) and 2e-16 (probabilities).
+The side head is shared (same labels, features and seed for both models) and lives in the group file only.
+
+**Display thresholds** (below: "Unclassified"): lowest max-probability threshold whose out-of-fold (block 5-fold) accuracy on accepted
+swings is >= 0.80 (group) / >= 0.50 (10-stroke), keeping >= 5 % coverage. Group: **0.696, coverage 94 %, accuracy 80.1 %** (the
+model is rarely unsure, so this mostly marks the weakest 6 %). 10-stroke: **target not reachable** (confidence does not predict
+correctness; accuracy is 22-25 % at every threshold), fallback = best accuracy keeping >= 20 % coverage: **0.968, coverage 27 %,
+accuracy 27 %**. Hence the app labels it "Beta guess" and "often wrong". The side head is near chance (see above); the app does not show it
+(no model FH/BH chip, split or share-card entry) until it beats chance; OsoKit parses it for parity tests only. The swing detail keeps its rotation-based Side row. Swings whose window leaves the recording or spans a gap > 10 ms are Unclassified.

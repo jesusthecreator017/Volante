@@ -201,9 +201,9 @@ struct SummaryView: View {
                     ForEach(best) { x in
                         LineMark(x: .value("Date", x.date), y: .value("m/s", x.row.maxSpeed ?? 0))
                             .interpolationMethod(.monotone)
-                            .foregroundStyle(Theme.stroke(.smash))
+                            .foregroundStyle(Theme.hot)
                         PointMark(x: .value("Date", x.date), y: .value("m/s", x.row.maxSpeed ?? 0))
-                            .foregroundStyle(Theme.stroke(.smash))
+                            .foregroundStyle(Theme.hot)
                     }
                     if let avg {
                         RuleMark(y: .value("Average", avg))
@@ -222,25 +222,11 @@ struct SummaryView: View {
         }
     }
 
+    /// Stroke groups over the period (racquet sessions only; the models do not run on the watch).
+    @ViewBuilder
     private func strokeChart(_ e: [Entry]) -> some View {
-        var total: [StrokeType: Int] = [:]
-        for x in e { for (k, n) in x.row.strokeCounts where k != .noContact { total[k, default: 0] += n } }
-        let rows = StrokeType.allCases.compactMap { k in total[k].flatMap { $0 > 0 ? (k, $0) : nil } }.sorted { $0.1 > $1.1 }
-        let sum = max(1, rows.map(\.1).reduce(0, +))
-        return Card("Strokes", systemImage: "chart.bar.doc.horizontal") {
-            if rows.isEmpty {
-                Text("No strokes to classify.").font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                Chart(rows, id: \.0) { k, n in
-                    BarMark(x: .value("Share", Double(n) / Double(sum)), y: .value("Stroke", k.rawValue.capitalized))
-                        .foregroundStyle(Theme.stroke(k))
-                        .cornerRadius(4)
-                        .annotation(position: .trailing) { Text("\(n)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
-                }
-                .chartXAxis(.hidden)
-                .frame(height: CGFloat(rows.count) * 30 + 10)
-            }
-        }
+        let total = e.reduce(into: StrokeBreakdown()) { acc, x in if let b = x.row.breakdown { acc.merge(b) } }
+        if total.total > 0 { StrokeBreakdownCard(breakdown: total) }
     }
 
     private func heartChart(_ e: [Entry]) -> some View {
