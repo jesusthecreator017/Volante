@@ -185,7 +185,7 @@ struct SwingDetailBody: View {
     private var facts: some View {
         Card("Racquet", systemImage: "figure.badminton") {
             VStack(spacing: 8) {
-                if let side = swing.side { LabeledContent("Side (from rotation)", value: side.capitalized) }
+                if let side = swing.side { LabeledContent("Side", value: side.capitalized) }
                 if let o = swing.overhead { LabeledContent("Height", value: o ? "Overhead" : "Below the shoulder") }
                 if let tilt = swing.handleTiltDeg { LabeledContent("Handle tilt", value: String(format: "%.0f°", tilt)) }
                 if let face = swing.faceAngleDeg { LabeledContent("Face angle", value: String(format: "%.0f°", face)) }

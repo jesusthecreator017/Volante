@@ -128,5 +128,5 @@ The side head is shared (same labels, features and seed for both models) and liv
 swings is >= 0.80 (group) / >= 0.50 (10-stroke), keeping >= 5 % coverage. Group: **0.696, coverage 94 %, accuracy 80.1 %** (the
 model is rarely unsure, so this mostly marks the weakest 6 %). 10-stroke: **target not reachable** (confidence does not predict
 correctness; accuracy is 22-25 % at every threshold), fallback = best accuracy keeping >= 20 % coverage: **0.968, coverage 27 %,
-accuracy 27 %**. Hence the app labels it "Beta guess" and "often wrong". The side head is near chance (see above); the app shows it only
-when p > 0.6. Swings whose window leaves the recording or spans a gap > 10 ms are Unclassified.
+accuracy 27 %**. Hence the app labels it "Beta guess" and "often wrong". The side head is near chance (see above); the app does not show it
+(no model FH/BH chip, split or share-card entry) until it beats chance; OsoKit parses it for parity tests only. The swing detail keeps its rotation-based Side row. Swings whose window leaves the recording or spans a gap > 10 ms are Unclassified.

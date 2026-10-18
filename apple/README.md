@@ -86,7 +86,7 @@ refresh token goes to the Pi, and every Google Health API call runs on the Pi af
 
 ## Stroke models (experimental)
 OsoKit runs two gradient-boosted tree models on the phone, pure Swift (`StrokeWindow` -> `StrokeFeatures` -> `TreeEnsemble` ->
-`StrokeClassifier`): the power/mid/touch group (plus a FH/BH head) and a 10-stroke "beta" guess, both on the 24 orientation-free
+`StrokeClassifier`): the power/mid/touch group (its FH/BH head is parsed but not shown: near chance) and a 10-stroke "beta" guess, both on the 24 orientation-free
 features. Racquet sessions only; results are cached per session in `strokes.json` and recomputed when the model version changes.
 The models are `OsoKit/Sources/OsoKit/Resources/*.trees.json`, copies of `models/strokes/`. To update them:
 `tools/.venv/bin/python tools/strokes/export_trees.py` (or `train.py --final`), then `apple/scripts/sync-models.sh`, then commit both.

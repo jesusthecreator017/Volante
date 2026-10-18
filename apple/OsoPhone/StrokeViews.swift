@@ -4,17 +4,17 @@
 import OsoKit
 import SwiftUI
 
-/// "Power · FH", or "Unclassified" when the group model is unsure.
+/// "Power", or "Unclassified" when the group model is unsure.
 struct StrokeChip: View {
     let result: StrokeResult
 
     static func text(_ r: StrokeResult) -> String {
-        r.group == .unclassified ? "Unclassified" : r.group.title + (r.side.map { " · " + $0.rawValue } ?? "")
+        r.group == .unclassified ? "Unclassified" : r.group.title
     }
 
     static func spoken(_ r: StrokeResult) -> String {
         guard r.group != .unclassified else { return "Stroke group unclassified" }
-        return "Stroke group \(r.group.title)" + (r.side.map { $0 == .fh ? ", forehand" : ", backhand" } ?? "") + ", experimental"
+        return "Stroke group \(r.group.title), experimental"
     }
 
     var body: some View {
@@ -62,7 +62,7 @@ enum StrokeCopy {
     static let groups = "Stroke groups sort a swing by effort: power (smash, clear), mid (drive, drop, lift, net kill, long serve) or touch (net shot, push, short serve). The model was trained on one player's drill session, so treat it as a rough guide."
 }
 
-/// Counts and typical speed per group, the FH/BH split and a collapsed list of the 10-stroke guesses. Racquet sessions only.
+/// Counts and typical speed per group, and a collapsed list of the 10-stroke guesses. Racquet sessions only.
 struct StrokeBreakdownCard: View {
     let breakdown: StrokeBreakdown
     var title = "Stroke groups (experimental)"
@@ -94,9 +94,6 @@ struct StrokeBreakdownCard: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("\(g.title), \(st.count) swings" + (st.meanSpeed.map { String(format: ", average %.1f metres per second", $0) } ?? ""))
                     }
-                }
-                if breakdown.fh + breakdown.bh > 0 {
-                    LabeledContent("Forehand / backhand", value: "\(breakdown.fh) / \(breakdown.bh)").font(.subheadline)
                 }
                 if !breakdown.topGuesses.isEmpty {
                     DisclosureGroup(isExpanded: $betaOpen) {

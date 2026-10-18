@@ -67,11 +67,11 @@ struct DebugInsightsRender: ViewModifier {
         write("swing-low-confidence", screen(SwingDetailBody(analysis: a, swing: low, position: low.index - 1, count: a.swings.count, stroke: st?[safe: low.index - 1]), dark: false, type: .large), scale: 2)
     }
     // A made-up result so the beta line and the unclassified state are drawn too (the sample's own results rarely pass the thresholds)
-    let beta = StrokeResult(group: .power, groupConfidence: 0.9, stroke: "smash", strokeConfidence: 0.62, side: .fh)
+    let beta = StrokeResult(group: .power, groupConfidence: 0.9, stroke: "smash", strokeConfidence: 0.62)
     write("swing-beta", screen(SwingDetailBody(analysis: a, swing: s, position: s.index - 1, count: a.swings.count, stroke: beta), dark: false, type: .large), scale: 2)
     write("swing-beta-dark", screen(SwingDetailBody(analysis: a, swing: s, position: s.index - 1, count: a.swings.count, stroke: beta), dark: true, type: .large), scale: 2)
     write("swing-unclassified", screen(SwingDetailBody(analysis: a, swing: s, position: s.index - 1, count: a.swings.count, stroke: .unclassified), dark: false, type: .large), scale: 2)
-    let mock = [beta, StrokeResult(group: .touch, groupConfidence: 0.8, stroke: "net_shot", strokeConfidence: 0.55, side: .bh), .unclassified, beta]
+    let mock = [beta, StrokeResult(group: .touch, groupConfidence: 0.8, stroke: "net_shot", strokeConfidence: 0.55), .unclassified, beta]
     write("breakdown-beta", screen(StrokeBreakdownCard(breakdown: StrokeBreakdown(swings: Array(a.swings.prefix(4)), results: mock)), dark: false, type: .large), scale: 2)
     write("swing-list-beta", screen(Card("Swings", systemImage: "figure.badminton") {
         ForEach(Array(a.swings.prefix(4))) { sw in SwingRow(swing: sw, result: mock[sw.index - 1]); Divider() }

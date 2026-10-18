@@ -142,7 +142,7 @@ func close(_ a: Double, _ b: Double, abs aTol: Double, rel: Double) -> Bool { Sw
         #expect(b.total == r.count && b.groups.values.reduce(0) { $0 + $1.count } == r.count)
         var m = b
         m.merge(b)
-        #expect(m.total == 2 * b.total && m.fh == 2 * b.fh)
+        #expect(m.total == 2 * b.total)
     }
 }
 
@@ -153,16 +153,15 @@ func close(_ a: Double, _ b: Double, abs aTol: Double, rel: Double) -> Bool { Sw
         return s
     }
 
-    @Test func countsGroupsSidesAndGuesses() {
+    @Test func countsGroupsAndGuesses() {
         let r = [
-            StrokeResult(group: .power, groupConfidence: 0.9, stroke: "smash", strokeConfidence: 0.9, side: .fh),
-            StrokeResult(group: .power, groupConfidence: 0.8, stroke: "smash", strokeConfidence: 0.9, side: .bh),
-            StrokeResult(group: .touch, groupConfidence: 0.8, stroke: "net_shot", strokeConfidence: 0.9, side: nil),
+            StrokeResult(group: .power, groupConfidence: 0.9, stroke: "smash", strokeConfidence: 0.9),
+            StrokeResult(group: .power, groupConfidence: 0.8, stroke: "smash", strokeConfidence: 0.9),
+            StrokeResult(group: .touch, groupConfidence: 0.8, stroke: "net_shot", strokeConfidence: 0.9),
             .unclassified,
         ]
         let b = StrokeBreakdown(swings: [swing(1, 20), swing(2, 10), swing(3, 4), swing(4, 6)], results: r)
         #expect(b.total == 4 && b.stat(.power).count == 2 && b.stat(.power).meanSpeed == 15 && b.stat(.unclassified).count == 1)
-        #expect(b.fh == 1 && b.bh == 1)
         #expect(b.topGuesses.map(\.stroke) == ["smash", "net_shot"] && b.topGuesses[0].count == 2)
         #expect(b.rows.map(\.group) == [.power, .touch, .unclassified])
         let again = try? JSONDecoder().decode(StrokeBreakdown.self, from: JSONEncoder().encode(b))
