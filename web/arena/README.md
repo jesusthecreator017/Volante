@@ -54,6 +54,13 @@ and skeleton lines by model, so A keeps its colour across a change of ends, and 
 stay by court slot and the readout says "P1 ... P2". The in-scene scoreboard is by model rather than by court side: it never swaps
 owners at a change of ends, and it matches the colours of the page header.
 
+## Camera
+
+Presets only: the Baseline / Side / Top buttons (or keys 1-3 with the canvas focused; 4-5 are the calibrated views in the Replay viewer
+when the replay has them). There is no free camera: the canvas ignores drag, wheel and touch, so the page scrolls normally over it.
+Switching glides for 0.4 s; with `prefers-reduced-motion` it jumps (`oso_set_reduced_motion(bool)`, wired by the timeline).
+The active preset is `oso_status().preset` and `aria-pressed` on its button.
+
 ## Drag and drop
 
 Dropping a file anywhere loads it; nothing is uploaded. Before the replay is handed to wasm, the drop wins and aborts

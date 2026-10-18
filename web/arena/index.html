@@ -28,9 +28,11 @@
           <option value="1.5">1.5x</option><option value="2">2x</option>
         </select>
       </label>
-      <button type="button" data-preset="1">Baseline</button>
-      <button type="button" data-preset="2">Side</button>
-      <button type="button" data-preset="3">Top</button>
+      <span class="presets" role="group" aria-label="Camera">
+        <button type="button" data-preset="1" aria-pressed="true">Baseline</button>
+        <button type="button" data-preset="2" aria-pressed="false">Side</button>
+        <button type="button" data-preset="3" aria-pressed="false">Top</button>
+      </span>
     </div>
   </section>
   <div id="overlay">

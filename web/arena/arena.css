@@ -74,6 +74,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--viewer
 }
 #timeline button:active { transform: scale(0.97); }
 #timeline button#play { background: var(--btn); border-color: var(--btn); color: var(--btn-text); }
+.presets { display: contents; }
+#timeline button[data-preset] { min-height: 44px; min-width: 44px; }
+#timeline button[aria-pressed="true"] { background: var(--btn); border-color: var(--btn); color: var(--btn-text); }
 #timeline :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 #readout { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -125,6 +128,7 @@ body.dragging::after {
   #scrub { margin: 0 0 2px; }
   .row { gap: 4px 6px; justify-content: space-between; }
   #timeline button, #timeline select { min-height: 30px; min-width: 30px; padding: 2px 10px; flex: none; }
+  #timeline button[data-preset] { min-height: 44px; min-width: 44px; }
   #timeline label, #readout { flex: none; }
   #readout { margin-right: auto; }
   #timeline .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

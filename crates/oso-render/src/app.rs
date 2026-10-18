@@ -165,7 +165,10 @@ impl ApplicationHandler<State> for App {
             let document = window.document().unwrap_throw();
             let canvas = document.get_element_by_id(CANVAS_ID).unwrap_throw();
             let html_canvas_element = canvas.unchecked_into();
-            window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
+            // Presets only: the canvas takes no pointer/wheel input, so let the browser scroll the page over it
+            window_attributes = window_attributes
+                .with_canvas(Some(html_canvas_element))
+                .with_prevent_default(false);
         }
 
         // Screenshot mode: hidden window at the requested size
@@ -268,28 +271,7 @@ impl ApplicationHandler<State> for App {
                     },
                 ..
             } => state.handle_key(event_loop, code, key_state.is_pressed(), repeat),
-            WindowEvent::MouseInput {
-                button,
-                state: button_state,
-                ..
-            } => state.handle_mouse_button(button, button_state.is_pressed()),
-            WindowEvent::Focused(false) => state.handle_focus_lost(),
-            WindowEvent::MouseWheel { delta, .. } => state.handle_scroll(&delta),
             _ => {}
-        }
-    }
-
-    // Raw mouse motion: keeps working at the window edge, unlike CursorMoved
-    fn device_event(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        _device_id: DeviceId,
-        event: DeviceEvent,
-    ) {
-        if let (Some(state), DeviceEvent::MouseMotion { delta: (dx, dy) }) =
-            (&mut self.state, event)
-        {
-            state.handle_mouse_motion(dx, dy);
         }
     }
 }

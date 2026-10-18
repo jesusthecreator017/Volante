@@ -22,9 +22,15 @@ export function setupTimeline(oso) {
     oso.oso_set_speed(parseFloat(e.target.value));
     canvas.focus();
   });
-  for (const b of bar.querySelectorAll("[data-preset]")) {
+  const presets = [...bar.querySelectorAll("[data-preset]")];
+  for (const b of presets) {
     b.addEventListener("click", () => oso.oso_preset(Number(b.dataset.preset)));
   }
+  // Presets glide unless the user asked for reduced motion
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  oso.oso_set_reduced_motion(reduced.matches);
+  reduced.addEventListener("change", (e) => oso.oso_set_reduced_motion(e.matches));
+  let shown = 0;
   const endDrag = () => {
     if (!drag.on) return;
     drag.on = false;
@@ -54,6 +60,10 @@ export function setupTimeline(oso) {
           if (players) labels = ["A", "B"];
         }
         playing = s.playing;
+        if (s.preset !== shown) {
+          shown = s.preset;
+          for (const b of presets) b.setAttribute("aria-pressed", String(Number(b.dataset.preset) === shown));
+        }
         if (!drag.on) scrub.value = s.time;
         const sc = oso.oso_score(s.time);
         const text = `${sc.length ? `${labels[0]} ${sc[0]} – ${sc[1]} ${labels[1]}` : "no score data"}   ${clock(s.time)} / ${clock(s.duration)}`;
