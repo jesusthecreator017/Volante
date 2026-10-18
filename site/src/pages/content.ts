@@ -71,6 +71,15 @@ export function getStarted(root: HTMLElement) {
       h("strong", null, "oso-arena-coach"),
       " skill to train toward a style.",
     ),
+    h("h3", null, "Optional: make your twin"),
+    h(
+      "p",
+      null,
+      "Have a Volante pod? Turn your sessions into a style profile and train a model that plays like you. It goes on the ",
+      link("/arena/twins", "Twins ladder"),
+      " once it proves it does:",
+    ),
+    code("oso-rec profile <session folder> -o my_style.json\noso-arena train --style my_style.json --minutes 60 --out runs/twin\noso-arena export runs/twin/best -o mytwin.safetensors --name \"My Twin\" --style my_style.json"),
     h("h2", null, "5. Upload"),
     h(
       "ul",
@@ -106,6 +115,7 @@ export function terms(root: HTMLElement) {
       h("li", null, "One account per person."),
       h("li", null, "Matches can be voided, and models removed, for exploiting simulator bugs."),
       h("li", null, "You can delete your account at any time from the account menu."),
+      h("li", null, "A twin's style profile is self-reported. A twin that stops playing like its profile is moved back to the open ladder."),
     ),
     h("p", { class: "muted small" }, "Draft text: the final terms (and the kit's licence) are set by the project owner."),
   );
@@ -116,6 +126,9 @@ export function privacy(root: HTMLElement) {
     h("h1", null, "Privacy"),
     h("p", null, "We store only your GitHub user id, login and avatar URL, plus the models you upload and the matches they play."),
     h("p", null, "Sign-in uses a session cookie. There are no trackers or third-party analytics on this site."),
+    h("h2", null, "Volante Twins"),
+    h("p", null, "Your raw pod sessions stay on your computer or phone. Only the style profile (a few numbers: speeds, tempo, counts) is uploaded, inside the model file."),
+    h("p", null, "The profile contains no name, no pod ID and no timestamps except its creation time. It is shown publicly on the model's page. Deleting the model or your account deletes it."),
     h("p", null, "Delete your account any time from the account menu: your account is removed."),
     h("p", { class: "muted small" }, "Draft text, set by the project owner."),
   );

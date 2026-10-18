@@ -40,6 +40,25 @@ export interface Build {
 export type Owner = User | { house: true };
 export type ModelStatus = "pending" | "active" | "rejected" | "retired" | "hidden";
 
+/** Volante Twins (arena/handoff/PROMPT.md section 14, docs/twins-site.md). The profile is self-reported: shown as given. */
+export interface StyleProfile {
+  schema: "volante-style/1";
+  created_at: string;
+  source: { sessions: number; swings: number; minutes: number; pod_fw: string; tool: string };
+  speed: { p50_kmh: number; p90_kmh: number; cv: number; clipped_frac: number };
+  tempo: { median_gap_s: number; p25_gap_s: number; p75_gap_s: number };
+  stroke_mix: Record<string, number> | null;
+  side_mix: { fh: number; bh: number } | null;
+  notes?: string | null;
+}
+
+export interface Twin {
+  profile: StyleProfile;
+  fidelity: { ok: boolean; tempo_ratio: number | null; mix_js: number | null; checked_at: string | null; reasons?: string[] };
+}
+
+export type LadderName = "open" | "twins";
+
 export interface ModelSummary {
   id: number;
   name: string;
@@ -48,6 +67,10 @@ export interface ModelSummary {
   status: ModelStatus;
   rating: number | null;
   games: number;
+  /** absent on servers older than section 14: treat as "open" */
+  ladder?: LadderName;
+  /** absent on older servers, null for a model without a style profile */
+  twin?: Twin | null;
 }
 
 export interface ModelDetail extends ModelSummary {
@@ -71,6 +94,7 @@ export interface LadderItem {
 
 export interface Ladder {
   season: Season;
+  ladder?: LadderName;
   total: number;
   items: LadderItem[];
 }
@@ -130,6 +154,7 @@ export interface Tournament {
   season_id: number;
   starts_at: string;
   status: "scheduled" | "running" | "done";
+  ladder?: LadderName;
   /** rounds[0] = quarterfinals */
   rounds: Tie[][];
 }

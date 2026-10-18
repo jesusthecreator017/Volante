@@ -23,6 +23,7 @@ const NAV: [string, string][] = [
 const ARENA_NAV: [string, string][] = [
   ["/arena", "Home"],
   ["/arena/ladder", "Ladder"],
+  ["/arena/twins", "Twins"],
   ["/arena/tournaments", "Tournaments"],
   ["/arena/my-models", "My models"],
   ["/arena/get-started", "Get started"],

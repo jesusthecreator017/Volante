@@ -80,6 +80,7 @@ describe("routes", () => {
       "/privacy": "Privacy",
       "/arena": "Arena",
       "/arena/ladder": "Ladder · Arena",
+      "/arena/twins": "Twins · Arena",
       "/arena/models/7": "Model · Arena",
       "/arena/matches/905": "Match · Arena",
       "/arena/tournaments": "Tournaments · Arena",
