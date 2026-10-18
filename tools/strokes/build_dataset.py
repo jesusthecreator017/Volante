@@ -4,7 +4,8 @@ outputs, so a rebuild (after a new session, a review label or a withdrawal) is s
 
     tools/.venv/bin/python tools/strokes/build_dataset.py [--root ~/Datasets/oso-strokes] [--version 1]
 
-Reads   ROOT/raw/<session_id>/{session.json, imu.bin | imu.partN.bin}, ROOT/labels/<session_id>.csv (review/video labels)
+Reads   ROOT/raw/<session_id>/{session.json, imu.bin | imu.partN.bin}, ROOT/labels/<session_id>.csv (review/video labels),
+        ROOT/meta/sessions.json (optional per-session overrides, e.g. {"<session_id>": {"context": "rally"}}; raw/ stays read-only)
 Writes  ROOT/processed/swings_v<N>.npz, ROOT/processed/qc_v<N>.html, ROOT/manifest.json
 
 The dataset never lives in the repo (the script refuses a root inside it). Only pseudonymous player IDs are read."""
@@ -50,6 +51,22 @@ def load_session(d):
         raise ValueError(f"{d.name}: player id {pid!r} is not a pseudonymous ID")
     parts = s.get("parts") or [{"index": 1, "file": "imu.bin"}]  # schema /1: one imu.bin
     return s, [(int(p["index"]), d / p["file"]) for p in parts]
+
+
+CONTEXTS = ("drill", "rally")
+
+
+def load_overrides(root):
+    p = root / "meta" / "sessions.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
+def context_of(session_id, session, overrides):
+    """'drill' (clean sets) or 'rally' (play with a partner; block labels approximate). meta/sessions.json > session.json > drill."""
+    c = overrides.get(session_id, {}).get("context") or session.get("context") or "drill"
+    if c not in CONTEXTS:
+        raise ValueError(f"{session_id}: context {c!r} is not one of {CONTEXTS}")
+    return c
 
 
 def thresholds(session):
@@ -159,12 +176,14 @@ def build(root, version=1, out_dir=None):
         raise SystemExit(f"refusing to build a dataset inside the repo ({root}): the data lives outside it (spec 5)")
     raw = root / "raw"
     sessions_meta, swings, players = [], [], {}
+    overrides = load_overrides(root)
     for d in sorted(p for p in raw.iterdir() if p.is_dir()) if raw.is_dir() else []:
         session, parts = load_session(d)
         labels = load_labels(root, d.name)
         player = session["player"]
         players[player["id"]] = player.get("handed") or ""
-        meta = dict(id=d.name, player=player["id"], handed=player.get("handed"), level=player.get("level"),
+        context = context_of(d.name, session, overrides)
+        meta = dict(id=d.name, context=context, player=player["id"], handed=player.get("handed"), level=player.get("level"),
                     protocol=f"{session['protocol']['name']}/{session['protocol']['version']}", parts=[])
         for index, path in parts:
             rec = read_imu(path)
@@ -173,7 +192,7 @@ def build(root, version=1, out_dir=None):
             if not q["ok"]:
                 continue
             for sw in part_swings(d.name, session, index, rec, labels):
-                sw["player"], sw["handed"] = player["id"], player.get("handed") or ""
+                sw["player"], sw["handed"], sw["context"] = player["id"], player.get("handed") or "", context
                 swings.append(sw)
         sessions_meta.append(meta)
 
@@ -216,7 +235,7 @@ def arrays_of(swings):
     return {
         "x": np.stack([s["x"] for s in swings]).astype(np.float32) if n else np.zeros((0, F.WINDOW_N, len(F.CHANNELS)), np.float32),
         "feat": np.stack([s["feat"] for s in swings]).astype(np.float32) if n else np.zeros((0, 8), np.float32),
-        "swing_id": u("swing_id"), "session": u("session"), "player": u("player"), "handed": u("handed"),
+        "swing_id": u("swing_id"), "session": u("session"), "player": u("player"), "handed": u("handed"), "context": u("context"),
         "part": np.array([s["part"] for s in swings], np.int16), "t_peak_us": np.array([s["t_peak_us"] for s in swings], np.int64),
         "block": np.array([s["block"] for s in swings], np.int16),
         "label": u("label"), "class_id": np.array([cid.get(s["label"], -1) for s in swings], np.int8),

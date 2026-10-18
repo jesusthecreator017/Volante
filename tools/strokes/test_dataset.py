@@ -260,6 +260,23 @@ def test_rebuild_is_byte_identical():
     assert first == again
 
 
+def test_session_context_default_session_json_and_meta_override():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = standard_root(tmp)
+        m = B.build(root)
+        assert {s["context"] for s in m["sessions"]} == {"drill"}
+        sj = root / "raw" / "S001" / "session.json"
+        j = json.loads(sj.read_text())
+        j["context"] = "rally"
+        sj.write_text(json.dumps(j))
+        assert {s["id"]: s["context"] for s in B.build(root)["sessions"]}["S001"] == "rally"
+        (root / "meta").mkdir()
+        (root / "meta" / "sessions.json").write_text(json.dumps({"S001": {"context": "drill"}, "S002": {"context": "rally"}}))
+        B.build(root)
+        z = B.load(root / "processed" / "swings_v1.npz")
+        assert {(s, c) for s, c in zip(z["session"], z["context"])} == {("S001", "drill"), ("S002", "rally")}
+
+
 def test_refuses_a_root_inside_the_repo():
     try:
         B.build(B.REPO / "out" / "never")

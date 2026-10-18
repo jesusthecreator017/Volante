@@ -148,7 +148,7 @@ jobs:
           . tools/.venv/bin/activate
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy safetensors scipy "opencv-python-headless>=4,<5" build "setuptools>=77" scikit-learn joblib
+          pip install numpy safetensors scipy "opencv-python-headless>=4,<5" build "setuptools>=77" scikit-learn joblib onnx==1.23.2 skl2onnx==1.20.0 onnxruntime
       # The tests `cargo run --release` the CLIs; build them up front so test timings stay readable
       - run: cargo build --release -p oso-replay -p oso-arena --bins
       # A few tests hash float rollouts against goldens recorded on macOS arm64; the script tolerates exactly those (with a warning)
@@ -163,6 +163,7 @@ jobs:
           python tools/strokes/test_collect_tools.py # also fails if session data or video is tracked
           python tools/strokes/test_dataset.py # Phase 16.2 dataset pipeline (synthetic sessions)
           python tools/strokes/test_review.py # Phase 16.4a label policy and review server
+          python tools/strokes/test_train.py # Phase 16.4a features, augmentation, tiny GBM + CNN, ONNX parity
 
   site:
     name: site (vitest, build)

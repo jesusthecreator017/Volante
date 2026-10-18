@@ -16,5 +16,8 @@ joblib
 threadpoolctl
 cloudpickle
 narwhals
+# Phase 16.4 (stroke model export only; training also needs torch, see below): ONNX writer and the sklearn -> ONNX converter
+onnx==1.23.2
+skl2onnx==1.20.0
 # Phase 13 (badminton self-play, arena/kit/oso_arena): torch is NOT in the --no-deps command above (it needs its own dependencies); install it
 # separately with:  pip install torch   (numpy >= 2 is already pinned; torch does not touch opencv)

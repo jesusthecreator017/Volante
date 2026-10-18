@@ -1,0 +1,131 @@
+{
+  "version": "v0",
+  "created": "2026-10-17",
+  "candidate": "b",
+  "architecture": "1D-CNN, 4 strided conv blocks, mean+max pool, class and side heads, mount-rotation augmentation +-10 deg",
+  "n_params": 46941,
+  "classes": [
+    "not_a_hit",
+    "serve_short",
+    "serve_long",
+    "clear",
+    "smash",
+    "drop",
+    "drive",
+    "lift",
+    "net_shot",
+    "block_push",
+    "net_kill"
+  ],
+  "sides": [
+    "FH",
+    "BH"
+  ],
+  "sideless_classes": [
+    "not_a_hit"
+  ],
+  "output_class_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "output_class_note": "probabilities has one column per id in output_class_ids (classes absent from training are not modelled)",
+  "status": "experimental: do not use in reports (one drill session, 1-2 blocks per class)",
+  "window": {
+    "pre_s": 0.6,
+    "post_s": 0.4,
+    "rate_hz": 500,
+    "n": 500,
+    "centre": "gyro |w| peak at index 300"
+  },
+  "channels": [
+    "ax_g",
+    "ay_g",
+    "az_g",
+    "wx_dps",
+    "wy_dps",
+    "wz_dps",
+    "w_dps",
+    "a_g",
+    "sat_gyro",
+    "sat_acc"
+  ],
+  "input": {
+    "name": "window",
+    "shape": [
+      "batch",
+      500,
+      10
+    ],
+    "dtype": "float32",
+    "note": "raw window from features.window(): units g, dps, flags"
+  },
+  "outputs": {
+    "probabilities": "[batch, 11] softmax over output_class_ids",
+    "side_probabilities": "[batch, 2] FH, BH (ignore for not_a_hit)"
+  },
+  "preprocessing": {
+    "normalisation": "applied inside the ONNX graph: (x - mean) / std per channel",
+    "mean": [
+      -0.6526907086372375,
+      0.5747014284133911,
+      -0.35170671343803406,
+      22.965707778930664,
+      -12.137369155883789,
+      -34.86922836303711,
+      339.96539306640625,
+      2.8243227005004883,
+      0.0,
+      0.0
+    ],
+    "std": [
+      2.457644462585449,
+      3.019279956817627,
+      2.7818334102630615,
+      408.1501770019531,
+      301.5830078125,
+      346.02520751953125,
+      513.4512329101562,
+      3.974797010421753,
+      1.0,
+      1.0
+    ],
+    "note": "saturation channels have mean 0, std 1 (raw)"
+  },
+  "mount_convention": "racquet frame: +Y shaft toward the tip, +Z string-face normal, +X = Y x Z; acc in g, gyro in dps",
+  "uncertainty_threshold": 0.9897,
+  "uncertainty_rule": "max class probability < threshold -> report 'unclassified'",
+  "threshold_met_targets": false,
+  "threshold_coverage": 0.20170454545454544,
+  "threshold_accuracy": 0.4507042253521127,
+  "training_data_sha256": "5a5fbe7a7e9f7d18af74c740fae4df5a08fb23a3c18db45ffb6ca4601c0c0e3e",
+  "training_context": "drill",
+  "n_swings": 352,
+  "players": [
+    "P01"
+  ],
+  "sessions": [
+    "20261017-220845-P01"
+  ],
+  "seed": 0,
+  "metrics": {
+    "eval": "WITHIN-SESSION grouped 5-fold over drill blocks (a block never split): optimistic, not a generalisation estimate",
+    "mean_macro_f1": 0.23260172669074022,
+    "mean_accuracy": 0.250355638102117,
+    "mean_side_accuracy": 0.5399187013975746,
+    "mean_not_a_hit_precision": null
+  },
+  "parity": {
+    "max_abs_class": 4.76837158203125e-07,
+    "max_abs_side": 2.980232238769531e-07,
+    "n": 352
+  }
+}

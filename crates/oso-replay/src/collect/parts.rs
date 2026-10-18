@@ -123,6 +123,8 @@ mod tests {
             protocol: ProtocolRef { name: "drills-v1".into(), version: 1, seed: 77 },
             pod: Pod { mac: "m".into(), fw: "1.0".into() },
             mount: MountAxes { shaft: [0.0, 1.0, 0.0], normal: [0.0, 0.0, 1.0] },
+            mount_calibrated_at: None,
+            context: Default::default(),
             started_at: "2026-10-17T14:03:22Z".into(),
             parts: (1..=parts).map(|i| PartRec { index: i, file: part_file(i), packets: 1, t_first_us: 0, t_last_us: 1 }).collect(),
             open_part: open,
