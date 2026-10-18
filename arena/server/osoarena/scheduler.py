@@ -16,12 +16,25 @@ def tick(con):
         tournament.ensure_scheduled(con)
         tournament.recheck_twins(con)
         tournament.advance(con)
+        demo_tournament(con)
         ladder.queue_fidelity(con)  # first fidelity check of candidates that reached their 10 matches
     with db.tx(con):
         made = ladder.pair(con)
     replays.evict(con)
     housekeeping(con)
     return made
+
+
+def demo_tournament(con):
+    """Right after the demo players are seeded: the first tournament starts as soon as 8 models have their qualifying games,
+    instead of waiting for the weekly slot."""
+    if db.get_meta(con, "demo_tournament_pending") != "1":
+        return
+    season = db.active_season(con)
+    if len(tournament.entrants(con, season["id"])) >= config.get().tournament_size:
+        t = tournament.run_now(con)
+        db.set_meta(con, "demo_tournament_pending", "0")
+        print(f"demo tournament {t['id']}: {t['status']}", flush=True)
 
 
 def housekeeping(con):

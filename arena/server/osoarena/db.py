@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS bans (github_id INTEGER PRIMARY KEY, t TEXT NOT NULL,
 CREATE TABLE IF NOT EXISTS sessions (
   hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), csrf TEXT NOT NULL,
   created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS play_sessions (  -- badminton sessions from the app, owned by the signed-in GitHub account
+  id TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id),
+  started_at TEXT NOT NULL, sensor TEXT NOT NULL,  -- 'pod', 'watch' or 'pod+watch'
+  duration_s REAL NOT NULL, swings INTEGER NOT NULL, hits INTEGER NOT NULL,
+  best_kmh REAL, avg_bpm REAL,
+  report TEXT,                         -- the volante-report/1 JSON (docs/strokes/report-format.md), at most 256 KB
+  uploaded_at TEXT NOT NULL, PRIMARY KEY (user_id, id));
 CREATE TABLE IF NOT EXISTS models (
   id INTEGER PRIMARY KEY, season_id INTEGER NOT NULL REFERENCES seasons(id),
   user_id INTEGER REFERENCES users(id),  -- NULL for house players
@@ -146,6 +153,7 @@ def init(con):
                     (DELETED_USER["login"], DELETED_USER["avatar_url"], now()))
         sid = active_season(con)["id"]
         ensure_house(con, sid)
+        ensure_demo(con, sid)
 
 
 def ensure_house(con, season_id):
@@ -159,6 +167,46 @@ def ensure_house(con, season_id):
         con.execute("INSERT INTO models (season_id, house, sha256, name, description, build, status, rating, created_at) "
                     "VALUES (?, 'base', ?, 'House Base', 'The base model.', ?, 'active', 1200, ?)",
                     (season_id, base["sha256"], json.dumps(PLACEHOLDER_BUILD), now()))
+
+
+DEMO_USER_BASE = 9_000_000_000  # above any GitHub user id
+
+
+def ensure_demo(con, season_id):
+    """Demo players (server/demo/*.safetensors, exported with the kit from checkpoints trained on our recorded sessions) so a new
+    Arena has a field for its first tournament. Once per season; OSO_ARENA_DEMO_PLAYERS=0 turns it off. They play real matches."""
+    import hashlib
+    import os
+    import shutil
+    from pathlib import Path
+    from oso_arena import contract
+    if os.environ.get("OSO_ARENA_DEMO_PLAYERS", "1") == "0" or get_meta(con, f"demo_seeded_{season_id}"):
+        return
+    demo = Path(__file__).resolve().parent.parent / "demo"
+    models_dir = config.get().models_dir
+    for i, f in enumerate(sorted(demo.glob("*.safetensors")), start=1):
+        data = f.read_bytes()
+        try:
+            _, meta, _ = contract.parse_header(data)
+            reasons, name, desc, build = contract.check_meta(meta)
+        except Exception as e:  # noqa: BLE001 -- a bad demo file is skipped, never fatal
+            print(f"demo {f.name} skipped: {e}", flush=True)
+            continue
+        if reasons:
+            print(f"demo {f.name} skipped: {reasons}", flush=True)
+            continue
+        sha = hashlib.sha256(data).hexdigest()
+        models_dir.mkdir(parents=True, exist_ok=True)
+        dest = models_dir / f"{sha}.safetensors"
+        if not dest.exists():
+            shutil.copyfile(f, dest)
+        uid = DEMO_USER_BASE + i
+        con.execute("INSERT OR IGNORE INTO users (id, login, avatar_url, created_at) VALUES (?, ?, '', ?)", (uid, f.stem, now()))
+        if not con.execute("SELECT 1 FROM models WHERE season_id=? AND user_id=? AND status='active'", (season_id, uid)).fetchone():
+            con.execute("INSERT INTO models (season_id, user_id, sha256, name, description, build, status, rating, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, 'active', 1200, ?)", (season_id, uid, sha, name, desc, json.dumps(build), now()))
+    set_meta(con, f"demo_seeded_{season_id}", now())
+    set_meta(con, "demo_tournament_pending", "1")
 
 
 def base_model_info():

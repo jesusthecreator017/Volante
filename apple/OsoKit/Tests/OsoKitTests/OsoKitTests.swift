@@ -243,3 +243,17 @@ func sampleBytes() -> [UInt8] {
         #expect(t.request(at: 5.1) == 0)
     }
 }
+
+@Suite struct DualSensorTests {
+    @Test func matchesSwingsSeenByBothSensors() {
+        // pod swings at 1, 3, 5 s; the wrist saw 1.05 and 5.1 (3 s was a racquet bounce) plus an arm move at 8 s
+        let m = DualSensorMatch.match(pod: [1, 3, 5], wrist: [1.05, 5.1, 8])
+        #expect(m.pairs.map(\.pod) == [0, 2] && m.pairs.map(\.wrist) == [0, 1])
+        #expect(m.podOnly == [1] && m.wristOnly == [2])
+        #expect(abs(m.confirmedShare! - 2.0 / 3) < 1e-9)
+    }
+    @Test func eachWristSwingPairsOnce() {
+        let m = DualSensorMatch.match(pod: [1, 1.1], wrist: [1.05])
+        #expect(m.pairs.count == 1 && m.podOnly.count == 1)
+    }
+}

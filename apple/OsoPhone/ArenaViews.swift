@@ -31,11 +31,9 @@ struct ArenaView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("AI badminton players, trained with the free kit, play ranked matches around the clock. Open any match to watch it in 3D.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    HStack(spacing: 10) {
-                        Button { path.append(.myModels) } label: { Label("Train & upload", systemImage: "square.and.arrow.up") }.buttonStyle(.primary)
-                        Button { path.append(.tournaments) } label: { Label("Tournaments", systemImage: "trophy") }.buttonStyle(.secondary)
-                    }
+                    Button { path.append(.tournaments) } label: { Label("Tournaments", systemImage: "trophy") }.buttonStyle(.secondary)
                 }
+                ArenaAccountCard()
                 if let error { ArenaErrorRow(text: error) { Task { await load() } } }
                 if let m = mine { NavigationLink(value: ArenaRoute.model(m.id)) { YourModelCard(m: m) }.buttonStyle(.plain) }
                 if let t = featured { NavigationLink(value: ArenaRoute.tournament(t.id)) { TournamentCard(t: t) }.buttonStyle(.plain) }
@@ -803,5 +801,33 @@ struct CheckResult: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.canvas, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+
+/// Who the sessions belong to: every finished session goes to this GitHub account by itself (and shows on the website).
+struct ArenaAccountCard: View {
+    @Environment(ArenaClient.self) private var arena
+    @Environment(SessionStore.self) private var store
+    var body: some View {
+        Card("Your sessions on the Arena", systemImage: "icloud.and.arrow.up") {
+            if let u = arena.user {
+                Label("Signed in as @\(u.login)", systemImage: "person.crop.circle.fill").font(.subheadline.weight(.semibold))
+                let sent = arena.syncedCount
+                let total = store.sessions.filter { $0.source != .sample }.count
+                Text(sent >= total ? "All \(total) sessions are on your account. New ones go up when they finish." : "\(sent) of \(total) sessions sent; the rest go up when you're online.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Link(destination: URL(string: "/sessions", relativeTo: arena.base)!) { Label("See them on the website", systemImage: "safari") }
+                    .font(.subheadline.weight(.semibold))
+            } else {
+                Text("Sign in with GitHub and every session you finish goes to your account, viewable on the website.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Button { Task { await arena.signIn() } } label: {
+                    if arena.signingIn { ProgressView() } else { Label("Sign in with GitHub", systemImage: "person.crop.circle.badge.plus") }
+                }
+                .buttonStyle(.primary).disabled(arena.signingIn)
+            }
+        }
+        .task { await arena.syncSessions(store) }
     }
 }
