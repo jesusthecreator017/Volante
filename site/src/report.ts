@@ -3,7 +3,7 @@
 import { countUp } from "./anim";
 import { h, s } from "./dom";
 import { icon } from "./icons";
-import type { Report } from "./insights";
+import type { Insight, Report } from "./insights";
 
 function tile(value: number, unit: string, label: string, fmt?: (x: number) => string): HTMLElement {
   return h("div", { class: "stat" }, h("strong", null, countUp(h("span"), value, fmt), unit ? h("small", null, ` ${unit}`) : null), h("span", null, label));
@@ -59,11 +59,11 @@ function chart(r: Report): HTMLElement {
   return h("div", null, wrap, read);
 }
 
-export function insightList(r: Report): HTMLElement {
+export function insightList(items: Insight[]): HTMLElement {
   return h(
     "ul",
     { class: "insights" },
-    r.insights.map((x, i) =>
+    items.map((x, i) =>
       h("li", { class: `insight tone-${x.tone} reveal d${Math.min(i, 5)}` }, h("span", { class: "insight-ico" }, icon(x.icon)), h("div", null, h("h4", null, x.title), h("p", null, x.text))),
     ),
   );
@@ -86,6 +86,6 @@ export function sessionReport(r: Report, title: string, badge?: string): HTMLEle
     ),
     chart(r),
     h("h3", { class: "insights-h" }, icon("sparkle-fill"), "Insights"),
-    insightList(r),
+    insightList(r.insights),
   );
 }
