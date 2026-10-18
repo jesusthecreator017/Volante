@@ -56,9 +56,14 @@ export function setOnNavigate(f: (path: string) => void) {
   onNavigate = f;
 }
 
+/** #main's own classes; pages may add more (dashboard adds `dash`), reset on every render so they never leak. */
+const baseClass = new WeakMap<HTMLElement, string>();
+
 export async function render(root: HTMLElement) {
   if (typeof cleanup === "function") cleanup();
   cleanup = undefined;
+  if (!baseClass.has(root)) baseClass.set(root, root.className);
+  root.className = baseClass.get(root)!;
   root.replaceChildren();
   let url = new URL(location.href);
   const to = redirectFor(url.pathname);
