@@ -15,6 +15,7 @@ struct LiveSnapshot: Equatable {
     var lastSpeed: Double?
     var bestSpeed = 0.0
     var connected = true
+    var heartRate: Double?
 }
 
 @MainActor
@@ -51,7 +52,7 @@ final class LiveActivityController {
         if !s.connected { armGrace() } else { graceTask?.cancel(); graceTask = nil }
         if let a = activity, a.attributes.mode != mode { end(immediately: true) }   // mode is a static attribute
         if activity == nil { guard begin(mode: mode, snapshot: s) else { return } }
-        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected)
+        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected, heartRate: s.heartRate)
         guard state != latest else { return }
         latest = state
         schedule()
@@ -82,7 +83,7 @@ final class LiveActivityController {
         }
         start = Date()
         throttle.reset()
-        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected)
+        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected, heartRate: s.heartRate)
         do {
             activity = try Activity.request(
                 attributes: LiveSessionAttributes(podName: s.podName, mode: mode),
