@@ -2,6 +2,7 @@
 
 import { notFound, getStarted, privacy } from "./pages/content";
 import { howItWorks } from "./pages/how";
+import { dashboard, sessionPage } from "./pages/dashboard";
 import { arenaHome } from "./pages/home";
 import { ladder } from "./pages/ladder";
 import { landing } from "./pages/landing";
@@ -13,6 +14,8 @@ import { route, setNotFound } from "./router";
 
 route("/", "Racquet pod", landing);
 route("/settings", "Settings", settings);
+route("/account/dashboard", "Dashboard", dashboard);
+route("/account/dashboard/sessions/:id*", "Session · Dashboard", sessionPage);
 route("/how-it-works", "How it works", howItWorks);
 route("/privacy", "Privacy", privacy);
 route("/arena", "Arena", arenaHome);

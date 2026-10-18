@@ -170,9 +170,11 @@ function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, 
   const swings = Math.round(active / 60 * (24 + drnd() * 16));
   const gap = r1(1.6 + drnd() * 1.2);
   const pod = source === "pod";
-  const p50 = r1(32 + drnd() * 25 + (daysAgo < 35 ? 4 : 0));
-  const p90 = r1(p50 * 1.4), max = r1(p90 * 1.2);
-  const rallies = Math.round(swings / 6);
+  // the watch measures the wrist, not the racquet head: much lower "hand speed" (p90 about 15-35 km/h)
+  const p90 = pod ? r1((32 + drnd() * 25 + (daysAgo < 35 ? 4 : 0)) * 1.4) : r1(15 + drnd() * 20);
+  const p50 = r1(p90 / 1.4), max = r1(p90 * 1.2);
+  const rallies = Math.round(swings / 6); // about 6 shots a rally
+  const median = 4 + Math.floor(drnd() * 3);
   const mins = Math.min(Math.ceil(duration / 60), 60);
   const avg = Math.round(118 + drnd() * 30);
   const g = { power: 0, mid: 0, touch: 0, not_a_hit: 0, unclassified: 0 };
@@ -197,8 +199,8 @@ function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, 
     swings: { count: swings, per_min_active: r1(swings / (active / 60)) },
     speed: { p50_kmh: p50, p90_kmh: p90, max_kmh: max, clipped_frac: r1(drnd() * 0.2) , estimated: true },
     tempo: { median_gap_s: gap, p25_gap_s: r1(gap * 0.82), p75_gap_s: r1(gap * 1.21) },
-    rallies: { count: rallies, median_shots: 4, longest_shots: 5 + Math.floor(drnd() * 14) },
-    timeline: Array.from({ length: mins }, (_, t) => ({ t_min: t, swings: Math.round(swings / mins), p90_kmh: r1(p90 * (0.9 + drnd() * 0.2)), hr_bpm: hr ? avg - 6 + Math.round(drnd() * 12) : null })),
+    rallies: { count: rallies, median_shots: median, longest_shots: median + 4 + Math.floor(drnd() * 14) },
+    timeline: Array.from({ length: mins }, (_, t) => ({ t_min: t, swings: Math.round((swings / mins) * (0.5 + drnd())), p90_kmh: r1(p90 * (0.9 + drnd() * 0.2)), hr_bpm: hr ? avg - 6 + Math.round(drnd() * 12) : null })),
     heart_rate: hr ? { avg_bpm: avg, max_bpm: avg + 25 } : null,
     strokes: strokes ? { groups: g, counts, speed_by_class: { smash: { p50_kmh: r1(p90 * 1.1), p90_kmh: r1(max * 0.95) } }, unclassified: g.unclassified, experimental: true } : null,
     insights: [{ id: "tempo_vs_usual", severity: "info", title: "Quicker than usual", body: `Your median time between shots was ${gap} s.`, evidence: { median_gap_s: gap } }],

@@ -2988,3 +2988,267 @@ li.rank-row.podium {
     padding: 5px 12px;
   }
 }
+
+/* ---------------------------------------------------------------- Account → Dashboard (pages/dashboard.ts, charts.ts) */
+
+.dash h1 .badge {
+  vertical-align: middle;
+  font-size: 0.8rem;
+}
+.dash .card h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dash .card h3 {
+  margin: 14px 0 4px;
+}
+.dash .card h3:first-of-type {
+  margin-top: 0;
+}
+.dash-sec,
+.dash .card,
+.dash-cols {
+  margin: 0 0 20px;
+}
+.dash-sec > h2 {
+  margin: 28px 0 6px;
+}
+.card-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.card-h h2 {
+  margin: 0 !important;
+}
+.dash .card {
+  padding: 18px;
+}
+.dash-cols {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 1fr;
+}
+.dash-cols > .card {
+  margin: 0;
+}
+@media (min-width: 820px) {
+  .dash-cols {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+}
+.stats-row.two {
+  grid-template-columns: repeat(2, 1fr);
+  margin: 0;
+}
+.badge.wrist {
+  color: var(--hot-text);
+  background: color-mix(in srgb, var(--hot) 14%, transparent);
+}
+.dash-explainer {
+  max-width: 62ch;
+}
+.dash-explainer h2 .ph {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* charts */
+.dchart-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin: 8px 0 4px;
+}
+.dchart {
+  display: block;
+  width: 100%;
+  height: 170px;
+  overflow: visible;
+}
+.dchart-wrap.short .dchart {
+  height: 110px;
+}
+@media (min-width: 820px) {
+  .dchart {
+    height: 220px;
+  }
+  .dchart-wrap.short .dchart {
+    height: 130px;
+  }
+}
+.dchart .chart-grid {
+  vector-effect: non-scaling-stroke;
+}
+/* three evenly spaced ticks; the column overhangs the plot by half a line so each label centres on its grid line */
+.yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: right;
+  line-height: 1;
+  min-width: 2.2em; /* stacked charts (minute by minute) share their x positions */
+  margin: -0.5em 0;
+}
+.xaxis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+.dbar {
+  fill: var(--chart);
+  opacity: 0.75;
+}
+.dbar:hover {
+  opacity: 1;
+}
+.dline {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.dline.s1 {
+  stroke: var(--chart);
+}
+.dline.s2 {
+  stroke: var(--hot);
+}
+.ddot {
+  stroke-width: 7;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.ddot.s1 {
+  stroke: var(--chart);
+}
+.ddot.s2 {
+  stroke: var(--hot);
+}
+.trends {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+@media (min-width: 820px) {
+  .trends {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.trend {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.trend h3 {
+  margin: 0;
+  font-size: 0.72rem;
+}
+.trend-now {
+  margin: 4px 0 6px;
+}
+.trend-now strong {
+  font: 800 1.6rem/1 var(--score);
+  font-variant-numeric: tabular-nums;
+}
+.trend-now small {
+  color: var(--muted);
+}
+.spark {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+.mix {
+  display: block;
+  width: 100%;
+  height: 24px;
+  border-radius: 8px;
+}
+.seg-power {
+  fill: var(--hot);
+  background: var(--hot);
+}
+.seg-mid {
+  fill: var(--chart);
+  background: var(--chart);
+}
+.seg-touch {
+  fill: var(--sage);
+  background: var(--sage);
+}
+/* not a hit / unclassified: neutral "other" (outlined surface), told apart by the legend numbers */
+.seg-not_a_hit,
+.seg-unclassified {
+  fill: var(--surface-2);
+  background: var(--surface-2);
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.seg-unclassified {
+  stroke-dasharray: 3 3;
+}
+.mix-legend {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.88rem;
+}
+.mix-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mix-legend .key {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+  border: 1px solid var(--line);
+}
+.bests li,
+.sessions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.best-label {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.best-value {
+  font: 800 1.25rem/1.1 var(--score);
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+.sessions li > span.muted {
+  flex: 1 1 100%;
+}
+@media (min-width: 640px) {
+  .sessions li > span.muted {
+    flex: 1 1 auto;
+    text-align: right;
+  }
+}
+.more-sessions {
+  margin-top: 12px;
+}

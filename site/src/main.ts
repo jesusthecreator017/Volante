@@ -1,11 +1,11 @@
 // Volante website: shell (header, nav, account menu, theme, Arena sub-nav). Routes live in routes.ts.
 
 import "./style.css";
-import { api, loginUrl, me } from "./api";
-import { h, link, replace } from "./dom";
+import { loginUrl, me } from "./api";
+import { renderAccount } from "./components";
+import { h, link } from "./dom";
 import "./routes";
 import { setOnNavigate, start } from "./router";
-import type { Me } from "./types";
 import { icon, type IconName } from "./icons";
 import appIcon from "./assets/app-icon.png";
 
@@ -132,43 +132,6 @@ function shell(): HTMLElement {
   });
   void me().then((m) => renderAccount(account, m), () => renderAccount(account, null));
   return header;
-}
-
-function renderAccount(el: HTMLElement, m: Me | null) {
-  if (!m?.user) {
-    replace(el, h("a", { href: loginUrl(), class: "btn small with-icon signin", "aria-label": "Sign in with GitHub" }, icon("github-logo"), h("span", { class: "signin-label" }, "Sign in")));
-    return;
-  }
-  const u = m.user;
-  const menu = h(
-    "div",
-    { class: "menu", role: "menu", hidden: true },
-    link("/settings", "Settings"),
-    link("/arena/get-started#mine", "My models"),
-    h("button", { type: "button", role: "menuitem", onclick: () => void signOut() }, icon("sign-out"), "Sign out"),
-  );
-  const btn = h(
-    "button",
-    { type: "button", class: "account-btn", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": `Account menu for ${u.login}` },
-    h("img", { class: "avatar", src: u.avatar_url, alt: "", width: 28, height: 28, referrerpolicy: "no-referrer" }),
-    h("span", { class: "login" }, u.login),
-  );
-  const toggle = (open = menu.hidden) => {
-    menu.hidden = !open;
-    btn.setAttribute("aria-expanded", String(open));
-  };
-  btn.addEventListener("click", (e) => (e.stopPropagation(), toggle()));
-  document.addEventListener("click", () => toggle(false));
-  document.addEventListener("keydown", (e) => e.key === "Escape" && toggle(false));
-  replace(el, btn, menu);
-}
-
-async function signOut() {
-  try {
-    await api.logout();
-  } finally {
-    location.href = "/";
-  }
 }
 
 function footer(): HTMLElement {

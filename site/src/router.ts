@@ -15,7 +15,8 @@ const routes: Route[] = [];
 export function route(pattern: string, title: string, page: Page) {
   const keys: string[] = [];
   const re = new RegExp(
-    "^" + pattern.replace(/\/:(\w+)/g, (_, k) => (keys.push(k), "/(\\d+)")).replace(/\/$/, "") + "/?$",
+    // `:id` is numeric; `:id*` is an opaque app id (the server's session id rule, [A-Za-z0-9._-]{1,64})
+    "^" + pattern.replace(/\/:(\w+)(\*?)/g, (_, k, str) => (keys.push(k), str ? "/([A-Za-z0-9._-]{1,64})" : "/(\\d+)")).replace(/\/$/, "") + "/?$",
   );
   routes.push({ re, keys, page, title });
 }

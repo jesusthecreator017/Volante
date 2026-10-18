@@ -1,9 +1,9 @@
 // Shared UI pieces. Everything goes through h()/s(): user strings are text nodes.
 
-import { ApiError } from "./api";
+import { ApiError, api, loginUrl } from "./api";
 import { STATS, STAT_LABEL, STAT_SHORT, suggestStyle } from "./arena";
-import { h, link, s } from "./dom";
-import { isHouse, type Build, type MatchSummary, type ModelStatus, type ModelSummary, type Owner, type Side } from "./types";
+import { h, link, replace, s } from "./dom";
+import { isHouse, type Build, type Me, type MatchSummary, type ModelStatus, type ModelSummary, type Owner, type Side } from "./types";
 import { icon } from "./icons";
 
 export const fmtRating = (r: number | null | undefined) => (r == null ? "—" : r.toFixed(0));
@@ -181,5 +181,44 @@ export async function load<T>(slot: HTMLElement, f: () => Promise<T>, render: (v
     render(v);
   } catch (e) {
     slot.replaceChildren(errorBox(e, () => void load(slot, f, render)));
+  }
+}
+
+/** The header's account slot: Sign in, or the avatar menu (Dashboard only when the account is linked to the Volante app). */
+export function renderAccount(el: HTMLElement, m: Me | null) {
+  if (!m?.user) {
+    replace(el, h("a", { href: loginUrl(), class: "btn small with-icon signin", "aria-label": "Sign in with GitHub" }, icon("github-logo"), h("span", { class: "signin-label" }, "Sign in")));
+    return;
+  }
+  const u = m.user;
+  const menu = h(
+    "div",
+    { class: "menu", role: "menu", hidden: true },
+    m.app_linked ? link("/account/dashboard", "Dashboard") : null,
+    link("/settings", "Settings"),
+    link("/arena/get-started#mine", "My models"),
+    h("button", { type: "button", role: "menuitem", onclick: () => void signOut() }, icon("sign-out"), "Sign out"),
+  );
+  const btn = h(
+    "button",
+    { type: "button", class: "account-btn", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": `Account menu for ${u.login}` },
+    h("img", { class: "avatar", src: u.avatar_url, alt: "", width: 28, height: 28, referrerpolicy: "no-referrer" }),
+    h("span", { class: "login" }, u.login),
+  );
+  const toggle = (open = menu.hidden) => {
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  };
+  btn.addEventListener("click", (e) => (e.stopPropagation(), toggle()));
+  document.addEventListener("click", () => toggle(false));
+  document.addEventListener("keydown", (e) => e.key === "Escape" && toggle(false));
+  replace(el, btn, menu);
+}
+
+async function signOut() {
+  try {
+    await api.logout();
+  } finally {
+    location.href = "/";
   }
 }
