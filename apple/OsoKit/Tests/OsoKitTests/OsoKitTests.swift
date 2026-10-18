@@ -144,6 +144,27 @@ func sampleBytes() -> [UInt8] {
         #expect(abs(cap.samples[0].t) < 1e-9 && abs(cap.samples[1].t - 0.005) < 1e-6)
     }
 
+    /// Live on the watch: a light 260 dps swing counts (the racquet threshold of 300 missed it), an arm swinging while
+    /// walking (110 dps) does not.
+    @Test func liveWristCountsLightSwingsNotWalking() {
+        func run(peakDps: Double) -> Int {
+            var enc = WristEncoder()
+            var live = LiveAnalyzer(rateHz: 200, mount: .wrist, trustedBias: true)
+            var batch: [Sample] = []
+            for i in 0..<(3 * 200) {
+                let t = Double(i) / 200
+                let u = t - 1
+                let w = u > 0 && u < 0.3 ? peakDps * DEG * sin(.pi * u / 0.3) : 0
+                let p = enc.append(WristMotion(t: t, userAcc: .zero, gravity: Vec3(0, 0, -1), rotationRate: Vec3(w, 0, 0)))
+                batch.append(Sample(tUs: t * 1e6, v: p.v))
+            }
+            _ = live.push(batch)
+            return live.swingCount
+        }
+        #expect(run(peakDps: 260) == 1)
+        #expect(run(peakDps: 110) == 0)
+    }
+
     @Test func wristSessionAnalyzesAt200Hz() throws {
         var enc = WristEncoder()
         for m in synthetic() { enc.append(m) }

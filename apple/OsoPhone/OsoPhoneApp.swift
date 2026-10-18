@@ -5,23 +5,26 @@ import SwiftUI
 
 @main
 struct OsoPhoneApp: App {
-    @State private var store = SessionStore()
-    @State private var pod = PodLink()
-    @State private var watch = WatchReceiver()
+    @State private var store: SessionStore
+    @State private var pod: PodLink
+    @State private var watch: WatchReceiver
+    @State private var linker: SessionLinker
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
     @State private var router = Router()
     @State private var arena = ArenaClient()
-    /// Phone and watch start and stop together (Settings > Apple Watch); these remember which side started the other
-    @AppStorage("volante.watch.linked") private var linked = true
-    @State private var watchStartedByPhone = false
-    @State private var podStartedByWatch = false
     @AppStorage("oso.onboarded") private var onboarded = false
     /// DEBUG: -osoOnboarding shows the intro even when it was seen, until it ends.
     @State private var forceIntro = DebugOverrides.forcesIntro
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let store = SessionStore(), pod = PodLink(), watch = WatchReceiver()
+        _store = State(initialValue: store)
+        _pod = State(initialValue: pod)
+        _watch = State(initialValue: watch)
+        // here, not in onAppear: a watch workout can launch the app in the background with no view on screen
+        _linker = State(initialValue: SessionLinker(pod: pod, watch: watch, store: store))
         let pi = PiServer()
         _pi = State(initialValue: pi)
         _fitbit = State(initialValue: FitbitLink(pi: pi))
@@ -48,16 +51,6 @@ struct OsoPhoneApp: App {
             .environment(fitbit)
             .environment(pi)
             .onAppear(perform: wire)
-            .onChange(of: pod.streaming) { _, on in linkPodToWatch(on) }
-            .onChange(of: watch.workoutActive) { _, active in linkWatchToPod(active) }
-            .onChange(of: watch.liveSwings) { mirrorWatch() }
-            .onChange(of: watch.liveHeartRate) { mirrorWatch() }
-            .task {
-                while !Task.isCancelled {  // a watch that went quiet (app killed, out of range) ends its part of the session
-                    try? await Task.sleep(for: .seconds(10))
-                    watch.expireIfSilent()
-                }
-            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
             }
@@ -84,39 +77,6 @@ struct OsoPhoneApp: App {
         .tabViewBottomAccessory(isEnabled: pod.isBusy) { LiveAccessory() }
     }
 
-    // MARK: one session across the pod and the watch
-
-    /// A live pod session starts the watch workout (and ends it again if it started it).
-    private func linkPodToWatch(_ streaming: Bool) {
-        guard linked else { return }
-        if streaming, !watch.workoutActive, !podStartedByWatch {
-            watchStartedByPhone = true
-            Task { await watch.startWorkout() }
-        } else if !streaming {
-            if watchStartedByPhone { watch.endWorkout() }
-            watchStartedByPhone = false
-            podStartedByWatch = false
-        }
-    }
-
-    /// Badminton started on the watch starts a live pod session when the pod is connected and idle (and stops it again).
-    private func linkWatchToPod(_ active: Bool) {
-        mirrorWatch()
-        guard linked else { return }
-        if active, pod.state == .connected, !pod.streaming, !pod.uploading, pod.status?.sleeping == false {
-            podStartedByWatch = true
-            pod.startStream(settings: store.settings)
-        } else if !active, podStartedByWatch, pod.streaming {
-            pod.stopStream(save: true)
-        }
-        if !active { watchStartedByPhone = false }
-    }
-
-    /// The watch's live numbers onto the shared Live Activity.
-    private func mirrorWatch() {
-        pod.watchWorkout = watch.workoutActive ? (swings: watch.liveSwings ?? 0, heartRate: watch.liveHeartRate) : nil
-    }
-
     private func wire() {
         pod.liveActivity.endStale()
         pod.onSession = { imu, meta in
@@ -128,7 +88,6 @@ struct OsoPhoneApp: App {
                 router.path = [saved]
             } catch { pod.lastError = "save failed: \(error)" }
         }
-        watch.onSession = { url, meta in try? store.importFile(url, meta: meta) }
         syncHeartRate()
         #if DEBUG
         applyLaunchArguments()
@@ -166,4 +125,62 @@ struct OsoPhoneApp: App {
         }
     }
     #endif
+}
+
+/// One session across the pod and the watch (Settings > Apple Watch > Start and stop together). Driven by callbacks on
+/// the models, not view changes, so it also works when a watch workout launched the app in the background. Each side
+/// only acts when the other is not already there, so nothing loops.
+@MainActor
+final class SessionLinker {
+    private let pod: PodLink
+    private let watch: WatchReceiver
+    private let store: SessionStore
+    private var linked: Bool { UserDefaults.standard.object(forKey: "volante.watch.linked") as? Bool ?? true }
+    private var expiry: Task<Void, Never>?
+
+    init(pod: PodLink, watch: WatchReceiver, store: SessionStore) {
+        self.pod = pod
+        self.watch = watch
+        self.store = store
+        watch.onSession = { [store] url, meta in try? store.importFile(url, meta: meta) }
+        watch.onWorkoutChange = { [weak self] activeChanged in
+            guard let self else { return }
+            self.mirrorWatch()
+            if activeChanged { self.linkWatchToPod(watch.workoutActive) }
+        }
+        pod.onStreamingChange = { [weak self] in self?.linkPodToWatch($0) }
+        // a watch that went quiet (app killed, out of range) ends its part of the session
+        expiry = Task { [weak watch] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                watch?.expireIfSilent()
+            }
+        }
+    }
+
+    /// A live pod session starts the watch workout; ending it ends the workout, whichever side started.
+    private func linkPodToWatch(_ streaming: Bool) {
+        guard linked else { return }
+        if streaming {
+            if !watch.workoutActive { Task { await watch.startWorkout() } }
+        } else {
+            watch.endWorkout()
+        }
+    }
+
+    /// Badminton started on the watch starts a live pod session when the pod is connected and idle; ending the workout on
+    /// the watch ends the pod session.
+    private func linkWatchToPod(_ active: Bool) {
+        guard linked else { return }
+        if active, pod.state == .connected, !pod.streaming, !pod.uploading, pod.status?.sleeping == false {
+            pod.startStream(settings: store.settings)
+        } else if !active, pod.streaming {
+            pod.stopStream(save: true)
+        }
+    }
+
+    /// The watch's live numbers onto the shared Live Activity.
+    private func mirrorWatch() {
+        pod.watchWorkout = watch.workoutActive ? (swings: watch.liveSwings ?? 0, heartRate: watch.liveHeartRate, start: watch.workoutStart) : nil
+    }
 }
