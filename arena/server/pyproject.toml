@@ -14,3 +14,6 @@ oso-arena-admin = "osoarena.admin:main"
 
 [tool.setuptools]
 packages = ["osoarena"]
+
+[tool.setuptools.package-data]
+osoarena = ["demo/*.safetensors"]

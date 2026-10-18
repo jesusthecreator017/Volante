@@ -173,7 +173,7 @@ DEMO_USER_BASE = 9_000_000_000  # above any GitHub user id
 
 
 def ensure_demo(con, season_id):
-    """Demo players (server/demo/*.safetensors, exported with the kit from checkpoints trained on our recorded sessions) so a new
+    """Demo players (osoarena/demo/*.safetensors, exported with the kit from checkpoints trained on our recorded sessions) so a new
     Arena has a field for its first tournament. Once per season; OSO_ARENA_DEMO_PLAYERS=0 turns it off. They play real matches."""
     import hashlib
     import os
@@ -182,7 +182,7 @@ def ensure_demo(con, season_id):
     from oso_arena import contract
     if os.environ.get("OSO_ARENA_DEMO_PLAYERS", "1") == "0" or get_meta(con, f"demo_seeded_{season_id}"):
         return
-    demo = Path(__file__).resolve().parent.parent / "demo"
+    demo = Path(__file__).resolve().parent / "demo"  # package data, installed with osoarena
     models_dir = config.get().models_dir
     for i, f in enumerate(sorted(demo.glob("*.safetensors")), start=1):
         data = f.read_bytes()
