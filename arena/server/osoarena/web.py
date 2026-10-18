@@ -152,16 +152,35 @@ def owner_of(con, m):
     return {"id": u["id"], "login": u["login"], "avatar_url": u["avatar_url"]} if u else dict(db.DELETED_USER)
 
 
-def model_summary(con, m):
-    rating = None if m["status"] in ("pending", "rejected") or m["rating"] is None else round(m["rating"], 1)
+def twin_of(m):
+    """ModelSummary.twin (section 14): the stored profile and the last fidelity verdict; None for a model without a profile."""
+    if not m["style_profile"]:
+        return None
+    try:
+        profile = json.loads(m["style_profile"])
+        rep = json.loads(m["fidelity"]) if m["fidelity"] else None
+    except ValueError:
+        return None
+    fid = {"ok": bool(rep and rep.get("fidelity_ok")), "tempo_ratio": rep.get("tempo_ratio") if rep else None,
+           "mix_js": rep.get("mix_js") if rep else None, "checked_at": m["fidelity_at"] if rep else None}
+    if rep:
+        fid["reasons"] = [str(x) for x in rep.get("reasons") or []]
+    return {"profile": profile, "fidelity": fid}
+
+
+def model_summary(con, m, lad=None):
+    """`lad`: whose record to show (a house player is on both ladders); default the model's own ladder."""
+    lad = lad or ("open" if m["house"] else m["ladder"] or "open")
+    rc, gc = ladder.COLS[lad][:2]
+    rating = None if m["status"] in ("pending", "rejected") or m[rc] is None else round(m[rc], 1)
     return {"id": m["id"], "name": m["name"], "owner": owner_of(con, m), "build": ladder.build_of(m), "status": m["status"],
-            "rating": rating, "games": m["games"]}
+            "rating": rating, "games": m[gc], "ladder": m["ladder"] or "open", "twin": twin_of(m)}
 
 
 def model_detail(con, m):
     d = model_summary(con, m)
-    hist = con.execute("SELECT t, rating, match_id FROM (SELECT rowid AS rid, * FROM rating_history WHERE model_id=? "
-                       "ORDER BY rowid DESC LIMIT 200) ORDER BY rid ASC", (m["id"],)).fetchall()
+    hist = con.execute("SELECT t, rating, match_id FROM (SELECT rowid AS rid, * FROM rating_history WHERE model_id=? AND ladder=? "
+                       "ORDER BY rowid DESC LIMIT 200) ORDER BY rid ASC", (m["id"], d["ladder"] if not m["house"] else "open")).fetchall()
     d.update(description=m["description"], created_at=m["created_at"], retired_at=m["retired_at"], season_id=m["season_id"],
              rating_history=[{"t": h["t"], "rating": round(h["rating"], 1), "match_id": h["match_id"]} for h in hist])
     if m["status"] == "rejected":
@@ -179,7 +198,8 @@ def match_summary(con, mt):
     b = con.execute("SELECT * FROM models WHERE id=?", (mt["b_id"],)).fetchone()
     done = mt["status"] == "done"
     return {"id": mt["id"], "kind": mt["kind"], "season_id": mt["season_id"], "created_at": mt["created_at"],
-            "finished_at": mt["finished_at"], "status": mt["status"], "a": model_summary(con, a), "b": model_summary(con, b),
+            "finished_at": mt["finished_at"], "status": mt["status"], "ladder": mt["ladder"] or "open",
+            "a": model_summary(con, a, mt["ladder"]), "b": model_summary(con, b, mt["ladder"]),
             "games_won": json.loads(mt["games_won"]) if mt["games_won"] else [0, 0],
             "winner": mt["winner"] if done else None,
             "games": json.loads(mt["games"]) if mt["games"] else [],
@@ -187,7 +207,8 @@ def match_summary(con, mt):
 
 
 def tournament_json(con, t, full=True):
-    d = {"id": t["id"], "season_id": t["season_id"], "starts_at": t["starts_at"], "status": t["status"]}
+    lad = t["ladder"] or "open"
+    d = {"id": t["id"], "season_id": t["season_id"], "starts_at": t["starts_at"], "status": t["status"], "ladder": lad}
     if full:
         cache = {}
 
@@ -195,7 +216,7 @@ def tournament_json(con, t, full=True):
             if mid is None:
                 return None
             if mid not in cache:
-                cache[mid] = model_summary(con, con.execute("SELECT * FROM models WHERE id=?", (mid,)).fetchone())
+                cache[mid] = model_summary(con, con.execute("SELECT * FROM models WHERE id=?", (mid,)).fetchone(), lad)
             return cache[mid]
         rounds = json.loads(t["rounds"]) if t["status"] != "scheduled" else []
         d["rounds"] = [[{"seed_a": tie["seed_a"], "seed_b": tie["seed_b"], "a": ms(tie["a"]), "b": ms(tie["b"]),
@@ -329,6 +350,12 @@ def create_app():
         con = conn()
         return [season_json(s) for s in con.execute("SELECT * FROM seasons ORDER BY id DESC")]
 
+    def ladder_param(q):
+        lad = q.get("ladder") or "open"
+        if lad not in db.LADDERS:
+            raise ApiError(400, "bad_request", "ladder must be open or twins.")
+        return lad
+
     def int_param(v, name, default, lo=None, hi=None):
         if v is None or v == "":
             return default
@@ -350,13 +377,17 @@ def create_app():
             raise ApiError(404, "not_found", "No such season.")
         offset = int_param(q.get("offset"), "offset", 0, 0)
         limit = int_param(q.get("limit"), "limit", 50, 1, 100)
-        total = con.execute("SELECT COUNT(*) c FROM models WHERE season_id=? AND status='active'", (season["id"],)).fetchone()["c"]
-        rows = con.execute("SELECT * FROM models WHERE season_id=? AND status='active' ORDER BY rating DESC, id ASC LIMIT ? OFFSET ?",
-                           (season["id"], limit, offset)).fetchall()
-        items = [{"rank": offset + i + 1, "model": model_summary(con, m), "rating": round(m["rating"] or 1200, 1),
-                  "provisional": m["games"] < cfg.provisional_games, "games": m["games"], "wins": m["wins"], "losses": m["losses"]}
+        lad = ladder_param(q)
+        rc, gc, wc, lc = ladder.COLS[lad]
+        # the house players are on both ladders; everyone else only on their own (open never lists twins and vice versa)
+        where = "season_id=? AND status='active' AND (house IS NOT NULL OR ladder=?)"
+        total = con.execute(f"SELECT COUNT(*) c FROM models WHERE {where}", (season["id"], lad)).fetchone()["c"]
+        rows = con.execute(f"SELECT * FROM models WHERE {where} ORDER BY COALESCE({rc}, 1200) DESC, id ASC LIMIT ? OFFSET ?",
+                           (season["id"], lad, limit, offset)).fetchall()
+        items = [{"rank": offset + i + 1, "model": model_summary(con, m, lad), "rating": round(ladder.rating(m, lad), 1),
+                  "provisional": m[gc] < cfg.provisional_games, "games": m[gc], "wins": m[wc], "losses": m[lc]}
                  for i, m in enumerate(rows)]
-        return {"season": season_json(season), "total": total, "items": items}
+        return {"season": season_json(season), "ladder": lad, "total": total, "items": items}
 
     def visible_model(request, model_id):
         con = conn()
@@ -461,10 +492,11 @@ def create_app():
         return StreamingResponse(inflate(), media_type="application/octet-stream", headers=h)
 
     @app.get("/api/tournaments/current")
-    def t_current():
+    def t_current(request: Request):
         con = conn()
-        t = con.execute("SELECT * FROM tournaments WHERE status='running' ORDER BY id DESC LIMIT 1").fetchone() or \
-            con.execute("SELECT * FROM tournaments WHERE status='scheduled' ORDER BY starts_at ASC LIMIT 1").fetchone()
+        lad = ladder_param(request.query_params)
+        t = con.execute("SELECT * FROM tournaments WHERE status='running' AND ladder=? ORDER BY id DESC LIMIT 1", (lad,)).fetchone() or \
+            con.execute("SELECT * FROM tournaments WHERE status='scheduled' AND ladder=? ORDER BY starts_at ASC LIMIT 1", (lad,)).fetchone()
         if not t:
             raise ApiError(404, "not_found", "No tournament is scheduled yet.")
         return tournament_json(con, t)
@@ -473,7 +505,7 @@ def create_app():
     def t_list(request: Request):
         con = conn()
         sid = int_param(request.query_params.get("season"), "season", None)
-        sql, args = "SELECT * FROM tournaments WHERE status!='skipped'", []
+        sql, args = "SELECT * FROM tournaments WHERE status!='skipped' AND ladder=?", [ladder_param(request.query_params)]
         if sid is not None:
             sql += " AND season_id=?"
             args.append(sid)

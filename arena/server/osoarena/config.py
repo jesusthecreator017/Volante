@@ -49,6 +49,12 @@ class Config:
     # D6 tournament: weekday 0 = Monday .. 6 = Sunday, local time of TZ (the "server time" the site shows)
     tournament_weekday: int = field(default_factory=lambda: _int("TOURNAMENT_WEEKDAY", 6))
     tournament_hour: int = field(default_factory=lambda: _int("TOURNAMENT_HOUR", 18))
+    # Volante Twins (D14 defaults): the weekly Twins tournament, a few hours before the open one; the fidelity gate
+    twins_tournament_weekday: int = field(default_factory=lambda: _int("TWINS_TOURNAMENT_WEEKDAY", 6))
+    twins_tournament_hour: int = field(default_factory=lambda: _int("TWINS_TOURNAMENT_HOUR", 15))
+    twins_min_matches: int = field(default_factory=lambda: _int("TWINS_MIN_MATCHES", 10))
+    twins_recheck_matches: int = field(default_factory=lambda: _int("TWINS_RECHECK_MATCHES", 20))
+    twins_recheck_lead_h: int = field(default_factory=lambda: _int("TWINS_RECHECK_LEAD_H", 3))
     tournament_size: int = 8
     # replays
     replay_cache_bytes: int = field(default_factory=lambda: _int("REPLAY_CACHE_BYTES", 5_000_000_000))
@@ -96,7 +102,7 @@ class Config:
 
 # per job kind: (RLIMIT_CPU seconds, wall-clock seconds). Measured on this Pi 5: a check 1-36 s, a match ~3 s, a replay 6-11 s;
 # the PROMPT.md minimums are far above that.
-LIMITS = {"check": (300, 600), "match": (900, 1800), "replay": (600, 1200)}
+LIMITS = {"check": (300, 600), "match": (900, 1800), "replay": (600, 1200), "fidelity": (300, 600)}
 RLIMIT_AS = 2 << 30
 RLIMIT_FSIZE = 256 << 20
 RLIMIT_NOFILE = 64
