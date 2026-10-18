@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { me } from "../src/api";
 import { renderAccount } from "../src/components";
 import { installMock } from "../src/mock";
-import { dashboard, sessionPage } from "../src/pages/dashboard";
+import { GROUP_LABEL, dashboard, sessionPage } from "../src/pages/dashboard";
 import "../src/routes";
 import { match } from "../src/router";
 import type { Me } from "../src/types";
@@ -42,17 +42,27 @@ describe("account menu", () => {
   });
 });
 
+describe("stroke groups", () => {
+  test("labels follow report-format.md §3", () => {
+    expect(GROUP_LABEL.power).toBe("Power (smash, clear)");
+    expect(GROUP_LABEL.mid).toBe("Mid (drive, drop, lift, net kill, long serve)");
+    expect(GROUP_LABEL.touch).toBe("Touch (net shot, push, short serve)");
+  });
+});
+
 describe("routes", () => {
   test("dashboard routes take app session ids", () => {
     expect(match("/account/dashboard")?.route.title).toBe("Dashboard");
     expect(match("/account/dashboard/sessions/s01.a-b_c")?.params).toEqual({ id: "s01.a-b_c" });
     expect(match("/account/dashboard/sessions/a b")).toBeNull();
+    for (const bad of [".", "..", ".a", "-a", "_a"]) expect(match("/account/dashboard/sessions/" + bad), bad).toBeNull();
+    expect(match("/account/dashboard/sessions/" + "x".repeat(64))?.params.id).toHaveLength(64);
     expect(match("/account/dashboard/sessions/" + "x".repeat(65))).toBeNull();
   });
 });
 
 describe("dashboard pages", () => {
-  test("test_signed_out_redirects_to_sign_in", async () => {
+  test("signed out: both pages show a sign-in link", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ user: null, csrf: "x" }));
     await me(true);
     const a = root();

@@ -160,7 +160,7 @@ let dseed = 11;
 const drnd = () => ((dseed = (dseed * 16807) % 2147483647) / 2147483647);
 const r1 = (x: number) => Math.round(x * 10) / 10;
 const ts = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
-const STROKES = { power: ["smash", "clear"], mid: ["drive", "lift"], touch: ["drop", "net_shot"] } as const;
+const STROKES = { power: ["smash", "clear"], mid: ["drive", "drop"], touch: ["net_shot", "block_push"] } as const; // two classes per group (report-format.md §3)
 
 function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, hr: boolean): SessionReport {
   const d = new Date(Date.now() - daysAgo * 86_400_000);

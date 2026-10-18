@@ -38,7 +38,7 @@ TYPES = {".wasm": "application/wasm", ".js": "text/javascript; charset=utf-8", "
          ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webmanifest": "application/manifest+json"}
 MAX_APP_SESSIONS = 5000  # stored app session reports per user
 APP_PUTS_PER_MIN = 60  # PUT /api/me/sessions/{id} + PUT /api/me/style, per user
-APP_SESSION_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+APP_SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")  # starts alphanumeric: no "." / ".." path segments
 COMPRESSIBLE = {".wasm", ".js", ".mjs", ".css", ".html", ".json", ".svg", ".gltf", ".bin", ".txt"}
 
 
@@ -686,7 +686,7 @@ def create_app():
 
     def app_session_id(sid):
         if not APP_SESSION_ID.fullmatch(sid):
-            raise ApiError(400, "bad_request", "A session id is 1-64 characters of letters, digits, . _ -.")
+            raise ApiError(400, "bad_request", "A session id is 1-64 characters of letters, digits, . _ -, starting with a letter or digit.")
 
     def app_put_limit(u):
         wait = limiter.hit(f"app_put:{u['id']}", APP_PUTS_PER_MIN)

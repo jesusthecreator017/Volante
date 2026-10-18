@@ -15,10 +15,11 @@ const n0 = (v: number) => Math.round(v).toLocaleString();
 const n1 = (v: number | null | undefined) => (v == null ? "—" : String(Math.round(v * 10) / 10));
 const day = (iso: string) => fmtDate(iso, false);
 
-const GROUP_LABEL: Record<StrokeGroup, string> = {
+/** docs/strokes/report-format.md §3 (the 4-group model). */
+export const GROUP_LABEL: Record<StrokeGroup, string> = {
   power: "Power (smash, clear)",
-  mid: "Mid (drive, lift)",
-  touch: "Touch (drop, net)",
+  mid: "Mid (drive, drop, lift, net kill, long serve)",
+  touch: "Touch (net shot, push, short serve)",
   not_a_hit: "Not a hit",
   unclassified: "Unclassified",
 };

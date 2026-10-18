@@ -144,7 +144,7 @@ def test_bad_session_id_400(app):
     with TestClient(app) as c:
         signed_in(c)
         r = {"report": rep("2026-10-01T18:00:00Z")}
-        for bad in ("a" * 65, "a%20b", "a$b", "%C3%A9t%C3%A9", "a%0A"):
+        for bad in ("a" * 65, "a%20b", "a$b", "%C3%A9t%C3%A9", "a%0A", "%2E", "%2E%2E", ".a", "-a", "_a"):
             assert c.put(f"/api/me/sessions/{bad}", json=r).status_code == 400, bad
             assert c.get(f"/api/me/sessions/{bad}").status_code == 400, bad
             assert c.delete(f"/api/me/sessions/{bad}").status_code == 400, bad
