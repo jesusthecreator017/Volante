@@ -1,18 +1,6 @@
 // JSON API client (same origin, session cookie, CSRF header on state-changing requests).
 
-import type {
-  Ladder,
-  MatchDetail,
-  MatchKind,
-  MatchPage,
-  Me,
-  ModelDetail,
-  ModelSummary,
-  Pod,
-  Season,
-  Tournament,
-  TournamentSummary,
-} from "./types";
+import type { Ladder, LadderName, MatchDetail, MatchKind, MatchPage, Me, ModelDetail, ModelSummary, Pod, Season, Tournament, TournamentSummary } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -84,13 +72,16 @@ export function me(refresh = false): Promise<Me> {
 export const api = {
   me,
   seasons: () => call<Season[]>("GET", "/api/seasons"),
-  ladder: (season?: number, offset = 0, limit = 50) => call<Ladder>("GET", `/api/ladder${qs({ season, offset, limit })}`),
+  ladder: (season?: number, offset = 0, limit = 50, ladder: LadderName = "open") =>
+    call<Ladder>("GET", `/api/ladder${qs({ season, ladder: ladder === "twins" ? ladder : undefined, offset, limit })}`),
   model: (id: number) => call<ModelDetail>("GET", `/api/models/${id}`),
   matches: (p: { model?: number; kind?: MatchKind; before?: number; limit?: number } = {}) =>
     call<MatchPage>("GET", `/api/matches${qs({ ...p, limit: p.limit ?? 20 })}`),
   match: (id: number) => call<MatchDetail>("GET", `/api/matches/${id}`),
-  currentTournament: () => call<Tournament>("GET", "/api/tournaments/current"),
-  tournaments: (season?: number) => call<TournamentSummary[]>("GET", `/api/tournaments${qs({ season })}`),
+  currentTournament: (ladder: LadderName = "open") =>
+    call<Tournament>("GET", `/api/tournaments/current${qs({ ladder: ladder === "twins" ? ladder : undefined })}`),
+  tournaments: (season?: number, ladder: LadderName = "open") =>
+    call<TournamentSummary[]>("GET", `/api/tournaments${qs({ season, ladder: ladder === "twins" ? ladder : undefined })}`),
   tournament: (id: number) => call<Tournament>("GET", `/api/tournaments/${id}`),
   uploadModel: (file: File) => {
     const form = new FormData();

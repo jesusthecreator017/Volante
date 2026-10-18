@@ -4,6 +4,7 @@ import { buildRadar, fmtDate, fmtRating, load, matchRow, ownerChip, provisional,
 import { append, h, link } from "../dom";
 import type { MatchSummary, ModelDetail } from "../types";
 import { mountViewer } from "../viewer";
+import { twinCard } from "../twins";
 
 export function model(root: HTMLElement, p: Record<string, string>) {
   const id = Number(p.id);
@@ -25,6 +26,7 @@ function render(root: HTMLElement, m: ModelDetail) {
     m.reject_reasons?.length
       ? h("div", { class: "error-box" }, h("p", null, "Rejected by the checker:"), h("ul", null, m.reject_reasons.map((r) => h("li", null, r))))
       : null,
+    m.twin ? twinCard({ ...m, twin: m.twin }) : null,
     h(
       "div",
       { class: "grid2" },
@@ -34,6 +36,7 @@ function render(root: HTMLElement, m: ModelDetail) {
         h("h2", null, "Build"),
         buildRadar(m.build),
         h("p", null, "Suggested style: ", styleGuess(m.build)),
+        m.twin ? h("p", { class: "muted small" }, "Build derived from the player's profile.") : null,
         h(
           "dl",
           { class: "stats" },
@@ -43,7 +46,7 @@ function render(root: HTMLElement, m: ModelDetail) {
       h(
         "section",
         { class: "card" },
-        h("h2", null, "Rating"),
+        h("h2", null, m.ladder === "twins" ? "Twins rating" : "Rating"),
         h("p", { class: "big" }, fmtRating(m.rating), provisional(m.games), h("span", { class: "muted small" }, ` after ${m.games} games`)),
         ratingChart(m.rating_history),
         h("p", { class: "muted small" }, `Uploaded ${fmtDate(m.created_at)}`, m.retired_at ? ` · retired ${fmtDate(m.retired_at)}` : ""),
