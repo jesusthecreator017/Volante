@@ -125,12 +125,12 @@ describe("landing", () => {
   test("unshipped features say so, no status chips, no inline styles", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], next_before: null })));
     const soon = Object.fromEntries(FEATURES.map((f) => [f.id, f.soon]));
-    expect(soon).toEqual({ hits: false, speed: false, insights: false, strokes: true });
+    expect(soon).toEqual({ hits: false, speed: false, insights: false, strokes: false });
     const root = document.createElement("div");
     landing(root);
     expect(root.querySelectorAll("[style], script, .chip").length).toBe(0);
     expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
-    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(1);
+    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(0);
     expect(root.querySelector('a[href="/how-it-works#insights"]')).not.toBeNull();
     expect(root.querySelector('a[href="/how-it-works"]')).not.toBeNull();
     expect(root.querySelector('a[href="/arena"]')).not.toBeNull();

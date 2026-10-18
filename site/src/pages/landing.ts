@@ -27,7 +27,7 @@ export const FEATURES: Feature[] = [
   { id: "hits", icon: "target", title: "Hit tracking", text: "Every swing is detected and timestamped, so you can see when you hit and how often.", soon: false, viz: "hits" },
   { id: "speed", icon: "gauge", title: "Swing speed", text: "Estimated racquet head speed for every swing, worked out from the gyro.", soon: false, viz: "gauge" },
   { id: "insights", icon: "sparkle-fill", title: "Insights", text: "Tips from each session: your top speed, consistency, fatigue and timing.", soon: false, viz: "bars", href: "/how-it-works#insights" },
-  { id: "strokes", icon: "list-checks", title: "Stroke recognition", text: "Smash, clear, drop and drive, named automatically for every swing.", soon: true, viz: "tags" },
+  { id: "strokes", icon: "list-checks", title: "Stroke recognition", text: "Smash, clear, drop and drive, named automatically for every swing.", soon: false, viz: "tags" },
 ];
 
 // ---------------------------------------------------------------- imagery
