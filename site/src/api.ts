@@ -1,6 +1,6 @@
 // JSON API client (same origin, session cookie, CSRF header on state-changing requests).
 
-import type { Ladder, LadderName, MatchDetail, MatchKind, MatchPage, Me, ModelDetail, ModelSummary, Pod, Season, Tournament, TournamentSummary } from "./types";
+import type { Dashboard, Ladder, LadderName, MatchDetail, MatchKind, MatchPage, Me, ModelDetail, ModelSummary, Pod, Season, SessionDetail, SessionPage, Tournament, TournamentSummary } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -94,6 +94,10 @@ export const api = {
   /** Additive endpoints (site/README.md): the signed-in user's pods and the display-name rename. */
   pods: () => call<{ items: Pod[] }>("GET", "/api/me/pods").then((r) => r.items),
   renamePod: (id: string, name: string) => call<Pod>("PATCH", `/api/me/pods/${encodeURIComponent(id)}`, JSON.stringify({ name })),
+  /** Dashboard (additive): app sessions, newest first; `before` is a previous page's next_before. */
+  mySessions: (before?: string | null, limit = 20) => call<SessionPage>("GET", `/api/me/sessions${qs({ before, limit })}`),
+  mySession: (id: string) => call<SessionDetail>("GET", `/api/me/sessions/${encodeURIComponent(id)}`),
+  myDashboard: () => call<Dashboard>("GET", "/api/me/dashboard"),
   deleteAccount: () => call<void>("DELETE", "/api/me"),
   logout: () => call<void>("POST", "/auth/logout"),
 };

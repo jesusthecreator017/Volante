@@ -2,7 +2,7 @@
 // exists. Deterministic fixtures; same shapes as src/types.ts. Never included in the production build (__MOCK__).
 
 import { checkPodName } from "./pods";
-import type { LadderItem, LadderName, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, Side, StyleProfile, Tie, Tournament, Twin } from "./types";
+import type { Best, Dashboard, GroupShares, LadderItem, LadderName, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, SessionReport, SessionSummary, Side, StyleProfile, Tie, Tournament, Twin } from "./types";
 
 /** Real kit matches from scripts/make-mock-replays.sh (gitignored); empty when they haven't been made. Keyed by match id. */
 type Fixture = Pick<MatchDetail, "games_won" | "winner" | "games" | "seed" | "rallies"> & { a: Pick<ModelSummary, "name" | "build">; b: Pick<ModelSummary, "name" | "build"> };
@@ -154,6 +154,121 @@ const pods: Pod[] = [
   { id: "pod_2", hw_id: "OSO-71AE", name: "Spare pod", last_seen: null },
 ];
 
+// ---- Web dashboard fixtures (GET /api/me/sessions, /sessions/{id}, /dashboard). Two mock users: the default has a linked app
+// (33 sessions over 10 weeks); open the site with `?unlinked` (or `?linked` to undo; kept in sessionStorage) for one that never synced.
+let dseed = 11;
+const drnd = () => ((dseed = (dseed * 16807) % 2147483647) / 2147483647);
+const r1 = (x: number) => Math.round(x * 10) / 10;
+const ts = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
+const STROKES = { power: ["smash", "clear"], mid: ["drive", "lift"], touch: ["drop", "net_shot"] } as const;
+
+function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, hr: boolean): SessionReport {
+  const d = new Date(Date.now() - daysAgo * 86_400_000);
+  d.setUTCHours(17 + Math.floor(drnd() * 4), Math.floor(drnd() * 60), Math.floor(drnd() * 60), 0);
+  const duration = Math.round(1200 + drnd() * 2400);
+  const active = Math.round(duration * (0.5 + drnd() * 0.3));
+  const swings = Math.round(active / 60 * (24 + drnd() * 16));
+  const gap = r1(1.6 + drnd() * 1.2);
+  const pod = source === "pod";
+  const p50 = r1(32 + drnd() * 25 + (daysAgo < 35 ? 4 : 0));
+  const p90 = r1(p50 * 1.4), max = r1(p90 * 1.2);
+  const rallies = Math.round(swings / 6);
+  const mins = Math.min(Math.ceil(duration / 60), 60);
+  const avg = Math.round(118 + drnd() * 30);
+  const g = { power: 0, mid: 0, touch: 0, not_a_hit: 0, unclassified: 0 };
+  const counts: Record<string, Record<string, number>> = {};
+  if (strokes) {
+    const hits = Math.round(swings * 0.9);
+    g.unclassified = Math.round(hits * 0.08);
+    g.not_a_hit = swings - hits;
+    let left = hits - g.unclassified;
+    for (const k of ["power", "mid"] as const) (g[k] = Math.round(left * (k === "power" ? 0.3 : 0.4)));
+    g.touch = left - g.power - g.mid;
+    for (const k of ["power", "mid", "touch"] as const) {
+      const [a, b] = STROKES[k];
+      const n = Math.round(g[k] * 0.6);
+      counts[a] = { all: n };
+      counts[b] = { all: g[k] - n };
+    }
+  }
+  return {
+    schema: "volante-report/1",
+    session: { started_at: ts(d), duration_s: duration, active_s: active, source, pod_fw: pod ? "0.1" : "unknown" },
+    swings: { count: swings, per_min_active: r1(swings / (active / 60)) },
+    speed: { p50_kmh: p50, p90_kmh: p90, max_kmh: max, clipped_frac: r1(drnd() * 0.2) , estimated: true },
+    tempo: { median_gap_s: gap, p25_gap_s: r1(gap * 0.82), p75_gap_s: r1(gap * 1.21) },
+    rallies: { count: rallies, median_shots: 4, longest_shots: 5 + Math.floor(drnd() * 14) },
+    timeline: Array.from({ length: mins }, (_, t) => ({ t_min: t, swings: Math.round(swings / mins), p90_kmh: r1(p90 * (0.9 + drnd() * 0.2)), hr_bpm: hr ? avg - 6 + Math.round(drnd() * 12) : null })),
+    heart_rate: hr ? { avg_bpm: avg, max_bpm: avg + 25 } : null,
+    strokes: strokes ? { groups: g, counts, speed_by_class: { smash: { p50_kmh: r1(p90 * 1.1), p90_kmh: r1(max * 0.95) } }, unclassified: g.unclassified, experimental: true } : null,
+    insights: [{ id: "tempo_vs_usual", severity: "info", title: "Quicker than usual", body: `Your median time between shots was ${gap} s.`, evidence: { median_gap_s: gap } }],
+    model: strokes ? { name: "stroke_group_v0", version: "0.1" } : null,
+  };
+}
+
+const dashSessions: { id: string; report: SessionReport }[] = [
+  ...Array.from({ length: 30 }, (_, i) => makeReport(70 - i * 2.3, "pod", i % 3 === 0, i % 2 === 0)),
+  ...[4, 20, 41].map((days) => makeReport(days, "watch", false, true)),
+].map((report, i) => ({ id: `s${String(i + 1).padStart(2, "0")}`, report }));
+
+const unlinked = () => {
+  try {
+    return sessionStorage.getItem("oso-mock-unlinked") === "1";
+  } catch {
+    return false;
+  }
+};
+const mySessions = () => (unlinked() ? [] : [...dashSessions].sort((a, b) => (b.report.session.started_at + b.id).localeCompare(a.report.session.started_at + a.id)));
+const summaryOf = ({ id, report: r }: { id: string; report: SessionReport }): SessionSummary => ({
+  id, started_at: r.session.started_at, source: r.session.source, duration_s: r.session.duration_s, active_s: r.session.active_s, swings: r.swings.count,
+  p90_kmh: r.speed.p90_kmh, max_kmh: r.speed.max_kmh, rallies: r.rallies.count, longest_rally: r.rallies.longest_shots, hr_avg: r.heart_rate?.avg_bpm ?? null, has_strokes: r.strokes !== null,
+});
+
+// port of arena/server/osoarena/dashboard.py aggregate()
+const GROUPS = ["power", "mid", "touch", "not_a_hit", "unclassified"] as const;
+const shares = (gs: Record<string, number>[]): GroupShares | null => {
+  const sums = Object.fromEntries(GROUPS.map((k) => [k, gs.reduce((a, x) => a + (x[k] ?? 0), 0)])) as GroupShares;
+  const total = GROUPS.reduce((a, k) => a + sums[k], 0);
+  if (!total) return null;
+  const out = Object.fromEntries(GROUPS.map((k) => [k, Math.round((sums[k] / total) * 1e4) / 1e4])) as GroupShares;
+  const top = GROUPS.reduce((a, k) => (sums[k] > sums[a] ? k : a));
+  out[top] = Math.round((1 - GROUPS.filter((k) => k !== top).reduce((a, k) => a + out[k], 0)) * 1e4) / 1e4;
+  return out;
+};
+const isoWeek = (d: Date) => {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return `${t.getUTCFullYear()}-W${String(Math.ceil(((+t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7)).padStart(2, "0")}`;
+};
+function dashboard(): Dashboard {
+  const items = [...mySessions()].reverse(); // oldest first
+  const pod = items.filter((x) => x.report.session.source === "pod");
+  const watch = items.filter((x) => x.report.session.source === "watch");
+  const weeks = new Map<string, [number, number, number]>();
+  for (let n = 11; n >= 0; n--) weeks.set(isoWeek(new Date(Date.now() - n * 7 * 86_400_000)), [0, 0, 0]);
+  for (const { report: r } of items) {
+    const w = weeks.get(isoWeek(new Date(r.session.started_at)));
+    if (w) { w[0]++; w[1] += r.swings.count; w[2] += r.session.active_s; }
+  }
+  const best = (xs: typeof items, v: (r: SessionReport) => number | null): Best | null => {
+    let b: Best | null = null;
+    for (const x of xs) { const n = v(x.report); if (n !== null && n > 0 && (!b || n > b.value)) b = { value: n, session_id: x.id, started_at: x.report.session.started_at }; }
+    return b;
+  };
+  const stroked = items.filter((x) => x.report.strokes).map((x) => x.report.strokes!.groups);
+  const recent = shares(stroked.slice(-10));
+  return {
+    totals: { sessions: items.length, swings: items.reduce((a, x) => a + x.report.swings.count, 0), active_min: r1(items.reduce((a, x) => a + x.report.session.active_s, 0) / 60), rallies: items.reduce((a, x) => a + x.report.rallies.count, 0) },
+    weekly: [...weeks].map(([week, [sessions, swings, a]]) => ({ week, sessions, swings, active_min: r1(a / 60) })),
+    trends: pod.slice(-50).map(({ id, report: r }) => ({ id, started_at: r.session.started_at, p90_kmh: r.speed.p90_kmh, swings_per_min: r.swings.per_min_active, median_gap_s: r.tempo.median_gap_s, hr_avg: r.heart_rate?.avg_bpm ?? null })),
+    wrist: { sessions: watch.length, swings: watch.reduce((a, x) => a + x.report.swings.count, 0) },
+    bests: { max_kmh: best(pod, (r) => r.speed.max_kmh), most_swings: best(items, (r) => r.swings.count), longest_rally: best(items, (r) => r.rallies.longest_shots), best_rate: best(items, (r) => r.swings.per_min_active) },
+    strokes: recent && { groups: recent, overall: shares(stroked), sessions: stroked.slice(-10).length, experimental: true },
+    style: unlinked() ? null : models.find((m) => m.twin)?.twin?.profile ?? null,
+    twin_model_id: null,
+  };
+}
+
 let signedIn = true;
 let uploadsLeft = 5;
 const myPending = new Map<number, { polls: number; bad: boolean }>();
@@ -169,7 +284,7 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
   const p = url.pathname;
   const q = url.searchParams;
   const n = (k: string) => (q.get(k) ? Number(q.get(k)) : undefined);
-  if (p === "/api/me" && method === "GET") return json({ user: signedIn ? me0 : null, csrf: "mock-csrf", uploads_left_today: uploadsLeft } satisfies Me);
+  if (p === "/api/me" && method === "GET") return json({ user: signedIn ? me0 : null, csrf: "mock-csrf", uploads_left_today: uploadsLeft, app_linked: !unlinked() } satisfies Me);
   if (method !== "GET" && new Headers(init.headers).get("x-csrf-token") !== "mock-csrf") return json({ error: "csrf", detail: "missing CSRF token" }, 403);
   if (p === "/api/me" && method === "DELETE") return (signedIn = false), json(null, 204);
   if (p === "/auth/logout") return (signedIn = false), json(null, 204);
@@ -186,6 +301,22 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
     if (r.error !== null) return json({ error: "invalid_name", detail: r.error }, 400);
     pod.name = r.name;
     return json(pod);
+  }
+  if (p === "/api/me/dashboard" || p.startsWith("/api/me/sessions")) {
+    if (!signedIn) return json({ error: "auth", detail: "Please sign in." }, 401);
+    if (p === "/api/me/dashboard") return json(dashboard());
+    if (p === "/api/me/sessions") {
+      const all = mySessions().map(summaryOf);
+      const [t, , id = ""] = /^([^~]*)(~(.*))?$/.exec(q.get("before") ?? "")?.slice(1) ?? [];
+      const older = q.get("before") ? all.filter((x) => x.started_at < t || (x.started_at === t && id !== "" && x.id < id)) : all;
+      const lim = n("limit") ?? 20;
+      const items = older.slice(0, lim);
+      const last = items[items.length - 1];
+      return json({ items, next_before: older.length > lim ? `${last.started_at}~${last.id}` : null });
+    }
+    const sm = /^\/api\/me\/sessions\/([\w.-]+)$/.exec(p);
+    const x = sm && mySessions().find((y) => y.id === sm[1]);
+    return x ? json({ id: x.id, report: x.report }) : json({ error: "not_found", detail: "No such session." }, 404);
   }
   if (p === "/api/seasons") return json(seasons);
   if (p === "/api/ladder") {
@@ -276,5 +407,12 @@ export async function installMock() {
     signedIn = true;
     location.href = "/arena/my-models";
   });
+  try {
+    const f = new URLSearchParams(location.search);
+    if (f.has("unlinked")) sessionStorage.setItem("oso-mock-unlinked", "1");
+    if (f.has("linked")) sessionStorage.removeItem("oso-mock-unlinked");
+  } catch {
+    // storage blocked: stay linked
+  }
   console.info("[oso] mock API installed (npm run dev:mock)");
 }
