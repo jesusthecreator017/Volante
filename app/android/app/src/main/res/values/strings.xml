@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">oso</string>
-    <string name="title_activity_main">oso</string>
+    <string name="app_name">Volante</string>
+    <string name="title_activity_main">Volante</string>
     <string name="package_name">dev.oso.racquet</string>
     <string name="custom_url_scheme">dev.oso.racquet</string>
 </resources>
