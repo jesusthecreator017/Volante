@@ -180,8 +180,8 @@ struct PodView: View {
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
             HStack {
-                BigStat(value: pod.liveSwings.last.map { String(format: "%.1f", $0.headSpeed) } ?? "–", unit: "m/s", label: "Last", style: .title2)
-                BigStat(value: live.bestSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: "Peak", style: .title2)
+                BigStat(value: pod.liveSwings.last.map { kmh($0.headSpeed) } ?? "–", unit: "km/h", label: "Last", style: .title2)
+                BigStat(value: live.bestSpeed.map { kmh($0) } ?? "–", unit: "km/h", label: "Peak", style: .title2)
                 BigStat(value: "\(live.hitCount)", label: "Hits", style: .title2)
             }
             if !pod.liveSwings.isEmpty {
@@ -191,7 +191,7 @@ struct PodView: View {
                         Circle().fill(s.impact ? Theme.hot : Theme.group(.unclassified)).frame(width: 10, height: 10).accessibilityHidden(true)
                         Text(s.impact ? "Hit" : "No contact").font(.subheadline.weight(.semibold))
                         Spacer(minLength: 8)
-                        Text(String(format: "%.1f m/s", s.headSpeed)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(kmh(s.headSpeed) + " km/h").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }

@@ -103,7 +103,8 @@ final class FitbitLink: NSObject, ASWebAuthenticationPresentationContextProvidin
             && now.timeIntervalSince(meta.createdAt) < 7 * 86400 && now.timeIntervalSince(tried[meta.id] ?? .distantPast) > 600 {
             tried[meta.id] = now
             guard let anchor = meta.anchor, let a = store.analysis(meta) else { continue }
-            let from = Date(timeIntervalSince1970: anchor.wall(a.t0) - 60), to = Date(timeIntervalSince1970: anchor.wall(a.t1) + 60)
+            // 3 minutes after play too: the recovery (heart-rate drop) needs them
+            let from = Date(timeIntervalSince1970: anchor.wall(a.t0) - 60), to = Date(timeIntervalSince1970: anchor.wall(a.t1) + 180)
             guard let hr = try? await heartRate(from: from, to: to), !hr.isEmpty else { continue }
             var m = meta
             m.heartRate = hr

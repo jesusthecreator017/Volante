@@ -44,10 +44,10 @@ struct ShareCardView: View {
                 Text(analysis.mount == .wrist ? "Best hand speed" : "Best head speed")
                     .font(.system(size: 44, weight: .semibold, design: .rounded)).foregroundStyle(soft)
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text(s.maxSpeed.map { String(format: "%.1f", $0) } ?? "–")
+                    Text(s.maxSpeed.map { kmh($0) } ?? "–")
                         .font(.system(size: 260, weight: .black, design: .rounded).monospacedDigit()).foregroundStyle(ink)
                         .minimumScaleFactor(0.5).lineLimit(1)
-                    Text("m/s").font(.system(size: 64, weight: .bold, design: .rounded)).foregroundStyle(soft)
+                    Text("km/h").font(.system(size: 64, weight: .bold, design: .rounded)).foregroundStyle(soft)
                 }
             }
 

@@ -28,7 +28,7 @@ struct SessionHeaderView: View {
             StatGrid(minimum: 130) {
                 BigStat(value: clock(s.durationS), label: "Duration", onBanner: true)
                 BigStat(value: "\(s.swingCount)", unit: "/ \(s.hitCount) hits", label: "Swings", onBanner: true)
-                BigStat(value: s.maxSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: analysis.mount == .wrist ? "Best hand speed" : "Best head speed", onBanner: true)
+                BigStat(value: s.maxSpeed.map { kmh($0) } ?? "–", unit: "km/h", label: analysis.mount == .wrist ? "Best hand speed" : "Best head speed", onBanner: true)
                 BigStat(value: "\(s.rallyCount)", unit: "longest \(s.longestRally)", label: "Rallies", onBanner: true)
             }
             if !kinds.isEmpty {
