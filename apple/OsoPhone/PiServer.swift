@@ -13,6 +13,13 @@ final class PiServer {
         didSet { UserDefaults.standard.set(baseURL, forKey: "oso.pi.url"); reachable = nil }
     }
     private(set) var reachable: Bool?
+    /// Why the last check failed, in plain words (nil when it worked or has not run).
+    private(set) var problem: String?
+    /// The server lives on the Tailscale network (a *.ts.net or 100.x address), so the phone needs the Tailscale VPN on.
+    var needsTailscale: Bool {
+        let host = URL(string: baseURL)?.host ?? ""
+        return host.hasSuffix(".ts.net") || host.hasPrefix("100.")
+    }
     private(set) var busy = false
     private(set) var checking = false
 
@@ -52,8 +59,49 @@ final class PiServer {
         do {
             let d = try expectOK(await request("health"))
             reachable = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["app"] as? String == "oso"
+            problem = reachable == true ? nil : "Something answered at that address, but it isn't the Volante server."
         } catch {
+            // Tailscale up but its DNS off ("Use Tailscale DNS"): the ts.net name doesn't resolve, the Pi's tailnet IP still works
+            // (and IP connections are exempt from ATS). Switch to it when it answers.
+            if let e = error as? URLError, [.cannotFindHost, .dnsLookupFailed].contains(e.code), baseURL == Self.defaultURL,
+               let d = try? expectOK(await probe(Self.fallbackURL)),
+               (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["app"] as? String == "oso" {
+                baseURL = Self.fallbackURL
+                reachable = true
+                problem = nil
+                return
+            }
             reachable = false
+            problem = explain(error)
+        }
+    }
+
+    /// The team Pi's Tailscale IP (stable for the node), for phones whose Tailscale DNS is off.
+    static let fallbackURL = "http://100.103.93.45:8090"
+
+    private func probe(_ base: String) async throws -> (Data, Int) {
+        let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: URL(string: base + "/api/health")!, timeoutInterval: 8))
+        return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    private func explain(_ error: Error) -> String {
+        let tail = needsTailscale ? " Open the Tailscale app on this iPhone, sign in and turn it on, then check again." : ""
+        guard let e = error as? URLError else {
+            if case PiError.badURL = error { return "That address isn't a valid URL." }
+            return error.localizedDescription
+        }
+        switch e.code {
+        case .cannotFindHost, .dnsLookupFailed:
+            return needsTailscale ? "This iPhone can't find the Pi: it isn't connected to Tailscale." + tail
+                                  : "This iPhone can't find that address. Check it, or use the Pi's IP address."
+        case .timedOut, .cannotConnectToHost, .networkConnectionLost:
+            return "The Pi didn't answer. It may be off, or the server isn't running." + (needsTailscale ? " Also check Tailscale is connected on this iPhone." : "")
+        case .notConnectedToInternet:
+            return "This iPhone is offline."
+        case .appTransportSecurityRequiresSecureConnection:
+            return "iOS blocked plain http to this address. Use the Pi's Tailscale name (pi5server-1.tail05420e.ts.net) or a local IP."
+        default:
+            return e.localizedDescription + tail
         }
     }
 

@@ -26,6 +26,14 @@ struct SettingsView: View {
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .onSubmit(check)
                     Button("Check connection", action: check).disabled(pi.checking || checking)
+                    if let why = pi.problem, pi.reachable == false {
+                        Label(why, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Theme.bad)
+                        if pi.needsTailscale {
+                            Link(destination: URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!) {
+                                Label("Get Tailscale", systemImage: "arrow.down.app")
+                            }
+                        }
+                    }
                 } header: {
                     Text("Volante server")
                 } footer: {
