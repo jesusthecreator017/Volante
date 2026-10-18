@@ -16,6 +16,9 @@ from osoarena import config, db, scheduler  # noqa: E402
 
 def test_demo_players_and_first_tournament():
     con = db.connect()
+    con.executescript(db.SCHEMA)
+    with db.tx(con):
+        db.set_meta(con, "demo_seeded_1", "x")  # the old key, written by a deploy that had no demo folder
     db.init(con)
     db.init(con)  # idempotent
     demo = con.execute("SELECT * FROM models WHERE user_id>? AND status='active'", (db.DEMO_USER_BASE,)).fetchall()
