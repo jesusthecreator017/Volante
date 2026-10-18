@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "volante-report/1",
+  "title": "Volante session report (docs/strokes/report-format.md)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session",
+    "swings",
+    "speed",
+    "tempo",
+    "rallies",
+    "timeline",
+    "heart_rate",
+    "strokes",
+    "insights",
+    "model"
+  ],
+  "properties": {
+    "schema": {
+      "const": "volante-report/1"
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "duration_s",
+        "active_s",
+        "source",
+        "pod_fw"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$"
+        },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "active_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "source": {
+          "enum": [
+            "pod",
+            "watch"
+          ]
+        },
+        "pod_fw": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._ ,-]{1,64}$"
+        }
+      }
+    },
+    "swings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "per_min_active"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "per_min_active": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "speed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p50_kmh",
+        "p90_kmh",
+        "max_kmh",
+        "clipped_frac",
+        "estimated"
+      ],
+      "properties": {
+        "p50_kmh": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p90_kmh": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_kmh": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clipped_frac": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "estimated": {
+          "const": true
+        }
+      }
+    },
+    "tempo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median_gap_s",
+        "p25_gap_s",
+        "p75_gap_s"
+      ],
+      "properties": {
+        "median_gap_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p25_gap_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p75_gap_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "rallies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "median_shots",
+        "longest_shots"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "median_shots": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "longest_shots": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "t_min",
+          "swings",
+          "p90_kmh",
+          "hr_bpm"
+        ],
+        "properties": {
+          "t_min": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "swings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "p90_kmh": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_bpm": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "heart_rate": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "avg_bpm",
+        "max_bpm"
+      ],
+      "properties": {
+        "avg_bpm": {
+          "type": "number"
+        },
+        "max_bpm": {
+          "type": "number"
+        }
+      }
+    },
+    "strokes": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "groups",
+        "experimental"
+      ],
+      "properties": {
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "speed_by_class": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "unclassified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "experimental": {
+          "type": "boolean"
+        }
+      }
+    },
+    "insights": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "title",
+          "body",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z_]{1,40}$"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "tip",
+              "praise"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "model": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
