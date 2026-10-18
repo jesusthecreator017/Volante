@@ -1,0 +1,54 @@
+{
+  "schema": "volante-report/1",
+  "session": {
+    "started_at": "2026-10-17T18:00:00Z",
+    "duration_s": 20.5,
+    "active_s": 13.9,
+    "source": "pod",
+    "pod_fw": "unknown"
+  },
+  "swings": {
+    "count": 8,
+    "per_min_active": 34.6
+  },
+  "speed": {
+    "p50_kmh": 33.3,
+    "p90_kmh": 60.3,
+    "max_kmh": 92.3,
+    "clipped_frac": 0.125,
+    "estimated": true
+  },
+  "tempo": {
+    "median_gap_s": 2.0,
+    "p25_gap_s": 1.81,
+    "p75_gap_s": 2.34
+  },
+  "rallies": {
+    "count": 2,
+    "median_shots": 4.0,
+    "longest_shots": 5
+  },
+  "timeline": [
+    {
+      "t_min": 0,
+      "swings": 8,
+      "p90_kmh": 60.3,
+      "hr_bpm": null
+    }
+  ],
+  "heart_rate": null,
+  "strokes": null,
+  "insights": [
+    {
+      "id": "tempo_vs_usual",
+      "severity": "info",
+      "title": "Quicker than usual",
+      "body": "Your median time between shots was 2.0 s, 15 % quicker than your last 5 sessions.",
+      "evidence": {
+        "median_gap_s": 2.0,
+        "usual_gap_s": 2.35
+      }
+    }
+  ],
+  "model": null
+}

@@ -168,6 +168,7 @@ jobs:
           python tools/strokes/test_review.py # Phase 16.4a label policy and review server
           python tools/strokes/test_train.py # Phase 16.4a features, augmentation, tiny GBM + CNN, ONNX parity
           python tools/strokes/test_export_trees.py # Phase 22 tree export: JSON evaluator == sklearn, schema, committed models in sync
+          python tools/strokes/test_report.py # volante-report/1: parity vector, schema, examples
 
   site:
     name: site (vitest, build)
