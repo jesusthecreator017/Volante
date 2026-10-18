@@ -32,5 +32,6 @@ struct LiveSessionWidget: Widget {
             }
             .keylineTint(LiveStyle.shuttle)
         }
+        .supplementalActivityFamilies([.small])  // the Smart Stack on a paired Apple Watch
     }
 }

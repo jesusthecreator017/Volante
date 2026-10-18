@@ -23,6 +23,13 @@ struct LiveSessionAttributes: ActivityAttributes {
         var ended: Date?
         /// heart rate from the Apple Watch workout, when one runs
         var heartRate: Double? = nil
+        /// what the session is now, when it changed after the start (a watch workout the pod joined): one activity carries
+        /// the whole session, since a new one cannot start while the app is in the background
+        var liveMode: Mode? = nil
+        var liveName: String? = nil
+
+        func mode(_ a: LiveSessionAttributes) -> Mode { liveMode ?? a.mode }
+        func name(_ a: LiveSessionAttributes) -> String { liveName ?? a.podName }
     }
 
     var podName: String
@@ -93,19 +100,24 @@ private struct Reconnecting: View {
 struct LiveLockScreenView: View {
     let attributes: LiveSessionAttributes
     let state: LiveSessionAttributes.ContentState
+    @Environment(\.activityFamily) private var family
 
     var body: some View {
+        if family == .small { LiveWatchStackView(attributes: attributes, state: state) } else { lockScreen }
+    }
+
+    private var lockScreen: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label(attributes.podName, systemImage: "figure.badminton").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Label(state.name(attributes), systemImage: "figure.badminton").font(.subheadline.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 8)
                 if state.connected {
-                    Label(attributes.mode.label, systemImage: attributes.mode.icon).font(.caption.weight(.semibold)).foregroundStyle(LiveStyle.mint)
+                    Label(state.mode(attributes).label, systemImage: state.mode(attributes).icon).font(.caption.weight(.semibold)).foregroundStyle(LiveStyle.mint)
                 } else {
                     Reconnecting()
                 }
             }
-            if attributes.mode == .recording {
+            if state.mode(attributes) == .recording {
                 HStack(alignment: .bottom, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recording on pod").font(.system(size: 22, weight: .heavy, design: .rounded)).lineLimit(1).minimumScaleFactor(0.7)
@@ -114,7 +126,7 @@ struct LiveLockScreenView: View {
                     Spacer(minLength: 0)
                     ElapsedTimer(state: state, size: 22)
                 }
-            } else if attributes.mode == .watch {
+            } else if state.mode(attributes) == .watch {
                 HStack(alignment: .bottom, spacing: 18) {
                     Stat(value: "\(state.swings)", label: "Swings (wrist)", size: 38)
                     Stat(value: state.hrText, unit: "bpm", label: "Heart rate", size: 30)
@@ -148,7 +160,7 @@ struct LiveCompactTrailing: View {
     let attributes: LiveSessionAttributes
     let state: LiveSessionAttributes.ContentState
     var body: some View {
-        if attributes.mode == .recording {
+        if state.mode(attributes) == .recording {
             Text(timerInterval: state.timerRange, pauseTime: nil, countsDown: false, showsHours: false)
                 .font(LiveStyle.number(13)).lineLimit(1).minimumScaleFactor(0.7).multilineTextAlignment(.trailing).frame(maxWidth: 48, alignment: .trailing)
                 .foregroundStyle(state.connected ? LiveStyle.shuttle : LiveStyle.warn)
@@ -162,7 +174,7 @@ struct LiveMinimal: View {
     let attributes: LiveSessionAttributes
     let state: LiveSessionAttributes.ContentState
     var body: some View {
-        if attributes.mode == .recording {
+        if state.mode(attributes) == .recording {
             Image(systemName: "record.circle.fill").foregroundStyle(state.connected ? Color.red : LiveStyle.warn)
         } else {
             Text("\(state.swings)").font(LiveStyle.number(14)).foregroundStyle(state.connected ? LiveStyle.shuttle : LiveStyle.warn)
@@ -174,7 +186,7 @@ struct LiveExpandedLeading: View {
     let attributes: LiveSessionAttributes
     let state: LiveSessionAttributes.ContentState
     var body: some View {
-        if attributes.mode == .recording {
+        if state.mode(attributes) == .recording {
             Label("Recording on pod", systemImage: "record.circle.fill").font(.subheadline.weight(.bold)).foregroundStyle(.white).lineLimit(1)
         } else {
             Stat(value: "\(state.swings)", label: "Swings", size: 34).foregroundStyle(.white)
@@ -192,15 +204,15 @@ struct LiveExpandedBottom: View {
     let state: LiveSessionAttributes.ContentState
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if attributes.mode == .recording {
-                Text("\(attributes.podName) · swings appear after upload").font(.caption).foregroundStyle(.white.opacity(0.92)).lineLimit(1)
+            if state.mode(attributes) == .recording {
+                Text("\(state.name(attributes)) · swings appear after upload").font(.caption).foregroundStyle(.white.opacity(0.92)).lineLimit(1)
             } else {
                 HStack(alignment: .bottom, spacing: 22) {
-                    if attributes.mode != .watch {
+                    if state.mode(attributes) != .watch {
                         Stat(value: state.lastText, unit: "km/h", label: "Last", size: 26)
                         Stat(value: state.bestText, unit: "km/h", label: "Best", size: 26)
                     }
-                    if state.heartRate != nil || attributes.mode == .watch {
+                    if state.heartRate != nil || state.mode(attributes) == .watch {
                         Stat(value: state.hrText, unit: "bpm", label: "Heart rate", size: 26)
                     } else {
                         Stat(value: "\(state.hits)", label: "Hits", size: 26)
@@ -209,12 +221,33 @@ struct LiveExpandedBottom: View {
                 }
             }
             if state.connected {
-                Label("\(attributes.mode.label) · \(attributes.podName)", systemImage: attributes.mode.icon)
+                Label("\(state.mode(attributes).label) · \(state.name(attributes))", systemImage: state.mode(attributes).icon)
                     .font(.caption.weight(.semibold)).foregroundStyle(LiveStyle.mint).lineLimit(1)
             } else {
                 Reconnecting()
             }
         }
         .foregroundStyle(.white)
+    }
+}
+
+// MARK: Apple Watch Smart Stack (the iPhone's activity on the wrist)
+
+struct LiveWatchStackView: View {
+    let attributes: LiveSessionAttributes
+    let state: LiveSessionAttributes.ContentState
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Label(state.mode(attributes).label, systemImage: "figure.badminton")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(LiveStyle.mint).lineLimit(1)
+                Text("\(state.swings)").font(LiveStyle.number(28)).foregroundStyle(LiveStyle.shuttle)
+                Text(state.heartRate != nil ? "swings · \(state.hrText) bpm" : "swings").font(.caption2).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            ElapsedTimer(state: state, size: 16)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
     }
 }

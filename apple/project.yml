@@ -42,6 +42,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSHealthShareUsageDescription: Volante reads your heart rate from Apple Health to add it to a badminton session when you choose Add heart rate.
+        NSHealthUpdateUsageDescription: Volante follows the badminton workout you start on your Apple Watch, so it can show it on the Lock Screen and end it with your pod session.
+        UIBackgroundModes: [bluetooth-central] # a live pod session keeps streaming with the phone locked
         NSBluetoothAlwaysUsageDescription: Volante connects to the racquet pod over Bluetooth to record your swings.
         NSLocalNetworkUsageDescription: Volante talks to your Volante server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
         NSAppTransportSecurity:
