@@ -390,17 +390,8 @@ ul.plain li {
   width: 30px;
   height: 30px;
   flex: none;
-}
-.mark-sq {
-  fill: var(--accent);
-}
-.mark-cut {
-  fill: var(--bg);
-}
-.mark-bar {
-  stroke: var(--bg);
-  stroke-width: 3;
-  fill: none;
+  border-radius: 22.5%; /* the iOS icon corner */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
 }
 .site-header a:has(.brand) {
   color: var(--on-court);

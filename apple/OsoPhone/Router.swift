@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class Router {
-    enum Tab: String { case summary, pod, sessions, connections }
+    enum Tab: String { case summary, pod, sessions, arena, connections }
     var tab: Tab = .summary
     /// The Settings sheet (server, intro, about), opened from the Summary and Devices toolbars.
     var showSettings = false

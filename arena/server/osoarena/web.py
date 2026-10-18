@@ -35,7 +35,7 @@ MULTIPART_OVERHEAD = 16 * 1024
 TYPES = {".wasm": "application/wasm", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8", ".json": "application/json",
          ".svg": "image/svg+xml", ".woff2": "font/woff2", ".gltf": "model/gltf+json", ".bin": "application/octet-stream",
-         ".txt": "text/plain; charset=utf-8", ".png": "image/png"}
+         ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webmanifest": "application/manifest+json"}
 COMPRESSIBLE = {".wasm", ".js", ".mjs", ".css", ".html", ".json", ".svg", ".gltf", ".bin", ".txt"}
 
 
