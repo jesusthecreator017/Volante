@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("oso.onboarded") private var onboarded = false
     @AppStorage(FitbitLink.autoAttachKey) private var autoFitbit = true
     @AppStorage(HealthPrefs.ageKey) private var age = 0
+    @AppStorage("volante.watch.linked") private var watchLinked = true
     @AppStorage(HealthPrefs.maxHRKey) private var maxHR = 0.0
     @Environment(SessionStore.self) private var store
     @State private var checking = false
@@ -41,6 +42,14 @@ struct SettingsView: View {
                     Text("Volante server")
                 } footer: {
                     Text("Optional. A Raspberry Pi running the Volante server backs up your sessions, builds 3D replays and brings in Fitbit heart rate. The team Pi is reached over Tailscale: keep the Tailscale app connected on this iPhone.")
+                }
+
+                Section {
+                    Toggle("Start and stop together", isOn: $watchLinked)
+                } header: {
+                    Text("Apple Watch")
+                } footer: {
+                    Text("Starting a live session on the phone starts Badminton on your watch, and starting Badminton on the watch starts a live pod session when the pod is connected. Ending one ends the other.")
                 }
 
                 Section {

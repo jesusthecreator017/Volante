@@ -6,7 +6,8 @@ import ActivityKit
 import SwiftUI
 
 struct LiveSessionAttributes: ActivityAttributes {
-    enum Mode: String, Codable, Hashable { case streaming, recording }
+    /// streaming / recording: the pod (with the watch's heart rate when a workout runs too); watch: an Apple Watch workout alone
+    enum Mode: String, Codable, Hashable { case streaming, recording, watch }
 
     struct ContentState: Codable, Hashable {
         var swings: Int
@@ -20,6 +21,8 @@ struct LiveSessionAttributes: ActivityAttributes {
         var connected: Bool
         /// set when the session ends: the timer stops there while the final state stays on screen
         var ended: Date?
+        /// heart rate from the Apple Watch workout, when one runs
+        var heartRate: Double? = nil
     }
 
     var podName: String
@@ -40,14 +43,15 @@ enum LiveStyle {
 }
 
 extension LiveSessionAttributes.Mode {
-    var label: String { self == .streaming ? "Live session" : "Recording" }
-    var icon: String { self == .streaming ? "waveform.path.ecg" : "record.circle" }
+    var label: String { switch self { case .streaming: "Live session"; case .recording: "Recording"; case .watch: "Apple Watch" } }
+    var icon: String { switch self { case .streaming: "waveform.path.ecg"; case .recording: "record.circle"; case .watch: "applewatch" } }
 }
 
 extension LiveSessionAttributes.ContentState {
     var timerRange: ClosedRange<Date> { start...max(start, ended ?? .distantFuture) }
     var lastText: String { lastSpeed.map { String(format: "%.0f", $0 * 3.6) } ?? "–" }  // km/h, like the app
     var bestText: String { bestSpeed > 0 ? String(format: "%.0f", bestSpeed * 3.6) : "–" }
+    var hrText: String { heartRate.map { String(format: "%.0f", $0) } ?? "–" }
 }
 
 private struct Stat: View {
@@ -110,11 +114,19 @@ struct LiveLockScreenView: View {
                     Spacer(minLength: 0)
                     ElapsedTimer(state: state, size: 22)
                 }
-            } else {
+            } else if attributes.mode == .watch {
                 HStack(alignment: .bottom, spacing: 18) {
-                    Stat(value: "\(state.swings)", label: state.hits > 0 ? "Swings (\(state.hits) hits)" : "Swings", size: 38)
-                    Stat(value: state.lastText, unit: "km/h", label: "Last", size: 30)
-                    Stat(value: state.bestText, unit: "km/h", label: "Best", size: 30)
+                    Stat(value: "\(state.swings)", label: "Swings (wrist)", size: 38)
+                    Stat(value: state.hrText, unit: "bpm", label: "Heart rate", size: 30)
+                    Spacer(minLength: 0)
+                    ElapsedTimer(state: state, size: 22)
+                }
+            } else {
+                HStack(alignment: .bottom, spacing: 16) {
+                    Stat(value: "\(state.swings)", label: state.hits > 0 ? "Swings (\(state.hits) hits)" : "Swings", size: 36)
+                    Stat(value: state.lastText, unit: "km/h", label: "Last", size: 28)
+                    Stat(value: state.bestText, unit: "km/h", label: "Best", size: 28)
+                    if state.heartRate != nil { Stat(value: state.hrText, unit: "bpm", label: "Heart", size: 28) }
                     Spacer(minLength: 0)
                     ElapsedTimer(state: state, size: 22)
                 }
@@ -184,9 +196,15 @@ struct LiveExpandedBottom: View {
                 Text("\(attributes.podName) · swings appear after upload").font(.caption).foregroundStyle(.white.opacity(0.92)).lineLimit(1)
             } else {
                 HStack(alignment: .bottom, spacing: 22) {
-                    Stat(value: state.lastText, unit: "km/h", label: "Last", size: 26)
-                    Stat(value: state.bestText, unit: "km/h", label: "Best", size: 26)
-                    Stat(value: "\(state.hits)", label: "Hits", size: 26)
+                    if attributes.mode != .watch {
+                        Stat(value: state.lastText, unit: "km/h", label: "Last", size: 26)
+                        Stat(value: state.bestText, unit: "km/h", label: "Best", size: 26)
+                    }
+                    if state.heartRate != nil || attributes.mode == .watch {
+                        Stat(value: state.hrText, unit: "bpm", label: "Heart rate", size: 26)
+                    } else {
+                        Stat(value: "\(state.hits)", label: "Hits", size: 26)
+                    }
                     Spacer(minLength: 0)
                 }
             }

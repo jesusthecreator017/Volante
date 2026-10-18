@@ -1,6 +1,7 @@
 // Receives Apple Watch sessions (imu.bin + meta with heart rate) over WatchConnectivity and live swing counts.
 
 import Foundation
+@preconcurrency import HealthKit
 import Observation
 @preconcurrency import WatchConnectivity
 
@@ -16,6 +17,11 @@ final class WatchReceiver: NSObject, WCSessionDelegate {
     private(set) var liveSwings: Int?
     private(set) var liveHeartRate: Double?
     private(set) var lastReceived: String?
+    /// a badminton workout is running on the watch (from its start/live/end messages)
+    private(set) var workoutActive = false
+    private(set) var workoutStart: Date?
+    @ObservationIgnored private var lastLive = Date.distantPast
+    @ObservationIgnored private let health = HKHealthStore()
     @ObservationIgnored var onSession: ((URL, SessionMeta) -> Void)?
 
     override init() {
@@ -47,10 +53,47 @@ final class WatchReceiver: NSObject, WCSessionDelegate {
     nonisolated func session(_ s: WCSession, didReceiveMessage message: [String: Any]) {
         let swings = message["swings"] as? Int
         let bpm = message["bpm"] as? Double
+        let event = message["event"] as? String
+        let start = (message["start"] as? Double).map { Date(timeIntervalSince1970: $0) }
         DispatchQueue.main.async { MainActor.assumeIsolated {
-            self.liveSwings = swings
-            self.liveHeartRate = bpm
+            switch event {
+            case "ended":
+                self.workoutActive = false
+                self.liveSwings = nil
+                self.liveHeartRate = nil
+            default:  // "started", "live", or an older watch build without events
+                if !self.workoutActive { self.workoutActive = true; self.workoutStart = start ?? Date() }
+                self.liveSwings = swings ?? self.liveSwings ?? 0
+                self.liveHeartRate = bpm ?? self.liveHeartRate
+                self.lastLive = Date()
+            }
         } }
+    }
+
+    // MARK: driving the watch
+
+    /// Launches Volante on the watch straight into a badminton workout (HealthKit's own iPhone-to-watch start).
+    func startWorkout() async {
+        guard paired, installed, !workoutActive else { return }
+        let config = HKWorkoutConfiguration()
+        config.activityType = .badminton
+        config.locationType = .indoor
+        do { try await health.startWatchApp(toHandle: config) } catch { /* the watch may be off the wrist: the pod session runs anyway */ }
+    }
+
+    /// Ends the watch workout (it then sends its session as usual).
+    func endWorkout() {
+        guard workoutActive, WCSession.default.activationState == .activated else { return }
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(["command": "end"], replyHandler: nil)
+        } else {
+            WCSession.default.transferUserInfo(["command": "end"])
+        }
+    }
+
+    /// No live message for a while: the watch app was killed or went out of range.
+    func expireIfSilent() {
+        if workoutActive, Date().timeIntervalSince(lastLive) > 30 { workoutActive = false; liveSwings = nil; liveHeartRate = nil }
     }
 
     nonisolated func session(_ s: WCSession, didReceive file: WCSessionFile) {

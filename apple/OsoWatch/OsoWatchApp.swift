@@ -2,9 +2,29 @@
 
 import SwiftUI
 
+import HealthKit
+import WatchKit
+
+/// The iPhone starts a badminton workout here (HKHealthStore.startWatchApp) when a live pod session starts.
+final class WatchAppDelegate: NSObject, WKApplicationDelegate {
+    @MainActor static var workout: WorkoutManager?
+    func handle(_ workoutConfiguration: HKWorkoutConfiguration) {
+        Task { @MainActor in
+            guard let w = Self.workout, w.phase == .idle || w.phase == .sent else { return }
+            await w.requestAuthorization()
+            await w.start()
+        }
+    }
+}
+
 @main
 struct OsoWatchApp: App {
-    @State private var workout = WorkoutManager()
+    @WKApplicationDelegateAdaptor private var delegate: WatchAppDelegate
+    @State private var workout: WorkoutManager = {
+        let w = WorkoutManager()
+        WatchAppDelegate.workout = w
+        return w
+    }()
 
     var body: some Scene {
         WindowGroup {

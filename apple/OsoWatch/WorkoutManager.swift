@@ -89,10 +89,13 @@ final class WorkoutManager: NSObject {
             startDate = Date() // the simulator may refuse a workout session: the demo runs without one
         }
         phase = .running
+        notifyPhone("started")
         #if targetEnvironment(simulator)
-        if simulated { startSimulatedMotion() } else { startMotion() }
+        if simulated { startSimulatedMotion() } else if session?.state == .running { startMotion() }
         #else
-        startMotion()
+        // CMBatchedSensorManager only delivers while the workout session is running: wait for the delegate's .running
+        // (workoutSession(_:didChangeTo:)), unless it is already there.
+        if session?.state == .running { startMotion() }
         #endif
         // Once a second on the main actor: elapsed time and the live swing count to the phone
         ticker = Task { @MainActor [weak self] in
@@ -105,15 +108,27 @@ final class WorkoutManager: NSObject {
         }
     }
 
-    private func startMotion() {
+    /// High-rate device motion, retried a few times (the sensor can refuse right as the workout session comes up).
+    fileprivate func startMotion() {
+        guard motionTask == nil else { return }
         motionTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                for try await batch in self.motion.deviceMotionUpdates() {
-                    self.ingest(batch)
+            for attempt in 1...4 {
+                do {
+                    for try await batch in self.motion.deviceMotionUpdates() {
+                        self.ingest(batch)
+                        if self.error?.hasPrefix("Motion") == true { self.error = nil }
+                    }
+                    return
+                } catch {
+                    if Task.isCancelled || self.phase != .running { return }
+                    if CMBatchedSensorManager.authorizationStatus == .denied || CMBatchedSensorManager.authorizationStatus == .restricted {
+                        self.error = "Motion is off for Volante: on the watch, Settings > Privacy & Security > Motion & Fitness, turn on Fitness Tracking and Volante."
+                        return
+                    }
+                    self.error = attempt < 4 ? "Motion is starting… (try \(attempt))" : "Motion: \(error.localizedDescription) (\((error as NSError).domain) \((error as NSError).code))"
+                    try? await Task.sleep(for: .seconds(Double(attempt)))
                 }
-            } catch {
-                self.error = "motion: \(error.localizedDescription)"
             }
         }
     }
@@ -149,6 +164,8 @@ final class WorkoutManager: NSObject {
         phase = .ending
         ticker?.cancel()
         motionTask?.cancel()
+        motionTask = nil
+        notifyPhone("ended")
         session.end()
         do {
             try await builder.endCollection(at: Date())
@@ -165,9 +182,24 @@ final class WorkoutManager: NSObject {
 
     private func sendLive() {
         guard WCSession.default.activationState == .activated, WCSession.default.isReachable else { return }
-        var msg: [String: Any] = ["swings": swings]
+        var msg: [String: Any] = ["event": "live", "swings": swings, "start": startDate.timeIntervalSince1970]
         if let heartRate { msg["bpm"] = heartRate }
         WCSession.default.sendMessage(msg, replyHandler: nil)
+    }
+
+    /// "started" / "ended", so the phone can start or stop its pod session and Live Activity with the workout.
+    private func notifyPhone(_ event: String) {
+        guard WCSession.default.activationState == .activated, WCSession.default.isReachable else { return }
+        WCSession.default.sendMessage(["event": event, "swings": swings, "start": startDate.timeIntervalSince1970], replyHandler: nil)
+    }
+
+    /// A command from the phone ("end" when its live session ends).
+    fileprivate func handle(command: String) {
+        switch command {
+        case "end" where phase == .running: Task { await end() }
+        case "start" where phase == .idle || phase == .sent: Task { await start() }
+        default: break
+        }
     }
 
     private func send() {
@@ -193,7 +225,16 @@ final class WorkoutManager: NSObject {
 }
 
 extension WorkoutManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate, WCSessionDelegate {
-    nonisolated func workoutSession(_ s: HKWorkoutSession, didChangeTo to: HKWorkoutSessionState, from: HKWorkoutSessionState, date: Date) {}
+    nonisolated func workoutSession(_ s: HKWorkoutSession, didChangeTo to: HKWorkoutSessionState, from: HKWorkoutSessionState, date: Date) {
+        guard to == .running else { return }
+        DispatchQueue.main.async { MainActor.assumeIsolated {
+            #if targetEnvironment(simulator)
+            if CMBatchedSensorManager.isDeviceMotionSupported, self.phase == .running { self.startMotion() }
+            #else
+            if self.phase == .running { self.startMotion() }
+            #endif
+        } }
+    }
     nonisolated func workoutSession(_ s: HKWorkoutSession, didFailWithError error: Error) {
         let message = error.localizedDescription
         DispatchQueue.main.async { MainActor.assumeIsolated { self.error = message } }
@@ -226,6 +267,14 @@ extension WorkoutManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate
     }
 
     nonisolated func session(_ s: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+    nonisolated func session(_ s: WCSession, didReceiveMessage message: [String: Any]) {
+        guard let c = message["command"] as? String else { return }
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.handle(command: c) } }
+    }
+    nonisolated func session(_ s: WCSession, didReceiveUserInfo info: [String: Any] = [:]) {
+        guard let c = info["command"] as? String else { return }
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.handle(command: c) } }
+    }
 }
 
 extension JSONEncoder {
