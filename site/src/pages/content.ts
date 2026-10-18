@@ -108,7 +108,7 @@ export function privacy(root: HTMLElement) {
     h("p", null, "The profile contains no name, no pod ID and no timestamps except its creation time. It is shown publicly on the model's page. Deleting the model or your account deletes it."),
     h("p", null, "Delete your account any time from the account menu: your account is removed."),
     h("h2", null, "Your dashboard"),
-    h("p", null, "If you sign in to the Arena in the Volante app, it sends a summary of each session (counts, estimated speeds, rhythm, heart-rate averages, experimental stroke groups) so you can see your stats under Account → Dashboard. No raw motion data leaves your phone."),
+    h("p", null, "If you sign in to the Arena in the Volante app, it sends a summary of each session (start time, duration, sensor, counts, estimated speeds, rhythm, heart-rate averages, experimental stroke groups) so you can see your stats under Account → Dashboard. This includes Apple Watch sessions. No raw motion data leaves your phone."),
     h("p", null, "Only you can see these summaries: they are never public and never shown to other users."),
     h("p", null, "To delete them, use \"Delete my web data\" in the app's settings (it also removes your stored style profile), or delete your account here (Settings), which removes them with it. Turning sync off in the app stops new uploads."),
     h("p", null, "Deleted data can remain in the nightly server backups for up to 14 days, after which those backups are overwritten."),

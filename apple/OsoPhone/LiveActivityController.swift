@@ -15,6 +15,9 @@ struct LiveSnapshot: Equatable {
     var lastSpeed: Double?
     var bestSpeed = 0.0
     var connected = true
+    var heartRate: Double?
+    /// when the session began, if before now (a watch workout that the phone heard about late)
+    var start: Date?
 }
 
 @MainActor
@@ -49,9 +52,10 @@ final class LiveActivityController {
             return
         }
         if !s.connected { armGrace() } else { graceTask?.cancel(); graceTask = nil }
-        if let a = activity, a.attributes.mode != mode { end(immediately: true) }   // mode is a static attribute
+        // A mode change keeps the activity (the state carries the new mode): restarting would fail with the app in the background
         if activity == nil { guard begin(mode: mode, snapshot: s) else { return } }
-        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected)
+        var state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected, heartRate: s.heartRate)
+        if let a = activity, a.attributes.mode != mode { state.liveMode = mode; state.liveName = s.podName }
         guard state != latest else { return }
         latest = state
         schedule()
@@ -80,9 +84,9 @@ final class LiveActivityController {
             log.info("Live Activities are off: skipping")   // not an error
             return false
         }
-        start = Date()
+        start = min(Date(), s.start ?? Date())
         throttle.reset()
-        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected)
+        let state = LiveState(swings: s.swings, hits: s.hits, lastSpeed: s.lastSpeed, bestSpeed: s.bestSpeed, start: start, connected: s.connected, heartRate: s.heartRate)
         do {
             activity = try Activity.request(
                 attributes: LiveSessionAttributes(podName: s.podName, mode: mode),

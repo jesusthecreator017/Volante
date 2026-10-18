@@ -74,6 +74,24 @@ final class SessionStore {
     /// Imports a file received from the watch (moved out of WatchConnectivity's temporary location by the caller).
     func importFile(_ url: URL, meta: SessionMeta) throws {
         try save(imu: [UInt8](try Data(contentsOf: url)), meta: meta)
+        if meta.source == .watch { fuseWithPod(watch: meta) }
+    }
+
+    /// A watch session that overlaps a pod session: the pod session gets the watch's heart rate, and its swings are checked
+    /// against the wrist's (DualSensorMatch) so the summary can say how many were real strokes.
+    func fuseWithPod(watch w: SessionMeta) {
+        guard let wa = analysis(w), let wAnchor = w.anchor else { return }
+        let wStart = wAnchor.wall(wa.t0), wEnd = wAnchor.wall(wa.t1)
+        for var p in sessions where p.source == .podStream || p.source == .podUpload {
+            guard let pAnchor = p.anchor, let pa = analysis(p) else { continue }
+            let pStart = pAnchor.wall(pa.t0), pEnd = pAnchor.wall(pa.t1)
+            guard pStart < wEnd, wStart < pEnd else { continue }
+            let m = DualSensorMatch.match(pod: pa.swings.map { pAnchor.wall($0.tStart) }, wrist: wa.swings.map { wAnchor.wall($0.tStart) })
+            p.pairedSessionId = w.id
+            p.wristConfirmed = m.pairs.count
+            if p.heartRate.isEmpty, !w.heartRate.isEmpty { p.heartRate = w.heartRate; p.heartRateSource = "Apple Watch" }
+            try? writeMeta(p)
+        }
     }
 
     func writeMeta(_ meta: SessionMeta) throws {

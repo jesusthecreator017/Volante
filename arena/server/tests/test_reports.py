@@ -70,9 +70,9 @@ def test_migrate_adds_tables_and_column():
     db.migrate(con)
     db.migrate(con)  # no-op
     names = {r["name"] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"app_sessions", "app_style"} <= names
+    assert {"play_sessions", "app_style"} <= names
     assert "app_linked_at" in {r["name"] for r in con.execute("PRAGMA table_info(users)")}
-    assert con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='app_sessions_time'").fetchone()
+    assert con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='play_sessions_time'").fetchone()
 
 
 def test_validator_rejects_type_and_format_edge_cases():

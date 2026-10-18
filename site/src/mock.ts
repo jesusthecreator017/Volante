@@ -2,7 +2,7 @@
 // exists. Deterministic fixtures; same shapes as src/types.ts. Never included in the production build (__MOCK__).
 
 import { checkPodName } from "./pods";
-import type { Best, Dashboard, GroupShares, LadderItem, LadderName, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, Season, SessionReport, SessionSummary, Side, StyleProfile, Tie, Tournament, Twin } from "./types";
+import type { Best, Dashboard, GroupShares, LadderItem, LadderName, MatchDetail, Me, ModelDetail, ModelSummary, Pod, Rally, PlaySession, Report, Season, Side, StyleProfile, Tie, Tournament, Twin } from "./types";
 
 /** Real kit matches from scripts/make-mock-replays.sh (gitignored); empty when they haven't been made. Keyed by match id. */
 type Fixture = Pick<MatchDetail, "games_won" | "winner" | "games" | "seed" | "rallies"> & { a: Pick<ModelSummary, "name" | "build">; b: Pick<ModelSummary, "name" | "build"> };
@@ -162,7 +162,7 @@ const r1 = (x: number) => Math.round(x * 10) / 10;
 const ts = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
 const STROKES = { power: ["smash", "clear"], mid: ["drive", "drop"], touch: ["net_shot", "block_push"] } as const; // two classes per group (report-format.md §3)
 
-function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, hr: boolean): SessionReport {
+function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, hr: boolean): Report {
   const d = new Date(Date.now() - daysAgo * 86_400_000);
   d.setUTCHours(17 + Math.floor(drnd() * 4), Math.floor(drnd() * 60), Math.floor(drnd() * 60), 0);
   const duration = Math.round(1200 + drnd() * 2400);
@@ -208,10 +208,21 @@ function makeReport(daysAgo: number, source: "pod" | "watch", strokes: boolean, 
   };
 }
 
-const dashSessions: { id: string; report: SessionReport }[] = [
+/** The flat PUT body of a session (what the app sends besides the report). Watch sessions come without a report (the app builds
+ *  reports for the racquet only), and one old pod session too (an app build before reports). */
+const playOf = (id: string, r: Report, sensor: PlaySession["sensor"], withReport = true): PlaySession => ({
+  id, started_at: r.session.started_at, sensor, duration_s: r.session.duration_s, swings: r.swings.count, hits: Math.round(r.swings.count * 0.8),
+  best_kmh: sensor === "watch" ? null : r.speed.max_kmh, avg_bpm: r.heart_rate?.avg_bpm ?? null, uploaded_at: r.session.started_at,
+  report: withReport ? r : null,
+});
+const dashSessions: PlaySession[] = [
   ...Array.from({ length: 30 }, (_, i) => makeReport(70 - i * 2.3, "pod", i % 3 === 0, i % 2 === 0)),
   ...[4, 20, 41].map((days) => makeReport(days, "watch", false, true)),
-].map((report, i) => ({ id: `s${String(i + 1).padStart(2, "0")}`, report }));
+].map((r, i) => {
+  const id = `s${String(i + 1).padStart(2, "0")}`;
+  if (r.session.source === "watch") return playOf(id, r, "watch", false);
+  return playOf(id, r, r.heart_rate && i % 4 === 0 ? "pod+watch" : "pod", i !== 5);
+});
 
 const unlinked = () => {
   try {
@@ -220,11 +231,8 @@ const unlinked = () => {
     return false;
   }
 };
-const mySessions = () => (unlinked() ? [] : [...dashSessions].sort((a, b) => (b.report.session.started_at + b.id).localeCompare(a.report.session.started_at + a.id)));
-const summaryOf = ({ id, report: r }: { id: string; report: SessionReport }): SessionSummary => ({
-  id, started_at: r.session.started_at, source: r.session.source, duration_s: r.session.duration_s, active_s: r.session.active_s, swings: r.swings.count,
-  p90_kmh: r.speed.p90_kmh, max_kmh: r.speed.max_kmh, rallies: r.rallies.count, longest_rally: r.rallies.longest_shots, hr_avg: r.heart_rate?.avg_bpm ?? null, has_strokes: r.strokes !== null,
-});
+const mySessions = () => (unlinked() ? [] : [...dashSessions].sort((a, b) => (b.started_at + b.id).localeCompare(a.started_at + a.id)));
+const summaryOf = ({ report, ...x }: PlaySession): PlaySession => x; // the list leaves the report out
 
 // port of arena/server/osoarena/dashboard.py aggregate()
 const GROUPS = ["power", "mid", "touch", "not_a_hit", "unclassified"] as const;
@@ -243,28 +251,37 @@ const isoWeek = (d: Date) => {
   return `${t.getUTCFullYear()}-W${String(Math.ceil(((+t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7)).padStart(2, "0")}`;
 };
 function dashboard(): Dashboard {
-  const items = [...mySessions()].reverse(); // oldest first
-  const pod = items.filter((x) => x.report.session.source === "pod");
-  const watch = items.filter((x) => x.report.session.source === "watch");
+  // a session's report when it has one, else its flat numbers (duration as active time); "watch" is the wrist
+  const items = [...mySessions()].reverse().map((x) => {
+    const r = x.report;
+    return {
+      id: x.id, started_at: x.started_at, wrist: x.sensor === "watch", active_s: r ? r.session.active_s : x.duration_s, swings: r ? r.swings.count : x.swings,
+      rallies: r?.rallies.count ?? 0, longest: r?.rallies.longest_shots ?? 0, p90: r?.speed.p90_kmh ?? null, max: r ? r.speed.max_kmh : x.best_kmh,
+      rate: r?.swings.per_min_active ?? null, gap: r?.tempo.median_gap_s ?? null, hr: r?.heart_rate?.avg_bpm ?? x.avg_bpm, groups: r?.strokes?.groups ?? null,
+    };
+  });
+  type Row = (typeof items)[number];
+  const pod = items.filter((x) => !x.wrist);
+  const watch = items.filter((x) => x.wrist);
   const weeks = new Map<string, [number, number, number]>();
   for (let n = 11; n >= 0; n--) weeks.set(isoWeek(new Date(Date.now() - n * 7 * 86_400_000)), [0, 0, 0]);
-  for (const { report: r } of items) {
-    const w = weeks.get(isoWeek(new Date(r.session.started_at)));
-    if (w) { w[0]++; w[1] += r.swings.count; w[2] += r.session.active_s; }
+  for (const x of items) {
+    const w = weeks.get(isoWeek(new Date(x.started_at)));
+    if (w) { w[0]++; w[1] += x.swings; w[2] += x.active_s; }
   }
-  const best = (xs: typeof items, v: (r: SessionReport) => number | null): Best | null => {
+  const best = (xs: Row[], v: (x: Row) => number | null): Best | null => {
     let b: Best | null = null;
-    for (const x of xs) { const n = v(x.report); if (n !== null && n > 0 && (!b || n > b.value)) b = { value: n, session_id: x.id, started_at: x.report.session.started_at }; }
+    for (const x of xs) { const n = v(x); if (n !== null && n > 0 && (!b || n > b.value)) b = { value: n, session_id: x.id, started_at: x.started_at }; }
     return b;
   };
-  const stroked = items.filter((x) => x.report.strokes).map((x) => x.report.strokes!.groups);
+  const stroked = items.flatMap((x) => (x.groups ? [x.groups] : []));
   const recent = shares(stroked.slice(-10));
   return {
-    totals: { sessions: items.length, swings: items.reduce((a, x) => a + x.report.swings.count, 0), active_min: r1(items.reduce((a, x) => a + x.report.session.active_s, 0) / 60), rallies: items.reduce((a, x) => a + x.report.rallies.count, 0) },
+    totals: { sessions: items.length, swings: items.reduce((a, x) => a + x.swings, 0), active_min: r1(items.reduce((a, x) => a + x.active_s, 0) / 60), rallies: items.reduce((a, x) => a + x.rallies, 0) },
     weekly: [...weeks].map(([week, [sessions, swings, a]]) => ({ week, sessions, swings, active_min: r1(a / 60) })),
-    trends: pod.slice(-50).map(({ id, report: r }) => ({ id, started_at: r.session.started_at, p90_kmh: r.speed.p90_kmh, swings_per_min: r.swings.per_min_active, median_gap_s: r.tempo.median_gap_s, hr_avg: r.heart_rate?.avg_bpm ?? null })),
-    wrist: { sessions: watch.length, swings: watch.reduce((a, x) => a + x.report.swings.count, 0) },
-    bests: { max_kmh: best(pod, (r) => r.speed.max_kmh), most_swings: best(items, (r) => r.swings.count), longest_rally: best(items, (r) => r.rallies.longest_shots), best_rate: best(items, (r) => r.swings.per_min_active) },
+    trends: pod.slice(-50).map((x) => ({ id: x.id, started_at: x.started_at, p90_kmh: x.p90, swings_per_min: x.rate, median_gap_s: x.gap, hr_avg: x.hr })),
+    wrist: { sessions: watch.length, swings: watch.reduce((a, x) => a + x.swings, 0) },
+    bests: { max_kmh: best(pod, (x) => x.max), most_swings: best(items, (x) => x.swings), longest_rally: best(items, (x) => x.longest), best_rate: best(items, (x) => x.rate) },
     strokes: recent && { groups: recent, overall: shares(stroked), sessions: stroked.slice(-10).length, experimental: true },
     style: unlinked() ? null : models.find((m) => m.twin)?.twin?.profile ?? null,
     twin_model_id: null,
@@ -318,7 +335,7 @@ async function handle(url: URL, init: RequestInit): Promise<Response> {
     }
     const sm = /^\/api\/me\/sessions\/([\w.-]+)$/.exec(p);
     const x = sm && mySessions().find((y) => y.id === sm[1]);
-    return x ? json({ id: x.id, report: x.report }) : json({ error: "not_found", detail: "No such session." }, 404);
+    return x ? json(x) : json({ error: "not_found", detail: "No such session." }, 404);
   }
   if (p === "/api/seasons") return json(seasons);
   if (p === "/api/ladder") {

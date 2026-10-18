@@ -1,7 +1,9 @@
-// Session summaries to the web dashboard (docs/superpowers/specs/2026-10-18-web-dashboard-design.md §4): when signed in to the
-// Arena and "Show my sessions on volante web" is on, every saved pod session's volante-report/1 goes to PUT /api/me/sessions/{id}
-// (a backfill of the older ones, oldest first, 15 a minute at most) and the style profile to PUT /api/me/style. Summaries only:
-// no raw IMU, no device name. The queue (OsoKit WebSyncQueue) is saved per Arena user, so a quit or sign-out resumes cleanly.
+// Sessions to the web dashboard (docs/superpowers/specs/2026-10-18-web-dashboard-design.md §4, arena/handoff/PROMPT.md §7): when
+// signed in to the Arena and "Show my sessions on volante web" is on, every saved session (pod, watch, pod + watch) goes to
+// PUT /api/me/sessions/{id} as a flat body (started_at, sensor, duration_s, swings, hits, best_kmh, avg_bpm) plus, for racquet
+// sessions, its volante-report/1; a backfill of the older ones, oldest first, 15 a minute at most; and the style profile to
+// PUT /api/me/style. Summaries only: no raw IMU, no device name. The queue (OsoKit WebSyncQueue) is saved per Arena user, so a quit
+// or sign-out resumes cleanly. The one sync path: the Arena account card reads its counts from here.
 
 import CryptoKit
 import Foundation
@@ -55,9 +57,10 @@ final class WebSync {
         // safety net only (deletes come from sessionDeleted); never infers deletes from an empty or half-read store
         state.reconcile(local: Set(store.sessions.map(\.id)), loaded: store.loadedCleanly)
         guard state.enabled || !state.pendingDeletes.isEmpty else { save(); return }
-        // ponytail: pod sessions only; the app builds no wrist report yet (hand speed is not head speed). Add watch with source "watch".
-        state.enqueue(store.sessions.filter { $0.source != .watch }.map {
-            .init(id: $0.id, startedAt: $0.createdAt.timeIntervalSince1970, fingerprint: "hr\($0.heartRate.count)", isSample: $0.source == .sample)
+        // the fingerprint changes when the body would: heart rate added later, or a watch session paired with the pod one
+        state.enqueue(store.sessions.map {
+            .init(id: $0.id, startedAt: $0.createdAt.timeIntervalSince1970,
+                  fingerprint: "hr\($0.heartRate.count)\($0.pairedSessionId == nil ? "" : "+w\($0.wristConfirmed ?? 0)")", isSample: $0.source == .sample)
         })
         save()
         if task == nil || task!.isCancelled {
@@ -99,13 +102,14 @@ final class WebSync {
         }
     }
 
+    /// The server's body cap: a 256 KB report plus the flat fields.
+    static let maxBody = 256 * 1024 + 4096
+
     private func send(_ id: String) async {
         guard let meta = store.sessions.first(where: { $0.id == id }) else { state.drop(id); return }
-        await store.loadRowSummary(meta)
-        guard let report = await store.report(meta, breakdown: store.rowSummaries[id]?.breakdown, forWeb: true) else { state.drop(id); return }
-        let body = report.uploadBody()
+        guard let body = await body(meta) else { state.drop(id); return }  // unreadable: nothing to show on the web
         let now = { Date().timeIntervalSince1970 }
-        guard body.count <= 16384 else {
+        guard body.count <= Self.maxBody else {
             state.failed(id, now: now(), permanent: true, error: "A session is too long to show on the web.")
             return
         }
@@ -122,6 +126,26 @@ final class WebSync {
             if Self.cancelled(error) { return }  // sync turned off or the web data deleted mid-upload: not a failure
             state.failed(id, now: now(), error: "Can't reach volante web. Will retry.")
         }
+    }
+
+    /// PUT /api/me/sessions/{id}: the flat numbers every session has, and the report for racquet sessions (the app builds none for
+    /// the wrist: hand speed is not racquet speed). nil when the session can't be analysed.
+    private func body(_ meta: SessionMeta) async -> Data? {
+        guard let a = store.analysis(meta) else { return nil }
+        let s = a.summary, wrist = a.mount == .wrist
+        var o: [String: Any] = [
+            "started_at": ISO8601DateFormatter().string(from: meta.createdAt),
+            "sensor": wrist ? "watch" : meta.pairedSessionId != nil ? "pod+watch" : "pod",
+            "duration_s": s.durationS, "swings": s.swingCount, "hits": s.hitCount,
+        ]
+        if let m = s.maxSpeed, !wrist { o["best_kmh"] = (m * 3.6 * 10).rounded() / 10 }
+        if let h = store.heartStats(meta), (20...260).contains(h.avg) { o["avg_bpm"] = (h.avg * 10).rounded() / 10 }
+        await store.loadRowSummary(meta)
+        if let r = await store.report(meta, breakdown: store.rowSummaries[meta.id]?.breakdown, forWeb: true),
+           let j = try? JSONSerialization.jsonObject(with: Data(r.json().utf8)) {
+            o["report"] = j
+        }
+        return try? JSONSerialization.data(withJSONObject: o)
     }
 
     private func delete(_ id: String) async {

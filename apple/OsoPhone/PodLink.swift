@@ -202,6 +202,7 @@ final class PodLink: NSObject {
         livePackets = 0
         send(.startStream)
         updateActivity()
+        onStreamingChange?(true)
     }
 
     func stopStream(save: Bool) {
@@ -210,16 +211,34 @@ final class PodLink: NSObject {
         stream = nil
         live = nil
         updateActivity()
+        onStreamingChange?(false)
         guard save, !c.packets.isEmpty else { return }
         finish(c, source: .podStream, note: nil)
     }
 
-    /// Mirrors the session onto the Live Activity; the controller throttles and ends it.
-    private func updateActivity() {
-        let mode: LiveSessionAttributes.Mode? = streaming ? .streaming : (status?.recording == true ? .recording : nil)
+    /// A running Apple Watch workout (set by the app from WatchReceiver): its heart rate joins the pod's Live Activity, and
+    /// without a pod session the activity shows the watch alone.
+    /// a live session started or stopped (the app starts / ends the watch workout with it)
+    var onStreamingChange: ((Bool) -> Void)?
+
+    var watchWorkout: (swings: Int, heartRate: Double?, start: Date?)? {
+        didSet { updateActivity() }
+    }
+
+    /// Mirrors the session onto the Live Activity; the controller throttles and ends it. The single place both the pod and
+    /// the watch feed, so neither can end the other's activity.
+    func updateActivity() {
+        var mode: LiveSessionAttributes.Mode? = streaming ? .streaming : (status?.recording == true ? .recording : nil)
+        if mode == nil, watchWorkout != nil { mode = .watch }
+        if mode == .watch {
+            liveActivity.sync(LiveSnapshot(mode: .watch, podName: "Apple Watch", swings: watchWorkout?.swings ?? 0,
+                                           connected: true, heartRate: watchWorkout?.heartRate, start: watchWorkout?.start))
+            return
+        }
         liveActivity.sync(LiveSnapshot(
             mode: mode, podName: peripheralName ?? "Volante pod", swings: live?.swingCount ?? 0, hits: live?.hitCount ?? 0,
-            lastSpeed: liveSwings.last?.headSpeed, bestSpeed: live?.bestSpeed ?? 0, connected: state == .connected))
+            lastSpeed: liveSwings.last?.headSpeed, bestSpeed: live?.bestSpeed ?? 0, connected: state == .connected,
+            heartRate: watchWorkout?.heartRate))
     }
 
     // MARK: upload

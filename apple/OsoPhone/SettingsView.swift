@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("oso.onboarded") private var onboarded = false
     @AppStorage(FitbitLink.autoAttachKey) private var autoFitbit = true
     @AppStorage(HealthPrefs.ageKey) private var age = 0
+    @AppStorage("volante.watch.linked") private var watchLinked = true
     @AppStorage(HealthPrefs.maxHRKey) private var maxHR = 0.0
     @Environment(SessionStore.self) private var store
     @Environment(ArenaClient.self) private var arena
@@ -48,6 +49,14 @@ struct SettingsView: View {
                 }
 
                 webSection
+
+                Section {
+                    Toggle("Start and stop together", isOn: $watchLinked)
+                } header: {
+                    Text("Apple Watch")
+                } footer: {
+                    Text("Starting a live session on the phone starts Badminton on your watch, and starting Badminton on the watch starts a live pod session when the pod is connected. Ending one ends the other.")
+                }
 
                 Section {
                     Stepper(value: $age, in: 0...100) { LabeledContent("Age", value: age == 0 ? "Not set" : "\(age)") }

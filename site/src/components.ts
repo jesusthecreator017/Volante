@@ -184,7 +184,7 @@ export async function load<T>(slot: HTMLElement, f: () => Promise<T>, render: (v
   }
 }
 
-/** The header's account slot: Sign in, or the avatar menu (Dashboard only when the account is linked to the Volante app). */
+/** The header's account slot: Sign in, or the avatar menu (Dashboard when the account is linked to the Volante app or has sessions: the server's app_linked). */
 export function renderAccount(el: HTMLElement, m: Me | null) {
   if (!m?.user) {
     replace(el, h("a", { href: loginUrl(), class: "btn small with-icon signin", "aria-label": "Sign in with GitHub" }, icon("github-logo"), h("span", { class: "signin-label" }, "Sign in")));

@@ -139,19 +139,6 @@ private func drain(_ q: inout WebSyncQueue, now: inout Double) -> [String] {
     #expect(WebSyncQueue.isValidId(String(repeating: "a", count: 64)))
 }
 
-@Test func testUploadBodyIsCompactReport() throws {
-    let cap = try ImuFile.parse([UInt8](try Data(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("../../../../arena/kit/tests/data/twins_vector.imu.bin").standardized)))
-    let r = SessionReporter.build(parts: [cap.samples], startedAt: "2026-10-17T18:00:00Z", mount: .identity)
-    let body = r.uploadBody()
-    let top = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-    #expect(Array(top.keys) == ["report"])
-    let pretty = try JSONSerialization.jsonObject(with: Data(r.json().utf8)) as! NSDictionary
-    #expect((top["report"] as! NSDictionary) == pretty)
-    #expect(body.count < r.json().utf8.count)
-    #expect(!String(decoding: body, as: UTF8.self).contains("\n"))
-}
-
 @Test func testPhoneDeletesPropagate() throws {
     var q = WebSyncQueue()
     q.enqueue(sessions())

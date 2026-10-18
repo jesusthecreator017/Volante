@@ -33,6 +33,8 @@ export function match(path: string): { route: Route; params: Params } | null {
 const LEGACY = /^\/(ladder|models\/\d+|matches\/\d+|tournaments(\/\d+)?|my-models|get-started)\/?$/;
 export function redirectFor(path: string): string | null {
   if (/^\/arena\/twins\/?$/.test(path)) return "/arena/ladder?ladder=twins"; // the Twins ladder is a switch on the Ladder page
+  const s = /^\/sessions(\/[^/]+)?\/?$/.exec(path); // the app's "See them on the website" link (PR #78): Account → Dashboard
+  if (s) return "/account/dashboard" + (s[1] ? "/sessions" + s[1] : "");
   return LEGACY.test(path) ? "/arena" + path.replace(/\/$/, "") : null;
 }
 

@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { api, me } from "../src/api";
 import { installMock } from "../src/mock";
-import type { SessionReport, SessionSummary } from "../src/types";
+import type { PlaySession, Report } from "../src/types";
 
 const TOP = ["schema", "session", "swings", "speed", "tempo", "rallies", "timeline", "heart_rate", "strokes", "insights", "model"];
 const TS = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/;
 
-function checkReport(r: SessionReport) {
+function checkReport(r: Report) {
   expect(Object.keys(r).sort()).toEqual([...TOP].sort());
   expect(r.schema).toBe("volante-report/1");
   expect(r.session.started_at).toMatch(TS);
@@ -18,11 +18,11 @@ function checkReport(r: SessionReport) {
   expect(r.timeline.length).toBeLessThanOrEqual(600);
   expect(r.insights.length).toBeLessThanOrEqual(4);
   expect(r.strokes === null).toBe(r.model === null);
-  if (r.strokes) expect(Object.values(r.strokes.groups).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(r.swings.count);
+  if (r.strokes) expect(Object.values(r.strokes.groups).reduce((a: number, b: number) => a + b, 0)).toBeLessThanOrEqual(r.swings.count);
 }
 
-async function allSessions(): Promise<SessionSummary[]> {
-  const out: SessionSummary[] = [];
+async function allSessions(): Promise<PlaySession[]> {
+  const out: PlaySession[] = [];
   let before: string | null = null;
   do {
     const page = await api.mySessions(before, 7);
@@ -47,9 +47,10 @@ describe("mock dashboard API (linked user)", () => {
     const all = await allSessions();
     expect(all.length).toBe(33);
     expect(new Set(all.map((s) => s.id)).size).toBe(33);
-    expect(all.filter((s) => s.source === "watch").length).toBe(3);
-    expect(all.some((s) => s.has_strokes)).toBe(true);
-    expect(all.some((s) => s.hr_avg !== null)).toBe(true);
+    expect(all.filter((s) => s.sensor === "watch").length).toBe(3);
+    expect(all.some((s) => s.sensor === "pod+watch")).toBe(true);
+    expect(all.some((s) => s.avg_bpm !== null)).toBe(true);
+    expect(all.every((s) => !("report" in s))).toBe(true); // the list leaves reports out
     const t = all.map((s) => s.started_at);
     expect([...t].sort().reverse()).toEqual(t);
   });
@@ -58,9 +59,13 @@ describe("mock dashboard API (linked user)", () => {
     for (const s of (await allSessions()).slice(0, 33)) {
       const d = await api.mySession(s.id);
       expect(d.id).toBe(s.id);
-      checkReport(d.report);
-      expect(d.report.swings.count).toBe(s.swings);
-      expect(d.report.strokes !== null).toBe(s.has_strokes);
+      expect(d.swings).toBe(s.swings);
+      // the app sends no report for watch sessions (and older builds sent none at all)
+      if (s.sensor === "watch") expect(d.report).toBeNull();
+      if (d.report) {
+        checkReport(d.report);
+        expect(d.report.swings.count).toBe(s.swings);
+      }
     }
     await expect(api.mySession("nope")).rejects.toMatchObject({ status: 404 });
   });

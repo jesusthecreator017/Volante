@@ -1,4 +1,4 @@
-"""Dashboard aggregates (dashboard.aggregate, a pure function). Run:  python -m pytest -q tests/test_dashboard.py"""
+"""Dashboard aggregates (dashboard.aggregate, a pure function over play_sessions rows). Run:  python -m pytest -q tests/test_dashboard.py"""
 import copy
 import json
 import sys
@@ -31,22 +31,31 @@ def rep(started_at, source="pod", swings=10, p90=60.0, mx=90.0, rallies=2, longe
     return reports.validate_report(r)
 
 
+def row(sid, report, sensor=None, **flat):
+    """A play_sessions row for `report` (flat columns derived from it, overridable), as the server hands it to aggregate."""
+    s = report["session"] if report else {}
+    out = {"id": sid, "started_at": s.get("started_at"), "sensor": sensor or ("watch" if s.get("source") == "watch" else "pod"),
+           "duration_s": s.get("duration_s"), "swings": report and report["swings"]["count"], "hits": 0,
+           "best_kmh": report and report["speed"]["max_kmh"], "avg_bpm": None, "report": report}
+    return {**out, **flat}
+
+
 def fixture():
     """5 pod + 2 watch sessions over three ISO weeks; the watch ones have the fastest 'speeds', which must never count."""
     return [
-        {"id": "p1", "report": rep("2026-10-01T18:00:00Z", swings=100, p90=50.0, mx=80.0, rallies=10, longest=8, active_s=1200, rate=5.0)},
-        {"id": "p2", "report": rep("2026-10-03T18:00:00Z", swings=200, p90=55.0, mx=95.5, rallies=20, longest=12, active_s=1800, rate=6.7,
-                                   hr=140, groups={"power": 10, "mid": 20, "touch": 10})},
-        {"id": "p3", "report": rep("2026-10-10T18:00:00Z", swings=50, p90=60.0, mx=88.0, rallies=5, longest=4, active_s=300, rate=10.0,
-                                   groups={"power": 5, "mid": 5, "touch": 5, "not_a_hit": 3, "unclassified": 2})},
-        {"id": "p4", "report": rep("2026-10-12T18:00:00Z", swings=0, p90=None, mx=None, rallies=0, longest=0, active_s=0, rate=None,
-                                   gap=None)},
-        {"id": "p5", "report": rep("2026-10-17T09:30:00Z", swings=150, p90=62.0, mx=91.0, rallies=15, longest=20, active_s=900, rate=10.0,
-                                   hr=150)},
-        {"id": "w1", "report": rep("2026-10-05T07:00:00Z", source="watch", swings=300, p90=150.0, mx=200.0, rallies=0, longest=0,
-                                   active_s=600, rate=30.0)},
-        {"id": "w2", "report": rep("2026-10-16T07:00:00Z", source="watch", swings=40, p90=140.0, mx=190.0, rallies=1, longest=3,
-                                   active_s=120, rate=20.0)},
+        row("p1", rep("2026-10-01T18:00:00Z", swings=100, p90=50.0, mx=80.0, rallies=10, longest=8, active_s=1200, rate=5.0)),
+        row("p2", rep("2026-10-03T18:00:00Z", swings=200, p90=55.0, mx=95.5, rallies=20, longest=12, active_s=1800, rate=6.7,
+                                   hr=140, groups={"power": 10, "mid": 20, "touch": 10})),
+        row("p3", rep("2026-10-10T18:00:00Z", swings=50, p90=60.0, mx=88.0, rallies=5, longest=4, active_s=300, rate=10.0,
+                                   groups={"power": 5, "mid": 5, "touch": 5, "not_a_hit": 3, "unclassified": 2})),
+        row("p4", rep("2026-10-12T18:00:00Z", swings=0, p90=None, mx=None, rallies=0, longest=0, active_s=0, rate=None,
+                                   gap=None)),
+        row("p5", rep("2026-10-17T09:30:00Z", swings=150, p90=62.0, mx=91.0, rallies=15, longest=20, active_s=900, rate=10.0,
+                                   hr=150)),
+        row("w1", rep("2026-10-05T07:00:00Z", source="watch", swings=300, p90=150.0, mx=200.0, rallies=0, longest=0,
+                                   active_s=600, rate=30.0)),
+        row("w2", rep("2026-10-16T07:00:00Z", source="watch", swings=40, p90=140.0, mx=190.0, rallies=1, longest=3,
+                                   active_s=120, rate=20.0)),
     ]
 
 
@@ -80,19 +89,18 @@ def test_dashboard_aggregates():
 
 
 def test_dashboard_strokes_last_10_only():
-    rows = [{"id": f"s{i:02d}", "report": rep(f"2026-10-{i + 1:02d}T10:00:00Z", groups={"power": 1} if i < 2 else {"touch": 1})}
-            for i in range(12)]
+    rows = [row(f"s{i:02d}", rep(f"2026-10-{i + 1:02d}T10:00:00Z", groups={"power": 1} if i < 2 else {"touch": 1})) for i in range(12)]
     s = dashboard.aggregate(rows, None, None, TODAY)["strokes"]
     assert s["sessions"] == 10 and s["groups"]["touch"] == 1.0 and s["groups"]["power"] == 0.0
     assert s["overall"] == {"power": 0.1667, "mid": 0.0, "touch": 0.8333, "not_a_hit": 0.0, "unclassified": 0.0}
 
 
 def test_dashboard_stroke_shares_sum_to_one():
-    rows = [{"id": "a", "report": rep("2026-10-01T10:00:00Z", groups={"power": 1, "mid": 1, "touch": 1})}]
+    rows = [row("a", rep("2026-10-01T10:00:00Z", groups={"power": 1, "mid": 1, "touch": 1}))]
     s = dashboard.aggregate(rows, None, None, TODAY)["strokes"]
     for mix in (s["groups"], s["overall"]):
         assert abs(sum(mix.values()) - 1) < 1e-9 and mix["power"] == 0.3334 and mix["mid"] == mix["touch"] == 0.3333
-    zero = [{"id": "z", "report": rep("2026-10-01T10:00:00Z", groups={"power": 0})}]
+    zero = [row("z", rep("2026-10-01T10:00:00Z", groups={"power": 0}))]
     assert dashboard.aggregate(zero, None, None, TODAY)["strokes"] is None
 
 
@@ -115,16 +123,24 @@ def test_dashboard_empty():
 
 
 def test_weeks_cross_the_year():
-    d = dashboard.aggregate([{"id": "a", "report": rep("2025-12-29T10:00:00Z")}], None, None, date(2026, 1, 4))
+    d = dashboard.aggregate([row("a", rep("2025-12-29T10:00:00Z"))], None, None, date(2026, 1, 4))
     assert d["weekly"][-1] == {"week": "2026-W01", "sessions": 1, "swings": 10, "active_min": 10.0}
     assert d["weekly"][-2]["week"] == "2025-W52"
 
 
-def test_dashboard_skips_rows_that_fail_validation():
-    """Rows stored before the stricter validator (bad date, absurd numbers) are skipped, not a 500."""
-    bad_date = copy.deepcopy(rep("2026-10-17T09:30:00Z"))
-    bad_date["session"]["started_at"] = "2026-13-45T25:61:61Z"
-    huge = copy.deepcopy(rep("2026-10-16T09:30:00Z"))
-    huge["session"]["active_s"] = 1e308
-    rows = fixture() + [{"id": "bad1", "report": bad_date}, {"id": "bad2", "report": huge}, {"id": "bad3", "report": None}]
-    assert dashboard.aggregate(rows, None, None, TODAY) == dashboard.aggregate(fixture(), None, None, TODAY)
+def test_rows_without_report_use_flat_numbers():
+    """main's app may send no report: duration counts as active time, best_kmh as the fastest swing; pod+watch is a racquet
+    session (its speed counts, its heart rate too), watch is the wrist (its speed never counts)."""
+    flat = {"hits": 3}
+    rows = [row("f1", None, sensor="pod+watch", started_at="2026-10-14T10:00:00Z", duration_s=600.0, swings=40, best_kmh=120.0,
+                avg_bpm=130.0, **flat),
+            row("f2", None, sensor="watch", started_at="2026-10-15T10:00:00Z", duration_s=300.0, swings=90, best_kmh=300.0, **flat)]
+    d = dashboard.aggregate(rows, None, None, TODAY)
+    assert d["totals"] == {"sessions": 2, "swings": 130, "active_min": 15.0, "rallies": 0}
+    assert d["weekly"][-1] == {"week": "2026-W42", "sessions": 2, "swings": 130, "active_min": 15.0}
+    assert d["trends"] == [{"id": "f1", "started_at": "2026-10-14T10:00:00Z", "p90_kmh": None, "swings_per_min": None,
+                            "median_gap_s": None, "hr_avg": 130.0}]
+    assert d["wrist"] == {"sessions": 1, "swings": 90}
+    assert d["bests"]["max_kmh"]["session_id"] == "f1" and d["bests"]["most_swings"]["session_id"] == "f2"
+    assert d["bests"]["longest_rally"] is None and d["bests"]["best_rate"] is None and d["strokes"] is None
+    json.dumps(d, allow_nan=False)

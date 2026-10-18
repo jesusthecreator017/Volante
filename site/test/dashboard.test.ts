@@ -122,6 +122,11 @@ describe("dashboard pages", () => {
     expect(bare.querySelector(".strokes svg.mix")).toBeNull();
     expect(bare.querySelector(".heart")).toBeNull();
     expect(bare.querySelector(".timeline .dbar")).not.toBeNull();
+    const flat = root(); // s06: an older app build sent no report: the flat numbers
+    await sessionPage(flat, { id: "s06" });
+    expect(flat.textContent).toContain("No detailed report for this session.");
+    expect(flat.textContent).toContain("hits");
+    expect(full.textContent).toContain("racquet + watch"); // s01 is pod + watch
     const missing = root();
     await sessionPage(missing, { id: "nope" });
     expect(missing.querySelector(".error-box")).toBeNull();

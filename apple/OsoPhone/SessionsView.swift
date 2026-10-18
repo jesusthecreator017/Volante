@@ -210,7 +210,8 @@ struct SessionDetailView: View {
             if a.swings.isEmpty {
                 Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
             }
-            LazyVStack(spacing: 0) {
+            // Not lazy: inside the page's scroll stack a LazyVStack kept its expanded layout after "Show fewer" and drew blank
+            VStack(spacing: 0) {
                 ForEach(shown) { s in
                     NavigationLink { SwingDetailView(analysis: a, start: s.index, strokes: st?.results) } label: { SwingRow(swing: s, result: st?.results[safe: s.index - 1]) }
                         .buttonStyle(.plain)
@@ -236,7 +237,10 @@ struct SessionDetailView: View {
         let s = a.summary
         return Card("Details", systemImage: "list.bullet") {
             VStack(spacing: 8) {
-                LabeledContent("Sensor", value: a.mount == .wrist ? "Apple Watch (wrist)" : "Racquet pod")
+                LabeledContent("Sensor", value: a.mount == .wrist ? "Apple Watch (wrist)" : meta.pairedSessionId != nil ? "Racquet pod + Apple Watch" : "Racquet pod")
+                if let c = meta.wristConfirmed, a.mount != .wrist {
+                    LabeledContent("Confirmed by the watch", value: "\(c) of \(a.swings.count) swings")
+                }
                 LabeledContent("Active time", value: String(format: "%.0f s of %.0f s", s.activeS, s.durationS))
                 LabeledContent("Hits per minute", value: String(format: "%.1f", s.hitsPerMin))
                 if let p = s.peakDps { LabeledContent("Peak |ω|", value: String(format: "%.0f dps%@", p, s.saturatedGyro > 0 ? " (saturated)" : "")) }

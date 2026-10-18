@@ -1,13 +1,13 @@
 // Account → Dashboard: the signed-in owner's Volante app sessions (summaries the app syncs). Private: only the owner sees it.
 // /account/dashboard is the overview, /account/dashboard/sessions/:id one session. Speeds say "estimated", strokes "experimental",
-// watch sessions "wrist" (the watch measures hand speed, never mixed with racquet speed).
+// watch sessions "wrist" (the watch measures hand speed, never mixed with racquet speed). /sessions[/:id] (PR #78) redirect here.
 
 import { ApiError, api, loginUrl, me } from "../api";
 import { barChart, lineChart, mixBar, sparkline } from "../charts";
 import { empty, fmtDate, load, moreLink } from "../components";
 import { h, link } from "../dom";
 import { icon, type IconName } from "../icons";
-import type { Best, Dashboard, GroupShares, SessionReport, SessionSummary, StrokeGroup } from "../types";
+import type { Best, Dashboard, GroupShares, PlaySession, Report, StrokeGroup } from "../types";
 
 const HOME = "/account/dashboard";
 const sessionHref = (id: string) => `${HOME}/sessions/${encodeURIComponent(id)}`;
@@ -50,7 +50,8 @@ function tile(value: string, unit: string, label: string): HTMLElement {
   return h("div", { class: "stat" }, h("strong", null, value, unit ? h("small", null, ` ${unit}`) : null), h("span", null, label));
 }
 
-const sourceTag = (wrist: boolean) => h("span", { class: wrist ? "badge wrist" : "badge" }, wrist ? "wrist" : "racquet");
+export const SENSOR_LABEL: Record<PlaySession["sensor"], string> = { pod: "racquet", watch: "wrist", "pod+watch": "racquet + watch" };
+const sensorTag = (sensor: PlaySession["sensor"]) => h("span", { class: sensor === "watch" ? "badge wrist" : "badge" }, SENSOR_LABEL[sensor]);
 
 function strokeMix(g: GroupShares | Record<string, number>, label: string): HTMLElement {
   const total = Object.values(g).reduce((a, b) => a + b, 0) || 1;
@@ -86,15 +87,15 @@ function bestRow(label: string, b: Best | null, fmt: (v: number) => string): HTM
   );
 }
 
-function sessionRow(x: SessionSummary): HTMLElement {
-  const wrist = x.source === "watch";
-  const speed = x.p90_kmh == null ? null : `${n1(x.p90_kmh)} km/h ${wrist ? "hand speed" : "hard swings"}`;
+function sessionRow(x: PlaySession): HTMLElement {
+  // best_kmh is the racquet's fastest swing; the wrist's hand speed is never shown as one
+  const speed = x.best_kmh == null || x.sensor === "watch" ? null : `best ${n1(x.best_kmh)} km/h`;
   return h(
     "li",
     null,
     link(sessionHref(x.id), fmtDate(x.started_at)),
-    sourceTag(wrist),
-    h("span", { class: "muted small" }, [`${Math.round(x.duration_s / 60)} min`, `${n0(x.swings)} swings`, speed].filter(Boolean).join(" · ")),
+    sensorTag(x.sensor),
+    h("span", { class: "muted small" }, [`${Math.round(x.duration_s / 60)} min`, `${n0(x.swings)} swings`, `${n0(x.hits)} hits`, speed].filter(Boolean).join(" · ")),
   );
 }
 
@@ -216,14 +217,31 @@ export async function dashboard(root: HTMLElement) {
 
 // ---------------------------------------------------------------- one session
 
-const TONE: Record<SessionReport["insights"][number]["severity"], [string, IconName]> = { praise: ["good", "seal-check"], tip: ["tip", "target"], info: ["info", "info"] };
+const TONE: Record<Report["insights"][number]["severity"], [string, IconName]> = { praise: ["good", "seal-check"], tip: ["tip", "target"], info: ["info", "info"] };
 
-function report(r: SessionReport): HTMLElement[] {
-  const wrist = r.session.source === "watch";
+/** A session without a report (watch sessions, older app builds): the flat numbers the app sent. */
+function flat(p: PlaySession): HTMLElement[] {
+  const wrist = p.sensor === "watch";
+  return [
+    h(
+      "div",
+      { class: "stats-row" },
+      tile(n0(p.swings), "", "swings"),
+      tile(n0(p.hits), "", "hits"),
+      tile(n0(p.duration_s / 60), "min", "duration"),
+      wrist ? tile(n1(p.avg_bpm), "bpm", "average heart rate") : tile(n1(p.best_kmh), "km/h", "fastest swing (estimated)"),
+    ),
+    h("p", { class: "empty" }, wrist ? "Wrist sessions have no detailed report: the watch measures hand speed, not the racquet." : "No detailed report for this session."),
+  ];
+}
+
+function report(r: Report, p: PlaySession): HTMLElement[] {
+  const wrist = p.sensor === "watch";
   const speedWord = wrist ? "hand speed" : "hard swings";
   const tl = r.timeline;
   const ends: [string, string] = ["0 min", `${tl.length ? tl[tl.length - 1].t_min + 1 : 0} min`];
   const tempo = [
+    `${n0(p.hits)} hits`,
     r.tempo.median_gap_s != null ? `${n1(r.tempo.median_gap_s)} s between shots (median)` : null,
     r.rallies.median_shots != null ? `rallies ${r.rallies.median_shots} shots (median), longest ${r.rallies.longest_shots}` : null,
   ].filter(Boolean);
@@ -257,7 +275,7 @@ function report(r: SessionReport): HTMLElement[] {
       tile(n1(r.speed.p90_kmh), "km/h", `${speedWord} (estimated)`),
       tile(n0(r.rallies.count), "", "rallies"),
     ),
-    tempo.length ? h("p", { class: "muted small" }, tempo.join(" · ")) : h("span"),
+    h("p", { class: "muted small" }, tempo.join(" · ")),
     timeline,
     h(
       "div",
@@ -303,8 +321,7 @@ export async function sessionPage(root: HTMLElement, params: Record<string, stri
   const get = () => api.mySession(params.id).catch((e) => (e instanceof ApiError && e.status === 404 ? null : Promise.reject(e)));
   await load(slot, get, (d) => {
     if (!d) return void slot.append(empty("Session not found — it may have been deleted from the app."));
-    const r = d.report;
-    title.replaceChildren(fmtDate(r.session.started_at), " ", sourceTag(r.session.source === "watch"));
-    slot.append(...report(r));
+    title.replaceChildren(fmtDate(d.started_at), " ", sensorTag(d.sensor));
+    slot.append(...(d.report ? report(d.report, d) : flat(d)));
   });
 }

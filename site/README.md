@@ -125,20 +125,24 @@ app." The same rows are in `arena/handoff/PROMPT.md` (section 6 table and cross-
 
 ## For the Pi agent: dashboard endpoints (history routing and API)
 
-History routing: serve `index.html` for `/account/dashboard` and `/account/dashboard/sessions/<id>` (as for every other site route; the id is `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`).
+History routing: serve `index.html` for `/account/dashboard` and `/account/dashboard/sessions/<id>` (as for every other site route; the id is
+`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, e.g. the app's `20261018-025030-c2d6`). `/sessions` and `/sessions/<id>` (the first app build's
+"See them on the website" link) are served too; the site redirects them to the dashboard paths.
 ```
-GET    /api/me                      adds app_linked: bool
-GET    /api/me/sessions             [auth]        ?before=<next_before>&limit=1-100 (20)  -> 200 {"items":[SessionSummary],"next_before":str|null}
-GET    /api/me/sessions/{id}        [auth]        200 {"id","report":volante-report/1} | 404
+GET    /api/me                      adds app_linked: bool (signed in from the app, or has sessions)
+GET    /api/me/sessions             [auth]        ?before=<next_before>&limit=1-500 (50)  -> 200 {"items":[PlaySession],"next_before":str|null}
+GET    /api/me/sessions/{id}        [auth]        200 PlaySession + {"report": volante-report/1 | null} | 404
 DELETE /api/me/sessions/{id}        [auth + CSRF] 204 | 404
 DELETE /api/me/sessions             [auth + CSRF] 204   (all web data, incl. the style profile)
 GET    /api/me/dashboard            [auth]        200 Dashboard
-PUT    /api/me/sessions/{id}        [auth + CSRF] app only; {"report":...} <= 16 KB; 413 / 400 / 429
+PUT    /api/me/sessions/{id}        [auth + CSRF] app only; {started_at, sensor, duration_s, swings, hits, best_kmh?, avg_bpm?, report?}
+                                                  report <= 256 KB; 413 / 400 / 429
 PUT    /api/me/style                [auth + CSRF] app only; volante-style/1
 ```
-Types are in `src/types.ts` (`SessionSummary`, `SessionPage`, `SessionReport`, `SessionDetail`, `Best`, `Dashboard`) and the same rows are in
-`arena/handoff/PROMPT.md` (section 7). All responses `no-store`. Limits: 5,000 sessions per user, 60 PUTs/min/user. Reports are stored for the
-owner only, as the Privacy page says.
+Types are in `src/types.ts` (`PlaySession`, `SessionPage`, `Report`, `Best`, `Dashboard`) and the same rows are in `arena/handoff/PROMPT.md`
+(section 7). All responses `no-store`. Limits: 5,000 sessions per user, 60 PUTs/min/user. `sensor` is `pod`, `watch` (the wrist: shown as
+"wrist", never in the racquet speed stats) or `pod+watch` (racquet speeds plus the watch's heart rate). Sessions without a report (watch
+sessions, older app builds) count in the dashboard with their flat numbers. Sessions are stored for the owner only, as the Privacy page says.
 
 ## Decisions taken (change freely)
 

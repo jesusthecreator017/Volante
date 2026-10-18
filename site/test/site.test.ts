@@ -103,6 +103,8 @@ describe("routes", () => {
       "/my-models": "/arena/my-models",
       "/get-started": "/arena/get-started",
       "/ladder/": "/arena/ladder",
+      "/sessions": "/account/dashboard", // PR #78's pages: folded into Account → Dashboard
+      "/sessions/20261018-025030-c2d6": "/account/dashboard/sessions/20261018-025030-c2d6",
     };
     for (const [from, to] of Object.entries(old)) {
       expect(match(from), from).toBeNull();

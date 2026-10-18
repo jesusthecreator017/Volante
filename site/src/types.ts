@@ -165,36 +165,36 @@ export type TournamentSummary = Pick<Tournament, "id" | "season_id" | "starts_at
 
 export const isHouse = (o: Owner): o is { house: true } => "house" in o && o.house === true;
 
-// ---- Web dashboard (GET /api/me/sessions, /api/me/sessions/{id}, /api/me/dashboard). Mirrors arena/server/osoarena/{reports,dashboard}.py.
+// ---- Account → Dashboard (GET /api/me/sessions, /api/me/sessions/{id}, /api/me/dashboard). Mirrors arena/server/osoarena/{web,reports,dashboard}.py.
 
-export type SessionSource = "pod" | "watch";
 export type StrokeGroup = "power" | "mid" | "touch" | "not_a_hit" | "unclassified";
 
-export interface SessionSummary {
+/** A badminton session the iPhone app uploaded to the signed-in account. "watch" is the wrist (hand speed, never mixed with racquet
+ *  speed); "pod+watch" is a racquet session with the watch's heart rate. */
+export interface PlaySession {
   id: string;
   started_at: string;
-  source: SessionSource;
+  sensor: "pod" | "watch" | "pod+watch";
   duration_s: number;
-  active_s: number;
   swings: number;
-  p90_kmh: number | null;
-  max_kmh: number | null;
-  rallies: number;
-  longest_rally: number;
-  hr_avg: number | null;
-  has_strokes: boolean;
+  hits: number;
+  best_kmh: number | null;
+  avg_bpm: number | null;
+  uploaded_at: string;
+  /** detail only; null when the app sent none */
+  report?: Report | null;
 }
 
 export interface SessionPage {
-  items: SessionSummary[];
+  items: PlaySession[];
   /** opaque "<started_at>~<id>" cursor for the next (older) page; null on the last page */
   next_before: string | null;
 }
 
 /** volante-report/1 (docs/strokes/report-format.md). */
-export interface SessionReport {
+export interface Report {
   schema: "volante-report/1";
-  session: { started_at: string; duration_s: number; active_s: number; source: SessionSource; pod_fw: string };
+  session: { started_at: string; duration_s: number; active_s: number; source: "pod" | "watch"; pod_fw: string };
   swings: { count: number; per_min_active: number | null };
   speed: { p50_kmh: number | null; p90_kmh: number | null; max_kmh: number | null; clipped_frac: number; estimated: true };
   tempo: { median_gap_s: number | null; p25_gap_s: number | null; p75_gap_s: number | null };
@@ -212,11 +212,6 @@ export interface SessionReport {
   model: { name: string; version: string } | null;
 }
 
-export interface SessionDetail {
-  id: string;
-  report: SessionReport;
-}
-
 export interface Best {
   value: number;
   session_id: string;
@@ -229,7 +224,7 @@ export interface Dashboard {
   totals: { sessions: number; swings: number; active_min: number; rallies: number };
   /** 12 entries, oldest first; week is "YYYY-Www" */
   weekly: { week: string; sessions: number; swings: number; active_min: number }[];
-  /** pod sessions only, last 50, oldest first */
+  /** pod and pod+watch sessions, last 50, oldest first */
   trends: { id: string; started_at: string; p90_kmh: number | null; swings_per_min: number | null; median_gap_s: number | null; hr_avg: number | null }[];
   wrist: { sessions: number; swings: number };
   bests: { max_kmh: Best | null; most_swings: Best | null; longest_rally: Best | null; best_rate: Best | null };
