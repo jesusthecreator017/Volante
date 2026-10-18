@@ -52,8 +52,11 @@ struct OsoPhoneApp: App {
             .environment(pi)
             .onAppear(perform: wire)
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { pod.refreshAuthorization(); syncHeartRate() }
+                if phase == .active { pod.refreshAuthorization(); syncHeartRate(); syncArena() }
             }
+            // each finished session goes to the signed-in GitHub account (and so to the website)
+            .onChange(of: store.sessions.map(\.id)) { syncArena() }
+            .onChange(of: arena.user?.login) { syncArena() }
         }
     }
 
@@ -93,6 +96,8 @@ struct OsoPhoneApp: App {
         applyLaunchArguments()
         #endif
     }
+
+    private func syncArena() { Task { await arena.syncSessions(store) } }
 
     /// Fitbit heart rate for recent sessions that lack it (no-op unless Fitbit is connected through the Pi).
     private func syncHeartRate() {

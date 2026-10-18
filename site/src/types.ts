@@ -162,3 +162,27 @@ export interface Tournament {
 export type TournamentSummary = Pick<Tournament, "id" | "season_id" | "starts_at" | "status"> & Partial<Tournament>;
 
 export const isHouse = (o: Owner): o is { house: true } => "house" in o && o.house === true;
+
+/** A badminton session the iPhone app uploaded to the signed-in account (GET /api/me/sessions). */
+export interface PlaySession {
+  id: string;
+  started_at: string;
+  sensor: "pod" | "watch" | "pod+watch";
+  duration_s: number;
+  swings: number;
+  hits: number;
+  best_kmh: number | null;
+  avg_bpm: number | null;
+  uploaded_at: string;
+  report?: Report | null;
+}
+
+/** The parts of volante-report/1 (docs/strokes/report-format.md) the site shows. */
+export interface Report {
+  schema: "volante-report/1";
+  speed?: { p50_kmh: number; p90_kmh: number; max_kmh: number };
+  tempo?: { median_gap_s: number };
+  rallies?: { count: number; longest_shots: number };
+  timeline?: { t_min: number; swings: number; p90_kmh: number | null; hr_bpm: number | null }[];
+  insights?: { id: string; severity: string; title: string; body: string }[];
+}

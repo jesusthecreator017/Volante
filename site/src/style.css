@@ -2988,3 +2988,14 @@ li.rank-row.podium {
     padding: 5px 12px;
   }
 }
+
+/* Sessions (/sessions) */
+.session-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.session-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.session-row > a { display: grid; gap: 2px; text-decoration: none; }
+.stats { display: flex; flex-wrap: wrap; gap: 18px; }
+.stats .stat { display: grid; }
+.stats .stat strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.insights { list-style: none; padding: 0; display: grid; gap: 10px; }
+table.timeline { border-collapse: collapse; width: 100%; max-width: 480px; font-variant-numeric: tabular-nums; }
+table.timeline th, table.timeline td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }

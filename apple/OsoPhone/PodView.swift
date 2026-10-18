@@ -9,6 +9,7 @@ struct PodView: View {
     @Environment(SessionStore.self) private var store
     @Environment(Router.self) private var router
     @Environment(\.openURL) private var openURL
+    @Environment(WatchReceiver.self) private var watch
     @State private var confirm: CheckedContinuation<Bool, Never>?
     @State private var showInfo = false
     @State private var confirmStop = false
@@ -18,6 +19,11 @@ struct PodView: View {
             Screen {
                 if let e = pod.lastError { notice(e, systemImage: "exclamationmark.triangle.fill", color: Theme.bad) }
                 if let n = pod.notice { notice(n, systemImage: "info.circle.fill", color: .secondary) }
+                if watch.workoutActive, !pod.streaming {
+                    WatchSessionCard()  // no pod (or pod idle): the watch alone is the session
+                } else if pod.state != .connected, watch.paired, watch.installed {
+                    WatchStartCard()
+                }
                 switch pod.state {
                 case .connected: connectedContent
                 default: connectContent
@@ -376,5 +382,55 @@ private struct PodInfoSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+
+// MARK: Apple Watch without a pod
+
+/// Start badminton on the watch from here: no pod to find, no calibration (Apple's motion is already bias-corrected).
+struct WatchStartCard: View {
+    @Environment(WatchReceiver.self) private var watch
+    @State private var starting = false
+    var body: some View {
+        Card("Play with Apple Watch", systemImage: "applewatch") {
+            Text("No pod? Your watch counts swings and tracks heart rate. A pod connected later joins the same session.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Button {
+                starting = true
+                Task { await watch.startWorkout(); try? await Task.sleep(for: .seconds(8)); starting = false }
+            } label: {
+                if starting { HStack(spacing: 10) { ProgressView(); Text("Starting on your watch") } }
+                else { Label("Start on Apple Watch", systemImage: "figure.badminton") }
+            }
+            .buttonStyle(.primary)
+            .disabled(starting)
+        }
+    }
+}
+
+/// The running watch workout, live.
+struct WatchSessionCard: View {
+    @Environment(WatchReceiver.self) private var watch
+    var body: some View {
+        Card("Apple Watch session", systemImage: "applewatch.radiowaves.left.and.right") {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading) {
+                    Text("\(watch.liveSwings ?? 0)").font(.score(.largeTitle)).contentTransition(.numericText())
+                    Text("swings").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text(watch.liveHeartRate.map { String(format: "%.0f", $0) } ?? "–").font(.score(.title)).foregroundStyle(Theme.bad)
+                    Text("bpm").font(.caption).foregroundStyle(.secondary)
+                }
+                if let start = watch.workoutStart {
+                    Text(timerInterval: start...Date.distantFuture, countsDown: false).font(.score(.title2)).frame(width: 90, alignment: .trailing)
+                }
+            }
+            Button(role: .destructive) { watch.endWorkout() } label: { Label("End session", systemImage: "stop.fill") }
+                .buttonStyle(.secondary)
+            Text("Ends on the watch too; the session saves here when the watch sends it.").font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
