@@ -14,7 +14,7 @@ const ICONS = {
   "sparkle": ["fill"], "trend-down": ["regular"], "trend-up": ["regular"], "timer": ["regular"], "device-mobile": ["regular"],
   "file-csv": ["regular"], "lock-simple": ["regular"], "ranking": ["regular"], "waveform": ["regular"], "info": ["regular"],
   "seal-check": ["regular"], "terminal-window": ["regular"], "sliders-horizontal": ["regular"], "book-open": ["regular"],
-  "racquet": ["regular"], "bluetooth-connected": ["regular"], "arrow-clockwise": ["regular"], "crosshair": ["regular"],
+  "racquet": ["regular"], "bluetooth-connected": ["regular"], "arrow-clockwise": ["regular"], "crosshair": ["regular"], "heartbeat": ["regular"], "file-text": ["regular"],
 };
 
 const pkg = new URL("../node_modules/@phosphor-icons/core/", import.meta.url).pathname; // the package exports no package.json

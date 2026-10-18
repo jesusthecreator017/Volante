@@ -184,10 +184,11 @@ def ensure_demo(con, season_id):
     import shutil
     from pathlib import Path
     from oso_arena import contract
-    if os.environ.get("OSO_ARENA_DEMO_PLAYERS", "1") == "0" or get_meta(con, f"demo_seeded_{season_id}"):
+    if os.environ.get("OSO_ARENA_DEMO_PLAYERS", "1") == "0" or get_meta(con, f"demo_players_{season_id}"):
         return
     demo = Path(__file__).resolve().parent / "demo"  # package data, installed with osoarena
     models_dir = config.get().models_dir
+    added = 0
     for i, f in enumerate(sorted(demo.glob("*.safetensors")), start=1):
         data = f.read_bytes()
         try:
@@ -209,8 +210,12 @@ def ensure_demo(con, season_id):
         if not con.execute("SELECT 1 FROM models WHERE season_id=? AND user_id=? AND status='active'", (season_id, uid)).fetchone():
             con.execute("INSERT INTO models (season_id, user_id, sha256, name, description, build, status, rating, created_at) "
                         "VALUES (?, ?, ?, ?, ?, ?, 'active', 1200, ?)", (season_id, uid, sha, name, desc, json.dumps(build), now()))
-    set_meta(con, f"demo_seeded_{season_id}", now())
-    set_meta(con, "demo_tournament_pending", "1")
+            added += 1
+    # Only once players are in: an empty or missing demo folder must not mark the season as done (the first deploy did)
+    if added:
+        set_meta(con, f"demo_players_{season_id}", now())
+        set_meta(con, "demo_tournament_pending", "1")
+        print(f"demo: {added} players seeded", flush=True)
 
 
 def base_model_info():
