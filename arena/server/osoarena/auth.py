@@ -71,11 +71,28 @@ def safe_next(n):
     return n
 
 
-def oauth_start(next_path):
-    """-> (authorize URL, cookie value)."""
+# The iPhone app's sign-in (PKCE-style): the app sends sha256(verifier) as `app`; the callback hands it a one-time code through
+# volante://auth?code=...; POST /api/app/session trades code + verifier for a session id. The session never appears in a URL.
+APP_SCHEME = "volante"
+APP_CODE_TTL_S = 120
+
+
+def valid_challenge(c):
+    return isinstance(c, str) and len(c) == 43 and all(ch.isalnum() or ch in "-_" for ch in c)
+
+
+def challenge_of(verifier):
+    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+
+
+def oauth_start(next_path, app_challenge=None):
+    """-> (authorize URL, cookie value). `app_challenge`: the app flow (see APP_SCHEME)."""
     cfg = config.get()
     state = secrets.token_urlsafe(24)
-    payload = json.dumps({"s": state, "n": safe_next(next_path) or "/my-models", "e": int(time.time()) + 600}).encode()
+    d = {"s": state, "n": safe_next(next_path) or "/my-models", "e": int(time.time()) + 600}
+    if valid_challenge(app_challenge):
+        d["a"] = app_challenge
+    payload = json.dumps(d).encode()
     blob = base64.urlsafe_b64encode(payload).decode().rstrip("=")
     cookie = blob + "." + sign(b"oauth:" + blob.encode())
     url = "https://github.com/login/oauth/authorize?" + urlencode({
@@ -85,7 +102,7 @@ def oauth_start(next_path):
 
 
 def oauth_cookie_state(cookie):
-    """-> (state, next) if the cookie is ours and fresh."""
+    """-> (state, next, app challenge or None) if the cookie is ours and fresh."""
     try:
         blob, sig = cookie.split(".", 1)
         if not hmac.compare_digest(sig, sign(b"oauth:" + blob.encode())):
@@ -93,7 +110,7 @@ def oauth_cookie_state(cookie):
         d = json.loads(base64.urlsafe_b64decode(blob + "=" * (-len(blob) % 4)))
         if d["e"] < time.time():
             return None
-        return d["s"], safe_next(d["n"]) or "/my-models"
+        return d["s"], safe_next(d["n"]) or "/my-models", d.get("a") if valid_challenge(d.get("a")) else None
     except (ValueError, KeyError, TypeError, AttributeError):
         return None
 

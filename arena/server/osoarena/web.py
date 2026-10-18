@@ -4,6 +4,7 @@ second loopback listener, 127.0.0.1:8701, that Funnel never points at."""
 import asyncio
 import gzip
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -687,7 +688,10 @@ def create_app():
     def gh_login(request: Request):
         if not cfg.github_client_id:
             return RedirectResponse("/", status_code=302)
-        url, cookie = auth.oauth_start(request.query_params.get("next"))
+        app_ch = request.query_params.get("app")
+        if app_ch is not None and not auth.valid_challenge(app_ch):
+            return RedirectResponse(f"{auth.APP_SCHEME}://auth?error=bad_request", status_code=302)
+        url, cookie = auth.oauth_start(request.query_params.get("next"), app_ch)
         resp = RedirectResponse(url, status_code=302)
         set_cookie(resp, auth.OAUTH_COOKIE, cookie, 600, path="/auth/github")
         resp.headers["cache-control"] = "no-store"
@@ -695,19 +699,22 @@ def create_app():
 
     @app.get("/auth/github/callback")
     async def gh_callback(request: Request):
+        raw = request.cookies.get(auth.OAUTH_COOKIE, "")
+        st = auth.oauth_cookie_state(raw)
+        app_flow = bool(st and st[2])
+
         def fail(reason):
             reason = re.sub(r"[^a-z0-9_]", "", reason.lower())[:40] or "unknown"
-            # Every failure says why (a short code, never a secret), in the log and to the site, which shows a message.
-            print(f"github sign-in failed: {reason}", flush=True)
-            r = RedirectResponse(f"/arena?signin=failed&reason={reason}", status_code=302)
+            # Every failure says why (a short code, never a secret), in the log and to the site or the app, which show a message.
+            print(f"github sign-in failed{' (app)' if app_flow else ''}: {reason}", flush=True)
+            to = f"{auth.APP_SCHEME}://auth?error={reason}" if app_flow else f"/arena?signin=failed&reason={reason}"
+            r = RedirectResponse(to, status_code=302)
             r.delete_cookie(auth.OAUTH_COOKIE, path="/auth/github")
             r.headers["cache-control"] = "no-store"
             return r
 
         if request.query_params.get("error"):  # the user pressed Cancel on GitHub, or the app is suspended
             return fail("denied" if request.query_params.get("error") == "access_denied" else "github_error")
-        raw = request.cookies.get(auth.OAUTH_COOKIE, "")
-        st = auth.oauth_cookie_state(raw)
         state, code = request.query_params.get("state", ""), request.query_params.get("code", "")
         if not raw:
             return fail("no_state_cookie")
@@ -723,24 +730,62 @@ def create_app():
             return fail(f"error_{type(e).__name__}"[:40])
 
         def login():
+            """-> the session id (web) or the app's one-time code (app flow); None when banned."""
             con = conn()
             with db.tx(con):
                 if con.execute("SELECT 1 FROM bans WHERE github_id=?", (gh["id"],)).fetchone():
                     return None
                 con.execute("INSERT INTO users (id, login, avatar_url, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE "
                             "SET login=excluded.login, avatar_url=excluded.avatar_url", (gh["id"], gh["login"], gh["avatar_url"], db.now()))
+                if app_flow:
+                    one = secrets.token_urlsafe(32)
+                    exp = db.fmt_t(db.parse_t(db.now()) + __import__("datetime").timedelta(seconds=auth.APP_CODE_TTL_S))
+                    con.execute("DELETE FROM app_codes WHERE expires_at<?", (db.now(),))
+                    con.execute("INSERT INTO app_codes (hash, user_id, challenge, expires_at) VALUES (?, ?, ?, ?)",
+                                (auth.hash_sid(one), gh["id"], st[2], exp))
+                    return one
                 old = request.cookies.get(auth.SESSION_COOKIE)
                 if old:
                     con.execute("DELETE FROM sessions WHERE hash=?", (auth.hash_sid(old),))
                 return auth.create_session(con, gh["id"])
-        sid = await asyncio.to_thread(login)
-        if not sid:
+        out = await asyncio.to_thread(login)
+        if not out:
             return fail("banned")
-        resp = RedirectResponse(st[1], status_code=302)
+        if app_flow:
+            resp = RedirectResponse(f"{auth.APP_SCHEME}://auth?code={out}", status_code=302)
+        else:
+            resp = RedirectResponse(st[1], status_code=302)
+            set_cookie(resp, auth.SESSION_COOKIE, out, auth.SESSION_DAYS * 86400)
         resp.delete_cookie(auth.OAUTH_COOKIE, path="/auth/github")
-        set_cookie(resp, auth.SESSION_COOKIE, sid, auth.SESSION_DAYS * 86400)
         resp.headers["cache-control"] = "no-store"
         return resp
+
+    @app.post("/api/app/session")
+    async def app_session(request: Request):
+        """The iPhone app trades its one-time code + PKCE verifier for a session id (sent back as the oso_session cookie value)."""
+        try:
+            body = await request.json()
+            code, verifier = body.get("code"), body.get("verifier")
+        except Exception:  # noqa: BLE001
+            code = verifier = None
+        if not isinstance(code, str) or not isinstance(verifier, str) or not (43 <= len(verifier) <= 128) or len(code) > 100:
+            raise ApiError(400, "bad_request", "code and verifier are required.")
+
+        def take():
+            con = conn()
+            with db.tx(con):
+                r = con.execute("SELECT * FROM app_codes WHERE hash=?", (auth.hash_sid(code),)).fetchone()
+                if r:
+                    con.execute("DELETE FROM app_codes WHERE hash=?", (r["hash"],))  # one use, right or wrong
+                if not r or r["expires_at"] < db.now() or not hmac.compare_digest(r["challenge"], auth.challenge_of(verifier)):
+                    return None, None
+                u = con.execute("SELECT id, login, avatar_url FROM users WHERE id=?", (r["user_id"],)).fetchone()
+                return auth.create_session(con, r["user_id"]), dict(u)
+        sid, user = await asyncio.to_thread(take)
+        if not sid:
+            raise ApiError(400, "invalid_code", "That sign-in code is expired, used or wrong. Sign in again.")
+        return JSONResponse({"session": sid, "cookie": auth.SESSION_COOKIE, "user": user, "expires_in_days": auth.SESSION_DAYS},
+                            headers={"cache-control": "no-store"})
 
     # ---- static: the viewer, the site, history routing
     @app.api_route("/{path:path}", methods=["GET", "HEAD"])
