@@ -59,8 +59,10 @@ def test_committed_models():
         for t in m["trees"]:
             n = len(t["f"])
             assert len(t["v"]) == len(t["r"]) == len(t["m"]) == n and t["f"][-1] == -1 and max(t["f"]) < len(names)
-    assert g["classes"] == ["power", "mid", "touch"] and g["side"]["classes"] == F.SIDES and g["side"]["link"] == "sigmoid"
-    assert "not_a_hit" not in c["classes"] and len(c["classes"]) == 10
+    # not_a_hit is a class once the training data has a not_a_hit block (model card, 2-drill retrain)
+    assert [k for k in g["classes"] if k != "not_a_hit"] == ["power", "mid", "touch"]
+    assert g["side"]["classes"] == F.SIDES and g["side"]["link"] == "sigmoid"
+    assert len([k for k in c["classes"] if k != "not_a_hit"]) == 10
     assert v["features_version"] == F.FEATURES_VERSION and len(v["vectors"]) == 20
 
 
