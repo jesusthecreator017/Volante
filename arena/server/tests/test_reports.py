@@ -65,3 +65,28 @@ def test_migrate_adds_tables_and_column():
     names = {r["name"] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"app_sessions", "app_style"} <= names
     assert "app_linked_at" in {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+
+
+def test_validator_rejects_type_and_format_edge_cases():
+    base = load(FILES[1])
+
+    def mut(f):
+        r = copy.deepcopy(base)
+        f(r)
+        return r
+
+    bad = [
+        mut(lambda r: r["swings"].update(count=True)),                     # bool where an integer is expected
+        mut(lambda r: r["speed"].update(p90_kmh=False)),                   # bool where a number is expected
+        mut(lambda r: r["session"].update(duration_s=True)),
+        mut(lambda r: r["session"].update(started_at="2026-10-17T18:00:00Z\n")),  # trailing newline
+        mut(lambda r: r["session"].update(pod_fw="unknown\n")),
+        mut(lambda r: r["insights"].append({"id": "x\n", "severity": "info", "title": "t", "body": "b", "evidence": {}})),
+        mut(lambda r: r["speed"].update(estimated=1)),
+        mut(lambda r: r["speed"].update(estimated=False)),
+        mut(lambda r: r.update(heart_rate={"avg_bpm": 120})),
+        mut(lambda r: r.update(heart_rate={})),
+    ]
+    for r in bad:
+        with pytest.raises(ValueError):
+            reports.validate_report(r)

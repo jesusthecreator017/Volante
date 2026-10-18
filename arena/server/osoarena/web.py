@@ -24,7 +24,7 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartParser
 
-from osoarena import auth, config, db, ladder, replays
+from osoarena import auth, config, dashboard, db, ladder, replays, reports
 from osoarena.text import dumps
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://avatars.githubusercontent.com; "
@@ -36,6 +36,9 @@ TYPES = {".wasm": "application/wasm", ".js": "text/javascript; charset=utf-8", "
          ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8", ".json": "application/json",
          ".svg": "image/svg+xml", ".woff2": "font/woff2", ".gltf": "model/gltf+json", ".bin": "application/octet-stream",
          ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webmanifest": "application/manifest+json"}
+MAX_APP_SESSIONS = 5000  # stored app session reports per user
+APP_PUTS_PER_MIN = 60  # PUT /api/me/sessions/{id} + PUT /api/me/style, per user
+APP_SESSION_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 COMPRESSIBLE = {".wasm", ".js", ".mjs", ".css", ".html", ".json", ".svg", ".gltf", ".bin", ".txt"}
 
 
@@ -335,7 +338,7 @@ def create_app():
         if u:
             used = len(uploads_used(conn(), u["id"]))
             body = {"user": {"id": u["id"], "login": u["login"], "avatar_url": u["avatar_url"]}, "csrf": csrf,
-                    "uploads_left_today": max(0, cfg.daily_uploads - used)}
+                    "uploads_left_today": max(0, cfg.daily_uploads - used), "app_linked": bool(u["app_linked_at"])}
             return JSONResponse(body, headers={"cache-control": "no-store"})
         anon = request.cookies.get(auth.ANON_COOKIE)
         fresh = not anon or len(anon) > 64
@@ -676,6 +679,144 @@ def create_app():
             p = con.execute("SELECT * FROM pods WHERE id=?", (p["id"],)).fetchone()
         return JSONResponse(pod_out(p), headers={"cache-control": "no-store"})
 
+    # ---------------------------------------------------------------- app sessions + dashboard (spec 2026-10-18 section 3)
+
+    def no_store(body, status=200):
+        return JSONResponse(body, status_code=status, headers={"cache-control": "no-store"})
+
+    def app_session_id(sid):
+        if not APP_SESSION_ID.fullmatch(sid):
+            raise ApiError(400, "bad_request", "A session id is 1-64 characters of letters, digits, . _ -.")
+
+    def app_put_limit(u):
+        wait = limiter.hit(f"app_put:{u['id']}", APP_PUTS_PER_MIN)
+        if wait:
+            raise ApiError(429, "rate_limited", "Too many uploads. Try again in a minute.", {"retry-after": str(wait)})
+
+    async def body_capped(request, cap):
+        """The raw body, refused with 413 as soon as it passes `cap` bytes (before any JSON parsing)."""
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > cap:
+                raise ApiError(413, "too_large", f"The body is over the {cap}-byte limit.")
+        return bytes(raw)
+
+    def _no_constant(c):
+        raise ValueError(f"{c} is not allowed")
+
+    @app.put("/api/me/sessions/{sid}")
+    async def put_app_session(sid: str, request: Request):
+        """Body {"report": <volante-report/1>} (<= 16 KB). Idempotent upsert by (user, id) -> 200 {"id", "started_at"}.
+        Errors: 400 invalid_report | bad_request | too_many_sessions, 413 too_large, 429 rate_limited."""
+        u = require_user(request)
+        app_put_limit(u)
+        app_session_id(sid)
+        raw = await body_capped(request, reports.MAX_BYTES)
+        try:
+            body = json.loads(raw, parse_constant=_no_constant)
+            if not isinstance(body, dict) or set(body) != {"report"}:
+                raise ValueError('the body must be {"report": <volante-report/1>}')
+            r = reports.validate_report(body["report"])
+        except (ValueError, RecursionError) as e:
+            raise ApiError(400, "invalid_report", str(e)[:300] or "invalid report") from None
+        started = r["session"]["started_at"]
+        con = conn()
+        with db.tx(con):
+            known = con.execute("SELECT 1 FROM app_sessions WHERE user_id=? AND id=?", (u["id"], sid)).fetchone()
+            if not known and con.execute("SELECT COUNT(*) FROM app_sessions WHERE user_id=?", (u["id"],)).fetchone()[0] >= MAX_APP_SESSIONS:
+                raise ApiError(400, "too_many_sessions", f"At most {MAX_APP_SESSIONS} sessions are kept. Delete some first.")
+            con.execute("INSERT INTO app_sessions (user_id, id, started_at, source, report, received_at) VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(user_id, id) DO UPDATE SET started_at=excluded.started_at, source=excluded.source, "
+                        "report=excluded.report, received_at=excluded.received_at",
+                        (u["id"], sid, started, r["session"]["source"], dumps(r), db.now()))
+        return no_store({"id": sid, "started_at": started})
+
+    @app.get("/api/me/sessions")
+    def list_app_sessions(request: Request):
+        """?before=<ISO started_at>&limit=1-100 (default 20), newest first -> {"items": [SessionSummary], "next_before": str | null}.
+        SessionSummary = {id, started_at, source, duration_s, active_s, swings, p90_kmh, max_kmh, rallies, longest_rally, hr_avg,
+        has_strokes}. next_before is the cursor for the next (older) page, null on the last page."""
+        u = require_user(request, csrf=False)
+        before, limit = request.query_params.get("before"), request.query_params.get("limit", "20")
+        if not re.fullmatch(r"\d{1,3}", limit) or not 1 <= int(limit) <= 100 or (before is not None and not reports._TS.fullmatch(before)):
+            raise ApiError(400, "bad_request", "limit is 1-100 and before is a started_at like 2026-10-17T18:00:00Z.")
+        n = int(limit)
+        # ponytail: a started_at cursor skips a session that starts in the same second as the page's last one; add id to the cursor if that bites
+        rows = conn().execute("SELECT id, report FROM app_sessions WHERE user_id=? AND started_at<? ORDER BY started_at DESC, id DESC "
+                              "LIMIT ?", (u["id"], before or "9999", n + 1)).fetchall()
+        items = [{"id": x["id"], **reports.summary_of(json.loads(x["report"]))} for x in rows[:n]]
+        return no_store({"items": items, "next_before": items[-1]["started_at"] if len(rows) > n else None})
+
+    @app.get("/api/me/sessions/{sid}")
+    def get_app_session(sid: str, request: Request):
+        """-> {"id", "report": <volante-report/1>}; 404 when the caller has no session with that id."""
+        u = require_user(request, csrf=False)
+        app_session_id(sid)
+        x = conn().execute("SELECT report FROM app_sessions WHERE user_id=? AND id=?", (u["id"], sid)).fetchone()
+        if not x:
+            raise ApiError(404, "not_found", "No such session.")
+        return no_store({"id": sid, "report": json.loads(x["report"])})
+
+    @app.delete("/api/me/sessions/{sid}")
+    def delete_app_session(sid: str, request: Request):
+        """-> 204; 404 when the caller has no session with that id."""
+        u = require_user(request)
+        app_session_id(sid)
+        con = conn()
+        with db.tx(con):
+            if not con.execute("DELETE FROM app_sessions WHERE user_id=? AND id=?", (u["id"], sid)).rowcount:
+                raise ApiError(404, "not_found", "No such session.")
+        return Response(status_code=204, headers={"cache-control": "no-store"})
+
+    @app.delete("/api/me/sessions")
+    def delete_app_data(request: Request):
+        """"Delete my web data": all of the caller's app sessions and the style profile -> 204."""
+        u = require_user(request)
+        con = conn()
+        with db.tx(con):
+            con.execute("DELETE FROM app_sessions WHERE user_id=?", (u["id"],))
+            con.execute("DELETE FROM app_style WHERE user_id=?", (u["id"],))
+        return Response(status_code=204, headers={"cache-control": "no-store"})
+
+    @app.put("/api/me/style")
+    async def put_app_style(request: Request):
+        """Body = a volante-style/1 profile (oso_arena.style rules, <= 8 KB) -> 200 {"ok": true}. 400 invalid_profile."""
+        u = require_user(request)
+        app_put_limit(u)
+        raw = await body_capped(request, reports.MAX_BYTES)
+        from oso_arena import style
+        try:
+            profile = style.parse_profile(raw.decode())
+        except ValueError as e:
+            raise ApiError(400, "invalid_profile", str(e)[:300]) from None
+        con = conn()
+        with db.tx(con):
+            con.execute("INSERT INTO app_style (user_id, profile, received_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE "
+                        "SET profile=excluded.profile, received_at=excluded.received_at", (u["id"], dumps(profile), db.now()))
+        return no_store({"ok": True})
+
+    @app.get("/api/me/dashboard")
+    def app_dashboard(request: Request):
+        """-> Dashboard = {totals:{sessions, swings, active_min, rallies},
+        weekly:[{week:"YYYY-Www", sessions, swings, active_min}] (12, oldest first),
+        trends:[{id, started_at, p90_kmh, swings_per_min, median_gap_s, hr_avg}] (pod sessions, last 50, oldest first),
+        wrist:{sessions, swings},
+        bests:{max_kmh, most_swings, longest_rally, best_rate} each {value, session_id, started_at} | null (max_kmh: pod only),
+        strokes:{groups:{power, mid, touch, not_a_hit, unclassified} shares over the last 10 sessions with strokes, sessions:int,
+                 experimental:true} | null,
+        style: StyleProfile | null, twin_model_id: int | null}"""
+        u = require_user(request, csrf=False)
+        con = conn()
+        # ponytail: parses every stored report per request (<= 5,000 x 16 KB); cache per user if the dashboard gets slow
+        rows = [{"id": x["id"], "report": json.loads(x["report"])}
+                for x in con.execute("SELECT id, report FROM app_sessions WHERE user_id=?", (u["id"],))]
+        st = con.execute("SELECT profile FROM app_style WHERE user_id=?", (u["id"],)).fetchone()
+        twin = con.execute("SELECT id FROM models WHERE user_id=? AND status='active' AND style_profile IS NOT NULL "
+                           "ORDER BY id DESC LIMIT 1", (u["id"],)).fetchone()
+        return no_store(dashboard.aggregate(rows, json.loads(st["profile"]) if st else None, twin["id"] if twin else None,
+                                            db.parse_t(db.now()).date()))
+
     @app.post("/auth/logout")
     def logout(request: Request):
         require_user(request)
@@ -782,6 +923,7 @@ def create_app():
                 if not r or r["expires_at"] < db.now() or not hmac.compare_digest(r["challenge"], auth.challenge_of(verifier)):
                     return None, None
                 u = con.execute("SELECT id, login, avatar_url FROM users WHERE id=?", (r["user_id"],)).fetchone()
+                con.execute("UPDATE users SET app_linked_at=? WHERE id=? AND app_linked_at IS NULL", (db.now(), r["user_id"]))
                 return auth.create_session(con, r["user_id"]), dict(u)
         sid, user = await asyncio.to_thread(take)
         if not sid:

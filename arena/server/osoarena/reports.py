@@ -3,9 +3,9 @@ import math
 import re
 
 MAX_BYTES = 16384
-_TS = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
-_FW = re.compile(r"^[A-Za-z0-9._ ,-]{1,64}$")
-_ID = re.compile(r"^[a-z_]{1,40}$")
+_TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+_FW = re.compile(r"[A-Za-z0-9._ ,-]{1,64}")
+_ID = re.compile(r"[a-z_]{1,40}")
 
 
 def _bad(path, why):
@@ -31,7 +31,7 @@ def _num(v, path, lo=None, hi=None, null=False, integer=False):
 
 
 def _str(v, path, pat=None, maxlen=None):
-    if not isinstance(v, str) or (pat and not pat.match(v)) or (maxlen and len(v) > maxlen):
+    if not isinstance(v, str) or (pat and not pat.fullmatch(v)) or (maxlen and len(v) > maxlen):
         _bad(path, "invalid string")
 
 
