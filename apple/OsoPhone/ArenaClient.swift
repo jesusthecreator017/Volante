@@ -95,6 +95,7 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
     @discardableResult
     func refreshMe() async throws -> ArenaMe {
         let m: ArenaMe = try decoder.decode(ArenaMe.self, from: try await request("GET", "/api/me"))
+        if m.user == nil, sid != nil { sid = nil; Keychain.delete("arena.session") }  // expired or signed out elsewhere
         me = m
         return m
     }

@@ -22,6 +22,7 @@ struct ArenaView: View {
     @State private var top: [ArenaLadderPage.Item]?
     @State private var latest: [ArenaMatch]?
     @State private var featured: ArenaTournament?
+    @State private var mine: ArenaModel?
     @State private var error: String?
 
     var body: some View {
@@ -36,6 +37,7 @@ struct ArenaView: View {
                     }
                 }
                 if let error { ArenaErrorRow(text: error) { Task { await load() } } }
+                if let m = mine { NavigationLink(value: ArenaRoute.model(m.id)) { YourModelCard(m: m) }.buttonStyle(.plain) }
                 if let t = featured { NavigationLink(value: ArenaRoute.tournament(t.id)) { TournamentCard(t: t) }.buttonStyle(.plain) }
 
                 Card {
@@ -73,9 +75,20 @@ struct ArenaView: View {
             }
             .navigationTitle("Arena")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { AccountButton() } }
+            .alert("Sign-in didn't work", isPresented: Binding(get: { arena.lastError != nil && path.isEmpty }, set: { if !$0 { arena.lastError = nil } })) {
+                Button("Try again") { Task { await arena.signIn() } }
+                Button("OK", role: .cancel) {}
+            } message: { Text(arena.lastError ?? "") }
             .refreshable { await load() }
             .task { await load() }
-            .onChange(of: ladder) { Task { top = nil; top = try? await arena.ladder(ladder, limit: 10).items } }
+            .onChange(of: ladder) {
+                Task {
+                    top = nil
+                    do { top = try await arena.ladder(ladder, limit: 10).items; error = nil }
+                    catch { top = []; self.error = "Couldn't load the ladder: \(error.localizedDescription)" }
+                }
+            }
+            .onChange(of: arena.user?.id) { Task { await loadMine() } }
             .navigationDestination(for: ArenaRoute.self) { r in
                 switch r {
                 case .ladder(let l): LadderView(initial: l)
@@ -97,9 +110,38 @@ struct ArenaView: View {
             (top, latest, featured) = (try await t.items, try await l, try? await f)
             error = nil
             _ = try? await arena.refreshMe()
+            await loadMine()
         } catch {
             self.error = "Couldn't reach the Arena: \(error.localizedDescription)"
         }
+    }
+
+    /// The signed-in player's active model (one per account), for the card at the top.
+    private func loadMine() async {
+        guard arena.user != nil else { mine = nil; return }
+        mine = (try? await arena.myModels())?.first { $0.status == "active" }
+    }
+}
+
+struct YourModelCard: View {
+    let m: ArenaModel
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: m.twin != nil ? "person.2.fill" : "cpu")
+                .font(.title3).foregroundStyle(.tint)
+                .frame(width: 48, height: 48).glassEffect(.regular, in: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your model").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(m.name).font(.headline).lineLimit(1)
+                Text("\(m.games) games" + (m.ladder == .twins ? " · Twins ladder" : "")).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(m.rating.map { String(format: "%.0f", $0) } ?? "–").font(.score(.title))
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -695,13 +737,19 @@ struct MyModelsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { AccountButton() } }
         .task { _ = try? await arena.refreshMe(); await load() }
+        .onChange(of: arena.user?.id) { Task { await load() } }
         .refreshable { await load() }
         .fileImporter(isPresented: $picking, allowedContentTypes: [UTType(filenameExtension: "safetensors") ?? .data, .data]) { r in
             if case .success(let url) = r { Task { await upload(url) } }
         }
         .confirmationDialog("Retire \(retireTarget?.name ?? "")?", isPresented: Binding(get: { retireTarget != nil }, set: { if !$0 { retireTarget = nil } }), titleVisibility: .visible) {
             Button("Retire", role: .destructive) {
-                if let m = retireTarget { Task { try? await arena.retire(m.id); await load() } }
+                if let m = retireTarget {
+                    Task {
+                        do { try await arena.retire(m.id); message = nil } catch { message = error.localizedDescription }
+                        await load()
+                    }
+                }
             }
         } message: {
             Text("It stops playing. Its history stays on the ladder pages.")
