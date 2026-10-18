@@ -4,6 +4,8 @@
 public struct AnalysisSettings: Sendable {
     public var beta = defaultBeta
     public var thresholds = SwingThresholds()
+    /// thresholds for a wrist mount (Apple Watch)
+    public var wristThresholds = SwingThresholds.wrist
     public var handedness = Handedness.right
     /// racquet head center from the butt
     public var racquetLeverM = 0.53
@@ -12,6 +14,10 @@ public struct AnalysisSettings: Sendable {
     /// a rally ends when hits are this far apart
     public var rallyGapS = 4.0
     public init() {}
+}
+
+extension AnalysisSettings {
+    public func thresholds(for mount: Mount) -> SwingThresholds { mount == .wrist ? wristThresholds : thresholds }
 }
 
 public struct SessionSummary: Sendable {
@@ -64,7 +70,7 @@ public func analyzeSession(_ cap: Capture, settings: AnalysisSettings = Analysis
             leverM: mount == .wrist ? settings.wristLeverM : settings.racquetLeverM,
             handedness: settings.handedness, t0: t0, racquetFrame: mount == .racquet
         )
-        swings = detectSwings(t: fused.track.t, wDps: wDps, th: settings.thresholds).enumerated().map {
+        swings = detectSwings(t: fused.track.t, wDps: wDps, th: settings.thresholds(for: mount)).enumerated().map {
             analyzeSwing(ctx, $0.element, index: $0.offset + 1)
         }
     }
@@ -131,7 +137,7 @@ public struct LiveAnalyzer: Sendable {
     public init(rateHz: Double, mount: Mount, settings: AnalysisSettings = AnalysisSettings(), trustedBias: Bool = false) {
         self.rateHz = rateHz
         self.settings = settings
-        detector = SwingDetector(settings.thresholds)
+        detector = SwingDetector(settings.thresholds(for: mount))
         lever = mount == .wrist ? settings.wristLeverM : settings.racquetLeverM
         if trustedBias { bias = .zero }
     }

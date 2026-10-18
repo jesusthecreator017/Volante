@@ -28,6 +28,9 @@ struct SessionMeta: Codable, Identifiable, Hashable {
     var activeEnergyKcal: Double?
     /// e.g. "incomplete: 900 of 1000 packets"
     var note: String?
+    /// pod + watch in one session: the other sensor's session id, and how many pod swings the wrist confirmed
+    var pairedSessionId: String?
+    var wristConfirmed: Int?
     /// when it was sent to the Raspberry Pi server (iPhone only)
     var uploadedToPi: Date?
 

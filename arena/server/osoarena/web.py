@@ -632,6 +632,7 @@ def create_app():
             con.execute("UPDATE models SET user_id=0, uploaded_by=NULL WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM pods WHERE user_id=?", (u["id"],))
+            con.execute("DELETE FROM play_sessions WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM users WHERE id=?", (u["id"],))
             keep = {r["sha256"] for r in con.execute("SELECT sha256 FROM models WHERE user_id!=0 AND sha256 IS NOT NULL")}
         for sha in set(files) - keep:
@@ -673,6 +674,85 @@ def create_app():
             con.execute("UPDATE pods SET name=? WHERE id=?", (name, p["id"]))
             p = con.execute("SELECT * FROM pods WHERE id=?", (p["id"],)).fetchone()
         return JSONResponse(pod_out(p), headers={"cache-control": "no-store"})
+
+    # ---------------------------------------------------------------- play sessions (the app uploads each finished one)
+
+    SESSION_ID = re.compile(r"[0-9]{8}-[0-9]{4,6}(-[0-9a-f]{4})?")
+    MAX_REPORT = 256 * 1024
+
+    def play_out(r, full=False):
+        o = {"id": r["id"], "started_at": r["started_at"], "sensor": r["sensor"], "duration_s": r["duration_s"],
+             "swings": r["swings"], "hits": r["hits"], "best_kmh": r["best_kmh"], "avg_bpm": r["avg_bpm"],
+             "uploaded_at": r["uploaded_at"]}
+        if full:
+            o["report"] = json.loads(r["report"]) if r["report"] else None
+        return o
+
+    def num(v, lo, hi, name, optional=False):
+        if v is None and optional:
+            return None
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+            raise ApiError(400, "invalid_session", f"{name} is missing or out of range.")
+        return v
+
+    @app.put("/api/me/sessions/{sid}")
+    async def put_session(sid: str, request: Request):
+        u = require_user(request)
+        if not SESSION_ID.fullmatch(sid):
+            raise ApiError(404, "not_found", "No such session.")
+        raw = await request.body()
+        if len(raw) > MAX_REPORT + 4096:
+            raise ApiError(413, "too_large", "The session is too large.")
+        try:
+            b = json.loads(raw)
+            assert isinstance(b, dict)
+        except Exception:  # noqa: BLE001 -- any unreadable body
+            raise ApiError(400, "invalid_session", "The body must be a JSON object.")
+        started = b.get("started_at")
+        if not isinstance(started, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z", started):
+            raise ApiError(400, "invalid_session", "started_at must be an ISO 8601 UTC time.")
+        sensor = b.get("sensor")
+        if sensor not in ("pod", "watch", "pod+watch"):
+            raise ApiError(400, "invalid_session", "sensor must be pod, watch or pod+watch.")
+        report = b.get("report")
+        rep = None
+        if report is not None:
+            if not isinstance(report, dict) or report.get("schema") != "volante-report/1":
+                raise ApiError(400, "invalid_session", "report must be a volante-report/1 object.")
+            rep = json.dumps(report, separators=(",", ":"))
+            if len(rep) > MAX_REPORT:
+                raise ApiError(413, "too_large", "The report is too large.")
+        row = (sid, u["id"], started, sensor, num(b.get("duration_s"), 0, 86400, "duration_s"),
+               int(num(b.get("swings"), 0, 100000, "swings")), int(num(b.get("hits"), 0, 100000, "hits")),
+               num(b.get("best_kmh"), 0, 1000, "best_kmh", True), num(b.get("avg_bpm"), 20, 260, "avg_bpm", True), rep, db.now())
+        con = conn()
+        with db.tx(con):
+            con.execute("INSERT OR REPLACE INTO play_sessions (id, user_id, started_at, sensor, duration_s, swings, hits, best_kmh, "
+                        "avg_bpm, report, uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", row)
+            r = con.execute("SELECT * FROM play_sessions WHERE user_id=? AND id=?", (u["id"], sid)).fetchone()
+        return JSONResponse(play_out(r), headers={"cache-control": "no-store"})
+
+    @app.get("/api/me/sessions")
+    def my_sessions(request: Request):
+        u = require_user(request, csrf=False)
+        rows = conn().execute("SELECT * FROM play_sessions WHERE user_id=? ORDER BY started_at DESC LIMIT 500", (u["id"],)).fetchall()
+        return JSONResponse({"items": [play_out(r) for r in rows]}, headers={"cache-control": "no-store"})
+
+    @app.get("/api/me/sessions/{sid}")
+    def my_session(sid: str, request: Request):
+        u = require_user(request, csrf=False)
+        r = conn().execute("SELECT * FROM play_sessions WHERE user_id=? AND id=?", (u["id"], sid)).fetchone()
+        if not r:
+            raise ApiError(404, "not_found", "No such session.")
+        return JSONResponse(play_out(r, full=True), headers={"cache-control": "no-store"})
+
+    @app.delete("/api/me/sessions/{sid}")
+    def delete_session(sid: str, request: Request):
+        u = require_user(request)
+        con = conn()
+        with db.tx(con):
+            con.execute("DELETE FROM play_sessions WHERE user_id=? AND id=?", (u["id"], sid))
+        return Response(status_code=204)
 
     @app.post("/auth/logout")
     def logout(request: Request):

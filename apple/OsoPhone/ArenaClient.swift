@@ -18,6 +18,8 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
     private(set) var me: ArenaMe?
     private(set) var signingIn = false
     var lastError: String?
+    /// bumps when a session reaches the account (redraws the sync count)
+    var syncTick = 0
     var user: ArenaUser? { me?.user }
 
     @ObservationIgnored private var sid: String? = Keychain.read("arena.session")
@@ -64,6 +66,10 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
             throw Failure.http(code, e?.detail ?? "The Arena answered \(code).")
         }
         return data
+    }
+
+    func requestJSON(_ method: String, _ path: String, body: Data) async throws -> Data {
+        try await request(method, path, body: body, contentType: "application/json")
     }
 
     func get<T: Decodable>(_ path: String, as: T.Type = T.self) async throws -> T {

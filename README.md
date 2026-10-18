@@ -37,6 +37,16 @@ Median racquet rotation around the swing peak for five forehand strokes, from la
 Power strokes (smash, clear) spike to about 3,000 °/s within ~100 ms; touch strokes (net shot) barely reach 400 °/s. These shapes
 are what the stroke classifier learns from. Each gyro axis saturates at ±2,000 °/s, so the hardest swings are lower bounds.
 
+## SwampHacks XII tracks
+
+| Track | Where to look |
+|---|---|
+| **Most Creative Use of AI** | Custom models, not API calls. Stroke classifier on IMU features with Python and Swift parity tests (`tools/strokes/`, `models/strokes/`, [model card](docs/strokes/model-card.md)). PPO-trained badminton players and a *twin* fine-tuned toward one player's recorded style, with a fidelity eval the Arena runs in a sandbox (`arena/kit/`, `arena/contract/STYLE_PROFILE.md`). Rule-based insights over a versioned report contract (`docs/strokes/report-format.md`). |
+| **Get Physical With It (hardware)** | Racquet pod: XIAO ESP32-S3 + MPU-9250 in Rust/Embassy, 500 Hz over BLE (`firmware/`, `proto/`, `docs/ble-profile.md`). Apple Watch wrist IMU at 200 Hz in the same packet format. Pod and watch swings matched on one clock (`apple/OsoKit/Sources/OsoKit/DualSensor.swift`). A Raspberry Pi 5 hosts the Arena and replay server. |
+| **Least Vibe Coded** | Written contracts before code (`docs/ble-profile.md`, `arena/contract/CONTRACT.md`, report schema). Parity tests between the Python and Swift implementations (report bytes, stroke features and probabilities). Tests in every package (`swift test` in `apple/OsoKit`, `arena/server/tests`, `site` vitest). Thresholds justified against recorded data in comments (for example `SwingThresholds.wrist`). |
+| **Easy On The Eyes** | iOS 26 Liquid Glass iPhone app with a customizable Summary, a Live Activity and Dynamic Island, a home-screen widget, and a watch app in the same palette. The website and 3D replay viewer share one design system. |
+| **Swamp Studios (entertainment)** | The Arena: AI players you train, upload and watch in 3D (wgpu/wasm replay, `crates/`, `web/arena/`), ranked on a ladder with weekly tournaments. Your *twin* plays like you do. |
+
 ## Quick start
 
 No hardware needed: simulate an Arena match and watch it in 3D.

@@ -144,6 +144,27 @@ func sampleBytes() -> [UInt8] {
         #expect(abs(cap.samples[0].t) < 1e-9 && abs(cap.samples[1].t - 0.005) < 1e-6)
     }
 
+    /// Live on the watch: a light 260 dps swing counts (the racquet threshold of 300 missed it), an arm swinging while
+    /// walking (110 dps) does not.
+    @Test func liveWristCountsLightSwingsNotWalking() {
+        func run(peakDps: Double) -> Int {
+            var enc = WristEncoder()
+            var live = LiveAnalyzer(rateHz: 200, mount: .wrist, trustedBias: true)
+            var batch: [Sample] = []
+            for i in 0..<(3 * 200) {
+                let t = Double(i) / 200
+                let u = t - 1
+                let w = u > 0 && u < 0.3 ? peakDps * DEG * sin(.pi * u / 0.3) : 0
+                let p = enc.append(WristMotion(t: t, userAcc: .zero, gravity: Vec3(0, 0, -1), rotationRate: Vec3(w, 0, 0)))
+                batch.append(Sample(tUs: t * 1e6, v: p.v))
+            }
+            _ = live.push(batch)
+            return live.swingCount
+        }
+        #expect(run(peakDps: 260) == 1)
+        #expect(run(peakDps: 110) == 0)
+    }
+
     @Test func wristSessionAnalyzesAt200Hz() throws {
         var enc = WristEncoder()
         for m in synthetic() { enc.append(m) }
@@ -220,5 +241,19 @@ func sampleBytes() -> [UInt8] {
         _ = t.request(at: 5)
         t.reset()
         #expect(t.request(at: 5.1) == 0)
+    }
+}
+
+@Suite struct DualSensorTests {
+    @Test func matchesSwingsSeenByBothSensors() {
+        // pod swings at 1, 3, 5 s; the wrist saw 1.05 and 5.1 (3 s was a racquet bounce) plus an arm move at 8 s
+        let m = DualSensorMatch.match(pod: [1, 3, 5], wrist: [1.05, 5.1, 8])
+        #expect(m.pairs.map(\.pod) == [0, 2] && m.pairs.map(\.wrist) == [0, 1])
+        #expect(m.podOnly == [1] && m.wristOnly == [2])
+        #expect(abs(m.confirmedShare! - 2.0 / 3) < 1e-9)
+    }
+    @Test func eachWristSwingPairsOnce() {
+        let m = DualSensorMatch.match(pod: [1, 1.1], wrist: [1.05])
+        #expect(m.pairs.count == 1 && m.podOnly.count == 1)
     }
 }

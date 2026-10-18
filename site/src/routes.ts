@@ -8,12 +8,15 @@ import { landing } from "./pages/landing";
 import { match } from "./pages/match";
 import { model } from "./pages/model";
 import { sessionPage } from "./pages/session";
+import { sessionDetail, sessions } from "./pages/sessions";
 import { settings } from "./pages/settings";
 import { tournament, tournaments } from "./pages/tournament";
 import { route, setNotFound } from "./router";
 
 route("/", "Racquet pod", landing);
 route("/settings", "Settings", settings);
+route("/sessions", "Your sessions", sessions);
+route("/sessions/:id", "Session", sessionDetail);
 route("/how-it-works", "How it works", howItWorks);
 route("/report", "Session report", sessionPage);
 route("/privacy", "Privacy", privacy);

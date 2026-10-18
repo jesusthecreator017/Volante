@@ -8,6 +8,13 @@ import Darwin
 public struct SwingThresholds: Sendable {
     public var startDps = 300.0, endDps = 120.0, endHoldMs = 80.0, minDurationMs = 80.0
     public init() {}
+    public init(startDps: Double, endDps: Double, endHoldMs: Double = 80, minDurationMs: Double = 80) {
+        self.startDps = startDps; self.endDps = endDps; self.endHoldMs = endHoldMs; self.minDurationMs = minDurationMs
+    }
+
+    /// The wrist turns much less than the racquet head (the head adds the wrist snap on top of the forearm): light swings
+    /// read 200-400 dps at the wrist, where the 300 dps racquet threshold missed most of them. Walking stays under ~120 dps.
+    public static let wrist = SwingThresholds(startDps: 180, endDps: 70, endHoldMs: 80, minDurationMs: 60)
 }
 
 public struct SwingWindow: Equatable, Sendable {
