@@ -89,6 +89,8 @@ struct SessionDetailView: View {
     @State var meta: SessionMeta
     @State private var message: String?
     @State private var report: SessionReport?
+    @State private var addingHR = false
+    @State private var showAllSwings = false
     #if DEBUG
     @State private var debugSwingOpen = false
     #endif
@@ -100,10 +102,12 @@ struct SessionDetailView: View {
             if let a {
                 SessionHeaderView(meta: meta, analysis: a, bests: store.bests)
                 if let report, !report.insights.isEmpty { InsightsCard(report: report) }
+                if a.mount != .wrist || !meta.heartRate.isEmpty {
+                    SessionHealthCard(meta: meta, stats: store.heartStats(meta), span: store.span(meta)) { addingHR = true }
+                }
                 if let report, report.timeline.count > 1 { IntensityCard(report: report) }
                 speedChart(a, st)
                 if let st { StrokeBreakdownCard(breakdown: StrokeBreakdown(swings: a.swings, results: st.results)) }
-                if !meta.heartRate.isEmpty, let anchor = meta.anchor { heartRateChart(a, anchor) }
                 swings(a, st)
                 details(a)
             } else {
@@ -128,6 +132,13 @@ struct SessionDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) { actionsMenu(a) }
+        }
+        .sheet(isPresented: $addingHR) { HeartRateImportSheet(meta: $meta) }
+        .onChange(of: meta.heartRate.count) {
+            Task {
+                let st = store.analysis(meta).flatMap { a in store.strokes[meta.id].flatMap { $0.results.count == a.swings.count ? StrokeBreakdown(swings: a.swings, results: $0.results) : nil } }
+                report = await store.report(meta, breakdown: st)
+            }
         }
         .task {
             await store.loadStrokes(meta)
@@ -174,7 +185,7 @@ struct SessionDetailView: View {
                 Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
             } else {
                 Chart(a.swings) { s in
-                    PointMark(x: .value("Time", s.tStart - a.t0), y: .value("m/s", s.headSpeed))
+                    PointMark(x: .value("Time", s.tStart - a.t0), y: .value("km/h", s.headSpeed * 3.6))
                         .foregroundStyle(by: .value("Stroke group", group(s).title))
                         .symbolSize(s.impact ? 70 : 36)
                 }
@@ -183,7 +194,7 @@ struct SessionDetailView: View {
                 .chartXScale(domain: 0...duration(a))
                 .chartXAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let t = v.as(Double.self) { Text(clock(t)).font(.caption2) } } } }
                 .chartYAxis { yAxis() }
-                .chartYAxisLabel("m/s", position: .topLeading)
+                .chartYAxisLabel("km/h", position: .topLeading)
                 .frame(height: 190)
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .accessibilityLabel("Swing speed over time")
@@ -192,44 +203,31 @@ struct SessionDetailView: View {
         }
     }
 
-    private func heartRateChart(_ a: SessionAnalysis, _ anchor: ClockAnchor) -> some View {
-        let samples = meta.heartRate.filter { $0.t >= anchor.wall(a.t0) && $0.t <= anchor.wall(a.t1) }
-        return Card("Heart rate", systemImage: "heart.fill") {
-            Chart {
-                ForEach(samples, id: \.t) { h in
-                    LineMark(x: .value("Time", anchor.device(h.t) - a.t0), y: .value("bpm", h.bpm))
-                        .foregroundStyle(Theme.bad)
-                        .interpolationMethod(.monotone)
-                }
-                ForEach(a.swings.filter(\.impact)) { s in
-                    RuleMark(x: .value("Time", s.tStart - a.t0)).foregroundStyle(Color.accentColor.opacity(0.35))
-                }
-            }
-            .chartXScale(domain: 0...duration(a))
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartXAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let t = v.as(Double.self) { Text(clock(t)).font(.caption2) } } } }
-            .chartYAxis { yAxis() }
-            .chartYAxisLabel("bpm", position: .topLeading)
-            .frame(height: 150)
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-            Text("Orange lines mark hits.").font(.footnote).foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: swings and details
-
+    /// The first 10 swings, the rest behind "Show all": a long session has hundreds.
     private func swings(_ a: SessionAnalysis, _ st: SessionStrokes?) -> some View {
-        Card("Swings", systemImage: "figure.badminton") {
+        let shown = showAllSwings ? a.swings : Array(a.swings.prefix(10))
+        return Card("Swings (\(a.swings.count))", systemImage: "figure.badminton") {
             if a.swings.isEmpty {
                 Text("No swings detected.").font(.subheadline).foregroundStyle(.secondary)
             }
             LazyVStack(spacing: 0) {
-                ForEach(a.swings) { s in
+                ForEach(shown) { s in
                     NavigationLink { SwingDetailView(analysis: a, start: s.index, strokes: st?.results) } label: { SwingRow(swing: s, result: st?.results[safe: s.index - 1]) }
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens the swing detail")
-                    if s.id != a.swings.last?.id { Divider() }
+                    if s.id != shown.last?.id { Divider() }
                 }
+            }
+            if a.swings.count > 10 {
+                Button {
+                    withAnimation(.snappy) { showAllSwings.toggle() }
+                } label: {
+                    Label(showAllSwings ? "Show fewer" : "Show all \(a.swings.count) swings", systemImage: showAllSwings ? "chevron.up" : "chevron.down")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.secondary)
+                .padding(.top, 4)
             }
         }
     }
@@ -261,10 +259,7 @@ struct SessionDetailView: View {
                 .disabled(pi.busy)
                 Button { Task { await fetchReplay() } } label: { Label("Get 3D replay", systemImage: "cube") }
             }
-            if fitbit.connected == true, meta.anchor != nil, let a {
-                Button { Task { await fetchFitbit(a) } } label: { Label("Add Fitbit heart rate", systemImage: "heart.text.square") }
-                    .disabled(fitbit.busy)
-            }
+            Button { addingHR = true } label: { Label(meta.heartRate.isEmpty ? "Add heart rate…" : "Replace heart rate…", systemImage: "heart.text.square") }
             Section("Files") {
                 if store.hasReplay(meta.id) {
                     ShareLink(item: store.replayURL(meta.id)) { Label("Share replay.bin", systemImage: "cube") }
@@ -299,21 +294,6 @@ struct SessionDetailView: View {
             message = error.localizedDescription
         }
     }
-
-    private func fetchFitbit(_ a: SessionAnalysis) async {
-        guard let anchor = meta.anchor else { return }
-        do {
-            let hr = try await fitbit.heartRate(
-                from: Date(timeIntervalSince1970: anchor.wall(a.t0) - 60), to: Date(timeIntervalSince1970: anchor.wall(a.t1) + 60))
-            guard !hr.isEmpty else { message = "Fitbit has no heart rate for this time yet (it syncs from the tracker)."; return }
-            meta.heartRate = hr
-            meta.heartRateSource = "Fitbit (Google Health API)"
-            try store.writeMeta(meta)
-            message = "Attached \(hr.count) heart-rate samples."
-        } catch {
-            message = error.localizedDescription
-        }
-    }
 }
 
 struct SwingRow: View {
@@ -342,7 +322,7 @@ struct SwingRow: View {
             Spacer(minLength: 8)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(String(format: "%.1f", s.headSpeed)).font(.score(.title3))
-                Text("m/s").font(.caption2).foregroundStyle(.secondary)
+                Text("km/h").font(.caption2).foregroundStyle(.secondary)
             }
             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 8)
                 .accessibilityHidden(true)

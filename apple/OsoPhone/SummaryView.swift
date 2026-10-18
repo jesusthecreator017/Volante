@@ -1,5 +1,6 @@
-// Summary tab: a recap of the last session against your usual, then trends for a week, month, year or all time
-// (swings, speed, time played, strokes, heart rate) and all-time bests. Built from the store's per-session summaries.
+// Summary tab: a customizable dashboard (Edit: reorder, remove, resize, add widgets; saved per phone). Widgets cover the last
+// session with its health, the weekly goal, trends for a week / month / year / all time (swings, speed, strokes, heart rate,
+// effort, time in zones, recovery) and personal bests. Built from the store's per-session summaries and attached heart rate.
 
 import Charts
 import OsoKit
@@ -9,6 +10,13 @@ struct SummaryView: View {
     @Environment(SessionStore.self) private var store
     @Environment(Router.self) private var router
     @AppStorage("volante.summaryRange") private var range: Period = .week
+    @AppStorage("volante.summary.layout") private var layoutJSON = ""
+    @State private var editing = false
+
+    private var layout: [SummaryWidget] {
+        get { SummaryWidget.decode(layoutJSON) }
+        nonmutating set { layoutJSON = SummaryWidget.encode(newValue) }
+    }
 
     enum Period: String, CaseIterable, Identifiable {
         case week = "W", month = "M", year = "Y", all = "All"
@@ -50,11 +58,15 @@ struct SummaryView: View {
             }
             .navigationTitle("Summary")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !store.sessions.isEmpty { Button("Edit") { editing = true } }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { router.showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
                 }
             }
             .task { await store.loadAllSummaries() }
+            .sheet(isPresented: $editing) { EditSummarySheet(layout: Binding(get: { layout }, set: { layout = $0 })) }
         }
     }
 
@@ -71,31 +83,193 @@ struct SummaryView: View {
 
     private var content: some View {
         let all = entries, now = inPeriod(all), before = inPeriod(all, offset: 1)
+        let items = layout
         return Screen {
             if showingSample {
                 Label("Showing the sample session. Your own sessions replace it.", systemImage: "testtube.2")
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            GoalCard()
-            TwinCard()
-            if let last = all.first { recap(last, others: Array(all.dropFirst().prefix(10))) }
-            Picker("Period", selection: $range) {
-                ForEach(Period.allCases) { Text($0 == .all ? "All" : $0.rawValue).tag($0) }
+            if items.contains(where: { $0.kind.usesPeriod }) {
+                Picker("Period", selection: $range) {
+                    ForEach(Period.allCases) { Text($0 == .all ? "All" : $0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
-            .padding(.top, 4)
-            totals(now, before)
-            if now.isEmpty {
-                Card { Text("No sessions \(range.name). Pick a longer period or go play.").font(.subheadline).foregroundStyle(.secondary) }
-            } else {
-                swingsChart(now)
-                speedChart(now)
-                strokeChart(now)
-                if now.contains(where: { $0.avgBpm != nil }) { heartChart(now) }
+            // small widgets pair up two per row; large ones take the row
+            ForEach(rows(items), id: \.first!.id) { row in
+                if row.count == 2 || row.first!.size == .small {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(row) { w in tile(w.kind, all: all, now: now, before: before).frame(maxWidth: .infinity) }
+                        if row.count == 1 { Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                    }
+                } else {
+                    card(row.first!.kind, all: all, now: now, before: before)
+                }
             }
-            bests(all)
+            if items.isEmpty {
+                ContentUnavailableView("No widgets", systemImage: "square.grid.2x2", description: Text("Tap Edit to add some."))
+            }
         }
         .animation(.snappy, value: range)
+        .animation(.snappy, value: layoutJSON)
+    }
+
+    private func rows(_ items: [SummaryWidget]) -> [[SummaryWidget]] {
+        var out: [[SummaryWidget]] = [], pending: SummaryWidget?
+        for w in items {
+            if w.size == .small {
+                if let p = pending { out.append([p, w]); pending = nil } else { pending = w }
+            } else {
+                if let p = pending { out.append([p]); pending = nil }
+                out.append([w])
+            }
+        }
+        if let p = pending { out.append([p]) }
+        return out
+    }
+
+    @ViewBuilder
+    private func card(_ k: SummaryWidget.Kind, all: [Entry], now: [Entry], before: [Entry]) -> some View {
+        switch k {
+        case .goal: GoalCard()
+        case .style: TwinCard()
+        case .lastSession: if let last = all.first { recap(last, others: Array(all.dropFirst().prefix(10))) }
+        case .totals: totals(now, before)
+        case .swings: if !now.isEmpty { swingsChart(now) } else { emptyPeriod("Swings") }
+        case .speed: if !now.isEmpty { speedChart(now) } else { emptyPeriod("Best speed") }
+        case .strokes: strokeChart(now)
+        case .heartRate: heartChart(now)
+        case .effort: effortChart(now)
+        case .zones: zonesCard(now)
+        case .recovery: recoveryChart(now)
+        case .bests: bests(all)
+        }
+    }
+
+    /// The small version: one number that matters, tappable where it leads somewhere.
+    @ViewBuilder
+    private func tile(_ k: SummaryWidget.Kind, all: [Entry], now: [Entry], before: [Entry]) -> some View {
+        let hs = now.compactMap { e in store.heartStats(e.meta, exact: false).map { (e, $0) } }
+        switch k {
+        case .goal: SmallTile(title: "Weekly goal", icon: "target") { GoalTileContent() }
+        case .style: SmallTile(title: "Your style", icon: "person.2.fill") { Text("Twin profile").font(.headline) }
+        case .lastSession:
+            SmallTile(title: "Last session", icon: "clock") {
+                if let e = all.first {
+                    Text("\(e.row.swings) swings").font(.score(.title3))
+                    if let h = store.heartStats(e.meta, exact: false) { Text("\(Int(h.avg)) bpm avg · \(h.effortLabel)").font(.caption).foregroundStyle(.secondary) }
+                    else { Text(clock(e.row.durationS)).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+        case .totals: SmallTile(title: range.name.capitalized, icon: "sum") {
+            Text("\(now.count) sessions").font(.score(.title3))
+            Text(hours(now.map(\.row.durationS).reduce(0, +)) + " on court").font(.caption).foregroundStyle(.secondary)
+        }
+        case .swings: SmallTile(title: "Swings", icon: "figure.badminton") {
+            Text("\(now.map(\.row.swings).reduce(0, +))").font(.score(.title3))
+            Text(range.name).font(.caption).foregroundStyle(.secondary)
+        }
+        case .speed: SmallTile(title: "Best speed", icon: "speedometer") {
+            Text(now.compactMap(\.row.maxSpeed).max().map { kmh($0) } ?? "–").font(.score(.title3))
+            Text("km/h, estimated").font(.caption).foregroundStyle(.secondary)
+        }
+        case .strokes: SmallTile(title: "Strokes", icon: "chart.bar.doc.horizontal") {
+            let b = now.reduce(into: StrokeBreakdown()) { acc, x in if let v = x.row.breakdown { acc.merge(v) } }
+            Text("\(b.total)").font(.score(.title3))
+            Text("classified (experimental)").font(.caption).foregroundStyle(.secondary)
+        }
+        case .heartRate: SmallTile(title: "Heart rate", icon: "heart.fill") {
+            if hs.isEmpty { Text("–").font(.score(.title3)); Text("no heart rate yet").font(.caption).foregroundStyle(.secondary) }
+            else { Text("\(Int(hs.map(\.1.avg).reduce(0, +) / Double(hs.count))) bpm").font(.score(.title3)); Text("average while playing").font(.caption).foregroundStyle(.secondary) }
+        }
+        case .effort: SmallTile(title: "Effort", icon: "flame.fill") {
+            Text("\(Int(hs.map(\.1.effort).reduce(0, +)))").font(.score(.title3))
+            Text("points \(range.name)").font(.caption).foregroundStyle(.secondary)
+        }
+        case .zones: SmallTile(title: "Time in zones", icon: "chart.bar.fill") {
+            let z = zoneTotals(hs.map(\.1))
+            ZoneBars(stats: z, compact: true).padding(.vertical, 4)
+            Text(clock(z.zoneSeconds[3] + z.zoneSeconds[4]) + " in zones 4–5").font(.caption).foregroundStyle(.secondary)
+        }
+        case .recovery: SmallTile(title: "Recovery", icon: "arrow.down.heart") {
+            let r = hs.compactMap(\.1.recovery)
+            Text(r.isEmpty ? "–" : "\(Int(r.reduce(0, +) / Double(r.count))) bpm").font(.score(.title3))
+            Text("drop 1 min after play").font(.caption).foregroundStyle(.secondary)
+        }
+        case .bests: SmallTile(title: "Fastest swing", icon: "trophy.fill") {
+            Text(all.compactMap(\.row.maxSpeed).max().map { kmh($0) } ?? "–").font(.score(.title3))
+            Text("km/h, all time").font(.caption).foregroundStyle(.secondary)
+        }
+        }
+    }
+
+    private func emptyPeriod(_ title: String) -> some View {
+        Card(title) { Text("No sessions \(range.name). Pick a longer period or go play.").font(.subheadline).foregroundStyle(.secondary) }
+    }
+
+    // MARK: health over the period
+
+    private func healthEntries(_ e: [Entry]) -> [(Entry, HeartStats)] {
+        e.compactMap { x in store.heartStats(x.meta, exact: false).map { (x, $0) } }
+    }
+
+    private func zoneTotals(_ hs: [HeartStats]) -> HeartStats {
+        var z = [Double](repeating: 0, count: 5)
+        for h in hs { for i in 0..<5 { z[i] += h.zoneSeconds[i] } }
+        return HeartStats(avg: 0, max: 0, min: 0, zoneSeconds: z, effort: 0, recovery: nil, samples: 0, maxHR: store.maxHR)
+    }
+
+    private func noHealth(_ title: String, _ icon: String) -> some View {
+        Card(title, systemImage: icon) {
+            Text("No heart rate \(range.name). Wear your Apple Watch or Fitbit while you play, or open a session and use Add heart rate.")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func effortChart(_ e: [Entry]) -> some View {
+        let hs = healthEntries(e)
+        if hs.isEmpty { noHealth("Effort", "flame.fill") } else {
+            Card("Effort", systemImage: "flame.fill") {
+                Chart(hs, id: \.0.id) { x, h in
+                    BarMark(x: .value("Date", x.date, unit: range.bucket), y: .value("Effort", h.effort))
+                        .foregroundStyle(Theme.hot.gradient).cornerRadius(4)
+                }
+                .chartXScale(domain: domain)
+                .frame(height: 150)
+                .accessibilityLabel("Effort per \(range.bucket == .day ? "day" : "period"), total \(Int(hs.map(\.1.effort).reduce(0, +))) points")
+                Text("Effort is minutes in each heart-rate zone weighted by the zone (1–5). Under 50 is light, 50–100 moderate, 100–200 hard.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func zonesCard(_ e: [Entry]) -> some View {
+        let hs = healthEntries(e).map(\.1)
+        if hs.isEmpty { noHealth("Time in zones", "chart.bar.fill") } else {
+            Card("Time in zones", systemImage: "chart.bar.fill") {
+                ZoneBars(stats: zoneTotals(hs))
+                Text("Zones are shares of your max heart rate (\(Int(store.maxHR)) bpm; change it in Settings).").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recoveryChart(_ e: [Entry]) -> some View {
+        let hs = healthEntries(e).filter { $0.1.recovery != nil }
+        if hs.isEmpty { noHealth("Recovery", "arrow.down.heart") } else {
+            Card("Recovery", systemImage: "arrow.down.heart") {
+                Chart(hs, id: \.0.id) { x, h in
+                    LineMark(x: .value("Date", x.date), y: .value("bpm", h.recovery!)).foregroundStyle(Theme.good)
+                    PointMark(x: .value("Date", x.date), y: .value("bpm", h.recovery!)).foregroundStyle(Theme.good)
+                }
+                .chartXScale(domain: domain)
+                .chartYAxisLabel("bpm drop in 1 min", position: .topLeading)
+                .frame(height: 140)
+                Text("How far your heart rate falls in the minute after play. It tends to grow as fitness improves.").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: last session
@@ -114,8 +288,17 @@ struct SummaryView: View {
                 }
                 HStack(alignment: .top) {
                     BigStat(value: "\(e.row.swings)", label: "Swings", style: .title)
-                    BigStat(value: e.row.maxSpeed.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: "Best speed", style: .title)
+                    BigStat(value: e.row.maxSpeed.map { kmh($0) } ?? "–", unit: "km/h", label: "Best speed", style: .title)
                     BigStat(value: clock(e.row.durationS), label: "Time", style: .title)
+                }
+                if let h = store.heartStats(e.meta, exact: false) {
+                    HStack(spacing: 14) {
+                        Label("\(Int(h.avg)) avg · \(Int(h.max)) max bpm", systemImage: "heart.fill").foregroundStyle(Theme.bad)
+                        Label(h.effortLabel, systemImage: "flame.fill").foregroundStyle(Theme.hot)
+                        if let r = h.recovery { Label("−\(Int(r))", systemImage: "arrow.down.heart").foregroundStyle(Theme.good) }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    ZoneBars(stats: h, compact: true)
                 }
                 if let line = recapLine(e, avgSwings: avgSwings, avgBest: avgBest) {
                     Label(line, systemImage: "sparkles").font(.subheadline).foregroundStyle(.primary)
@@ -157,7 +340,7 @@ struct SummaryView: View {
                 BigStat(value: "\(now.count)", label: now.count == 1 ? "Session" : "Sessions", style: .title)
                 BigStat(value: hours(time), label: "On court", style: .title)
                 BigStat(value: "\(swings)", label: "Swings", style: .title)
-                BigStat(value: best.map { String(format: "%.1f", $0) } ?? "–", unit: "m/s", label: "Best speed", style: .title)
+                BigStat(value: best.map { kmh($0) } ?? "–", unit: "km/h", label: "Best speed", style: .title)
             }
             if range != .all, !before.isEmpty || !now.isEmpty {
                 Text(trend(swings, prev)).font(.footnote).foregroundStyle(.secondary)
@@ -200,24 +383,24 @@ struct SummaryView: View {
             } else {
                 Chart {
                     ForEach(best) { x in
-                        LineMark(x: .value("Date", x.date), y: .value("m/s", x.row.maxSpeed ?? 0))
+                        LineMark(x: .value("Date", x.date), y: .value("km/h", (x.row.maxSpeed ?? 0) * 3.6))
                             .interpolationMethod(.monotone)
                             .foregroundStyle(Theme.hot)
-                        PointMark(x: .value("Date", x.date), y: .value("m/s", x.row.maxSpeed ?? 0))
+                        PointMark(x: .value("Date", x.date), y: .value("km/h", (x.row.maxSpeed ?? 0) * 3.6))
                             .foregroundStyle(Theme.hot)
                     }
                     if let avg {
-                        RuleMark(y: .value("Average", avg))
+                        RuleMark(y: .value("Average", avg * 3.6))
                             .foregroundStyle(.secondary)
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                             .annotation(position: .top, alignment: .leading) {
-                                Text(String(format: "avg %.1f", avg)).font(.caption2).foregroundStyle(.secondary)
+                                Text("avg " + kmh(avg)).font(.caption2).foregroundStyle(.secondary)
                             }
                     }
                 }
                 .chartXScale(domain: domain)
                 .chartYScale(domain: .automatic(includesZero: false))
-                .chartYAxisLabel("m/s", position: .topLeading)
+                .chartYAxisLabel("km/h", position: .topLeading)
                 .frame(height: 170)
             }
         }
@@ -230,19 +413,26 @@ struct SummaryView: View {
         if total.total > 0 { StrokeBreakdownCard(breakdown: total) }
     }
 
+    @ViewBuilder
     private func heartChart(_ e: [Entry]) -> some View {
-        let hr = e.filter { $0.avgBpm != nil }
-        return Card("Heart rate", systemImage: "heart.fill") {
-            Chart(hr) { x in
-                PointMark(x: .value("Date", x.date), y: .value("bpm", x.avgBpm ?? 0))
-                    .foregroundStyle(Theme.bad)
-                    .symbolSize(60)
+        let hs = healthEntries(e)
+        if hs.isEmpty { noHealth("Heart rate", "heart.fill") } else {
+            Card("Heart rate", systemImage: "heart.fill") {
+                Chart {
+                    ForEach(hs, id: \.0.id) { x, h in
+                        RuleMark(x: .value("Date", x.date), yStart: .value("avg", h.avg), yEnd: .value("max", h.max))
+                            .foregroundStyle(Theme.bad.opacity(0.35)).lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round))
+                        PointMark(x: .value("Date", x.date), y: .value("bpm", h.avg)).foregroundStyle(Theme.bad).symbolSize(50)
+                    }
+                }
+                .chartXScale(domain: domain)
+                .chartYScale(domain: .automatic(includesZero: false))
+                .chartYAxisLabel("bpm", position: .topLeading)
+                .frame(height: 150)
+                .accessibilityLabel("Average and max heart rate per session")
+                Text("Dot: average while playing. Bar: up to the session's max. From Apple Watch, Fitbit, Apple Health or an imported file.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-            .chartXScale(domain: domain)
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartYAxisLabel("avg bpm", position: .topLeading)
-            .frame(height: 140)
-            Text("Average heart rate per session, from Apple Watch or Fitbit.").font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -261,7 +451,7 @@ struct SummaryView: View {
         let rally = e.max { $0.row.longestRally < $1.row.longestRally }
         return Card("Personal bests", systemImage: "trophy.fill") {
             VStack(spacing: 10) {
-                if let fast { best("Fastest swing", String(format: "%.1f m/s", fast.row.maxSpeed ?? 0), fast) }
+                if let fast { best("Fastest swing", kmh(fast.row.maxSpeed ?? 0) + " km/h", fast) }
                 if let most { best("Most swings", "\(most.row.swings)", most) }
                 if let rally, rally.row.longestRally > 0 { best("Longest rally", "\(rally.row.longestRally) shots", rally) }
             }

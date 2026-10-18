@@ -34,12 +34,14 @@ targets:
       path: OsoPhone/OsoPhone.entitlements
       properties:
         com.apple.security.application-groups: [group.$(OSO_BUNDLE_PREFIX)]
+        com.apple.developer.healthkit: true # read heart rate to add to a session (Add heart rate > Apple Health)
     info:
       path: OsoPhone/Info.plist
       properties:
         CFBundleDisplayName: Volante
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSHealthShareUsageDescription: Volante reads your heart rate from Apple Health to add it to a badminton session when you choose Add heart rate.
         NSBluetoothAlwaysUsageDescription: Volante connects to the racquet pod over Bluetooth to record your swings.
         NSLocalNetworkUsageDescription: Volante talks to your Volante server on the Raspberry Pi to upload sessions and fetch replays and heart rate.
         NSAppTransportSecurity:

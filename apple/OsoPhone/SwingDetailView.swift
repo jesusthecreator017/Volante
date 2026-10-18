@@ -106,7 +106,7 @@ struct SwingDetailBody: View {
     private var numbers: some View {
         Card {
             StatGrid(minimum: 110) {
-                BigStat(value: (clipped ? "≥" : "") + String(format: "%.1f", swing.headSpeed), unit: "m/s",
+                BigStat(value: (clipped ? "≥" : "") + kmh(swing.headSpeed), unit: "km/h",
                         label: analysis.mount == .wrist ? "Hand speed" : "Head speed", style: .title)
                 BigStat(value: (clipped ? "≥" : "") + String(format: "%.0f", swing.headSpeed * 3.6), unit: "km/h", label: "Head speed, km/h", style: .title)
                 BigStat(value: (clipped ? "≥" : "") + String(format: "%.0f", swing.peakDps), unit: "dps", label: "Peak |ω|", style: .title)

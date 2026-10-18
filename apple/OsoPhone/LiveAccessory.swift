@@ -38,7 +38,7 @@ struct LiveAccessory: View {
         return "Recording on the pod"
     }
     private var detail: String? {
-        if pod.streaming { return pod.liveSwings.last.map { String(format: "%.1f m/s", $0.headSpeed) } }
+        if pod.streaming { return pod.liveSwings.last.map { kmh($0.headSpeed) + " km/h" } }
         if pod.uploading, pod.uploadExpected > 0 { return "\(100 * pod.uploadReceived / pod.uploadExpected)%" }
         return nil
     }

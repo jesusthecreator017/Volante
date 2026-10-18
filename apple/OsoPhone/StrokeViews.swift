@@ -83,7 +83,7 @@ struct StrokeBreakdownCard: View {
                                 Circle().fill(Theme.group(g)).frame(width: 12, height: 12).accessibilityHidden(true)
                                 Text(g.title).font(.subheadline.weight(.semibold))
                                 Spacer(minLength: 8)
-                                if let v = st.meanSpeed, g != .unclassified { Text(String(format: "%.1f m/s avg", v)).font(.caption).foregroundStyle(.secondary) }
+                                if let v = st.meanSpeed, g != .unclassified { Text(kmh(v) + " km/h avg").font(.caption).foregroundStyle(.secondary) }
                                 Text("\(st.count)").font(.score(.headline))
                             }
                             GeometryReader { geo in

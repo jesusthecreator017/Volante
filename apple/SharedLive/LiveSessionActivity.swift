@@ -46,8 +46,8 @@ extension LiveSessionAttributes.Mode {
 
 extension LiveSessionAttributes.ContentState {
     var timerRange: ClosedRange<Date> { start...max(start, ended ?? .distantFuture) }
-    var lastText: String { lastSpeed.map { String(format: "%.1f", $0) } ?? "–" }
-    var bestText: String { bestSpeed > 0 ? String(format: "%.1f", bestSpeed) : "–" }
+    var lastText: String { lastSpeed.map { String(format: "%.0f", $0 * 3.6) } ?? "–" }  // km/h, like the app
+    var bestText: String { bestSpeed > 0 ? String(format: "%.0f", bestSpeed * 3.6) : "–" }
 }
 
 private struct Stat: View {
@@ -113,8 +113,8 @@ struct LiveLockScreenView: View {
             } else {
                 HStack(alignment: .bottom, spacing: 18) {
                     Stat(value: "\(state.swings)", label: state.hits > 0 ? "Swings (\(state.hits) hits)" : "Swings", size: 38)
-                    Stat(value: state.lastText, unit: "m/s", label: "Last", size: 30)
-                    Stat(value: state.bestText, unit: "m/s", label: "Best", size: 30)
+                    Stat(value: state.lastText, unit: "km/h", label: "Last", size: 30)
+                    Stat(value: state.bestText, unit: "km/h", label: "Best", size: 30)
                     Spacer(minLength: 0)
                     ElapsedTimer(state: state, size: 22)
                 }
@@ -184,8 +184,8 @@ struct LiveExpandedBottom: View {
                 Text("\(attributes.podName) · swings appear after upload").font(.caption).foregroundStyle(.white.opacity(0.92)).lineLimit(1)
             } else {
                 HStack(alignment: .bottom, spacing: 22) {
-                    Stat(value: state.lastText, unit: "m/s", label: "Last", size: 26)
-                    Stat(value: state.bestText, unit: "m/s", label: "Best", size: 26)
+                    Stat(value: state.lastText, unit: "km/h", label: "Last", size: 26)
+                    Stat(value: state.bestText, unit: "km/h", label: "Best", size: 26)
                     Stat(value: "\(state.hits)", label: "Hits", size: 26)
                     Spacer(minLength: 0)
                 }

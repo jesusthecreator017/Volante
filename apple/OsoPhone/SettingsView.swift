@@ -8,6 +8,9 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("oso.onboarded") private var onboarded = false
     @AppStorage(FitbitLink.autoAttachKey) private var autoFitbit = true
+    @AppStorage(HealthPrefs.ageKey) private var age = 0
+    @AppStorage(HealthPrefs.maxHRKey) private var maxHR = 0.0
+    @Environment(SessionStore.self) private var store
     @State private var checking = false
 
     var body: some View {
@@ -38,6 +41,18 @@ struct SettingsView: View {
                     Text("Volante server")
                 } footer: {
                     Text("Optional. A Raspberry Pi running the Volante server backs up your sessions, builds 3D replays and brings in Fitbit heart rate. The team Pi is reached over Tailscale: keep the Tailscale app connected on this iPhone.")
+                }
+
+                Section {
+                    Stepper(value: $age, in: 0...100) { LabeledContent("Age", value: age == 0 ? "Not set" : "\(age)") }
+                    Stepper(value: $maxHR, in: 0...230, step: 1) {
+                        LabeledContent("Max heart rate", value: maxHR == 0 ? "Auto (\(Int(store.maxHR)) bpm)" : "\(Int(maxHR)) bpm")
+                    }
+                    if maxHR != 0 { Button("Use automatic max heart rate") { maxHR = 0 } }
+                } header: {
+                    Text("Heart rate")
+                } footer: {
+                    Text("Heart-rate zones are shares of your max heart rate: your own value if you set one, else 220 minus your age, else your highest recorded heart rate.")
                 }
 
                 Section {
