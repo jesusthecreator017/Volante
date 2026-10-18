@@ -62,8 +62,10 @@ public struct WebSyncQueue: Codable, Equatable, Sendable {
         enabled && now >= notBefore ? pending.first?.id : nil
     }
 
+    /// A PUT that lands after its session left `pending` (deleted on the phone mid-upload) is still recorded as sent, with an empty
+    /// fingerprint, so the server copy gets deleted (`localDelete` / `reconcile`) instead of being forgotten.
     public mutating func succeeded(_ id: String, now: Double) {
-        if let i = pending.firstIndex(where: { $0.id == id }) { sent[id] = pending.remove(at: i).fingerprint }
+        if let i = pending.firstIndex(where: { $0.id == id }) { sent[id] = pending.remove(at: i).fingerprint } else { sent[id] = "" }
         failures = 0
         lastError = nil
         notBefore = now + Self.paceS
@@ -83,11 +85,22 @@ public struct WebSyncQueue: Codable, Equatable, Sendable {
         notBefore = now + max(Self.paceS, retryAfter ?? backoff)
     }
 
-    /// Sessions no longer on the phone: a sent one is queued for deletion on the server, an unsent one is just forgotten.
-    public mutating func reconcile(local: Set<String>) {
+    /// The user deleted this session on the phone: delete the server copy if it was sent or may be uploading right now (a DELETE of
+    /// a copy the server never got is a harmless 404). This is the delete path; `reconcile` is only a safety net.
+    public mutating func localDelete(_ id: String) {
+        let wasPending = pending.contains { $0.id == id }
+        pending.removeAll { $0.id == id }
+        rejected[id] = nil
+        if wasPending || sent[id] != nil { pendingDeletes.insert(id) }
+    }
+
+    /// Safety net for sessions no longer on the phone: an unsent one is forgotten, a sent one is queued for deletion on the server,
+    /// but never from an empty list or a store that did not load cleanly (`loaded`), so an unreadable store can't wipe the web data.
+    public mutating func reconcile(local: Set<String>, loaded: Bool = true) {
         pending.removeAll { !local.contains($0.id) }
         rejected = rejected.filter { local.contains($0.key) }
-        pendingDeletes = Set(sent.keys.filter { !local.contains($0) })
+        guard loaded, !local.isEmpty else { return }
+        pendingDeletes.formUnion(sent.keys.filter { !local.contains($0) })
     }
 
     /// The server copy to delete now, or nil (none, or waiting). Ignores the toggle.

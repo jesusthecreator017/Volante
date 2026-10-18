@@ -19,7 +19,20 @@ final class WebSync {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var runId = 0
 
-    init(store: SessionStore, arena: ArenaClient) { self.store = store; self.arena = arena }
+    init(store: SessionStore, arena: ArenaClient) {
+        self.store = store; self.arena = arena
+        store.onDelete = { [weak self] id in self?.sessionDeleted(id) }
+    }
+
+    /// The user deleted a session on the phone: queue the DELETE of its server copy (even with sync off, or signed out since this
+    /// account's queue was loaded: it goes out at the next sign-in).
+    func sessionDeleted(_ id: String) {
+        _ = signedIn()
+        guard userId != nil else { return }
+        state.localDelete(id)
+        save()
+        kick()
+    }
 
     /// The status line under the toggle.
     var status: String {
@@ -39,7 +52,8 @@ final class WebSync {
     /// Looks for new or changed sessions and sends them; cheap, call it whenever sessions or the sign-in change.
     func kick() {
         guard signedIn() else { return }
-        state.reconcile(local: Set(store.sessions.map(\.id)))  // phone deletes go to the server even with sync off
+        // safety net only (deletes come from sessionDeleted); never infers deletes from an empty or half-read store
+        state.reconcile(local: Set(store.sessions.map(\.id)), loaded: store.loadedCleanly)
         guard state.enabled || !state.pendingDeletes.isEmpty else { save(); return }
         // ponytail: pod sessions only; the app builds no wrist report yet (hand speed is not head speed). Add watch with source "watch".
         state.enqueue(store.sessions.filter { $0.source != .watch }.map {
@@ -88,7 +102,7 @@ final class WebSync {
     private func send(_ id: String) async {
         guard let meta = store.sessions.first(where: { $0.id == id }) else { state.drop(id); return }
         await store.loadRowSummary(meta)
-        guard let report = await store.report(meta, breakdown: store.rowSummaries[id]?.breakdown) else { state.drop(id); return }
+        guard let report = await store.report(meta, breakdown: store.rowSummaries[id]?.breakdown, forWeb: true) else { state.drop(id); return }
         let body = report.uploadBody()
         let now = { Date().timeIntervalSince1970 }
         guard body.count <= 16384 else {

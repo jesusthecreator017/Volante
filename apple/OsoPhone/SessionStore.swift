@@ -33,6 +33,11 @@ final class SessionStore {
     @ObservationIgnored private var unreadable: Set<String> = []
     /// Sessions being analysed right now, so a row and the personal-best pass never analyse the same file twice.
     @ObservationIgnored private var inFlight: Set<String> = []
+    /// false when the last reload could not list the folder or read some session's meta.json: the web sync then never infers
+    /// deletes from what is missing (an unreadable store must not wipe the web copies).
+    @ObservationIgnored private(set) var loadedCleanly = false
+    /// Called after the user deletes a session (WebSync deletes the server copy).
+    @ObservationIgnored var onDelete: (@MainActor (String) -> Void)?
 
     private let root: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -44,11 +49,12 @@ final class SessionStore {
     init() { reload() }
 
     func reload() {
-        let dirs = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        sessions = dirs.compactMap { dir in
+        let dirs = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+        sessions = (dirs ?? []).compactMap { dir in
             guard let d = try? Data(contentsOf: dir.appendingPathComponent("meta.json")) else { return nil }
             return try? JSONDecoder.oso.decode(SessionMeta.self, from: d)
         }.sorted { $0.createdAt > $1.createdAt }
+        loadedCleanly = dirs != nil && sessions.count == dirs!.count
     }
 
     func folder(_ id: String) -> URL { root.appendingPathComponent(id, isDirectory: true) }
@@ -80,6 +86,7 @@ final class SessionStore {
     func hasReplay(_ id: String) -> Bool { FileManager.default.fileExists(atPath: replayURL(id).path) }
     func saveReplay(_ id: String, _ data: Data) throws { try data.write(to: replayURL(id), options: .atomic) }
 
+    @MainActor
     func delete(_ id: String) {
         try? FileManager.default.removeItem(at: folder(id))
         cache[id] = nil
@@ -88,6 +95,7 @@ final class SessionStore {
         unreadable.remove(id)
         reload()
         refreshBests()
+        onDelete?(id)
     }
 
     func analysis(_ meta: SessionMeta) -> SessionAnalysis? {

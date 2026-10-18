@@ -174,3 +174,44 @@ private func drain(_ q: inout WebSyncQueue, now: inout Double) -> [String] {
     back.reconcile(local: ["a", "c"])
     #expect(back.pendingDeletes.isEmpty)
 }
+
+@Test func testPutLandingAfterLocalDeleteIsDeleted() {
+    var q = WebSyncQueue()
+    q.enqueue([S(id: "a", startedAt: 1), S(id: "b", startedAt: 2)])
+    #expect(q.next(now: 0) == "a")  // PUT a in flight...
+    q.reconcile(local: ["b"])       // ...while a is deleted on the phone
+    q.succeeded("a", now: 0)        // the PUT still lands on the server
+    #expect(q.sent["a"] == "")
+    q.reconcile(local: ["b"])
+    #expect(q.pendingDeletes == ["a"])
+}
+
+@Test func testExplicitDeleteQueuesDelete() {
+    var q = WebSyncQueue()
+    q.enqueue(sessions())
+    var now = 0.0
+    _ = drain(&q, now: &now)
+    q.localDelete("b")
+    q.localDelete("never-seen")
+    #expect(q.pendingDeletes == ["b"])
+    q.enqueue([S(id: "d", startedAt: 400)])
+    #expect(q.next(now: now) == "d")  // PUT d in flight, then d deleted on the phone (the last session: no reconcile help)
+    q.localDelete("d")
+    #expect(q.pending.isEmpty && q.pendingDeletes == ["b", "d"])
+    q.succeeded("d", now: now)
+    q.reconcile(local: [])
+    #expect(q.pendingDeletes == ["b", "d"])  // an empty local list never clears or adds deletes
+}
+
+@Test func testReconcileNeverDeletesFromEmptyOrUnloadedStore() {
+    var q = WebSyncQueue()
+    q.enqueue(sessions())
+    var now = 0.0
+    _ = drain(&q, now: &now)
+    q.reconcile(local: [])
+    #expect(q.pendingDeletes.isEmpty && q.syncedCount == 3)
+    q.reconcile(local: ["a"], loaded: false)
+    #expect(q.pendingDeletes.isEmpty)
+    q.reconcile(local: ["a", "c"])
+    #expect(q.pendingDeletes == ["b"])
+}

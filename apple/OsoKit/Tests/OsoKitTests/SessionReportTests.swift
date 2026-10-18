@@ -84,3 +84,9 @@ private func session(_ n: Int, gap: Double = 1.8, dps: (Int) -> Double) -> Sessi
     #expect(InsightRules.insights(for: r).contains { $0.id == "stroke_variety" })
     #expect(r.json().contains("\"experimental\": true"))
 }
+
+@Test func noWeeklyGoalNoGoalInsight() {  // the web upload passes no goal, so its reports never carry one
+    let r = session(40) { _ in 1000 }
+    #expect(!InsightRules.insights(for: r).contains { $0.id == "volume_trend" })
+    #expect(InsightRules.insights(for: r, .init(weeklyGoal: (1, 3, "sessions"))).contains { $0.id == "volume_trend" })
+}
