@@ -337,6 +337,11 @@ Field meanings that the types do not say:
 - `Rally`: `game` 1-3, `t_start`/`t_end` in replay seconds (section 6), `server`/`winner` are model sides, `score` is the game's points
   `[a, b]` after the rally, `shots` is the shot count. `let` rallies are omitted by the producer (so `"let"` never appears in practice).
 - `Tournament.starts_at` is the scheduled start; `status` `scheduled` -> `running` -> `done`.
+- `PlaySession` is a badminton session the iPhone app uploaded to the signed-in account: `id` (the app's session id), `started_at`,
+  `sensor` (`pod`, `watch` or `pod+watch`), `duration_s`, `swings`, `hits`, `best_kmh` and `avg_bpm` (`null` when unknown),
+  `uploaded_at`, and on the detail only `report`. `Report` is the part of `volante-report/1` the site shows: `schema`, `speed`
+  (`p50_kmh`, `p90_kmh`, `max_kmh`), `tempo` (`median_gap_s`), `rallies` (`count`, `longest_shots`), `timeline` (`t_min`, `swings`,
+  `p90_kmh`, `hr_bpm`) and `insights` (`id`, `severity`, `title`, `body`).
 
 ### Endpoints
 
@@ -365,6 +370,9 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `DELETE /api/me` | **204**. Deletes the account: retires the user's models and removes their uploaded files and personal data (see D8; past matches keep the placeholder owner below), ends the session. |
 | `GET /api/me/pods` | **200** `{"items": [Pod]}` of the signed-in user's pods (**401** signed out). `Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_seen": "2026-10-17T15:20:00Z" or null}`. `Cache-Control: no-store`. Pairing (`POST /api/me/pods`, from the app) is future work. |
 | `PATCH /api/me/pods/<id>` | CSRF header. Body `{"name": "..."}`: the account display name for the pod (not the Bluetooth name). Trim it; 1-40 characters, no control or format characters (Unicode category C), else **400** `{"error": "invalid_name"}`. **200** the updated `Pod`; **404** unknown or not the caller's pod. |
+| `PUT /api/me/sessions/<id>` | CSRF header. The app uploads a finished session to the signed-in account (idempotent: a re-upload replaces it). Body: the `PlaySession` fields without `id`/`uploaded_at`, plus an optional `report` (`volante-report/1`, at most 256 KB). **200** the stored `PlaySession`; **400** `{"error": "invalid_session"}`; **404** a malformed id. |
+| `GET /api/me/sessions` | **200** `{"items": [PlaySession]}`, newest first, without `report` (**401** signed out). `Cache-Control: no-store`. |
+| `GET /api/me/sessions/<id>` | **200** the `PlaySession` with its `report`; **404** unknown or not the caller's. `DELETE` the same path (CSRF) removes it (**204**). Deleting the account deletes its sessions. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 
 Auth routes (browser redirects, not JSON):
