@@ -23,8 +23,8 @@ Note for `arena/server/deploy/install.sh`: it currently hard-codes kit `0.4.0` i
 (the wheel in `kit/`), otherwise a deliberate kit bump installs the old pin.
 
 LAN server: replaces only `app/` under `LAN_APP_DIR` (`/home/itsfrosty/oso-b/app`) with `rsync --delete`, excluding `data/` and `node_modules/`
-(session data in `/home/itsfrosty/oso-b/data` is outside it), then `systemctl --user -M itsfrosty@ restart oso-replay.service` and checks
-`http://127.0.0.1:8090/health`. On failure the pre-deploy copy of `app/` is restored and the unit restarted. User, paths, unit and URLs are
+(session data in `/home/itsfrosty/oso-b/data` is outside it), then restarts `oso-replay.service` in that user's systemd (`runuser` + `XDG_RUNTIME_DIR`; `systemctl --user -M` needs
+systemd-machined, which Raspberry Pi OS lacks) and checks `http://127.0.0.1:8090/`. On failure the pre-deploy copy of `app/` is restored and the unit restarted. User, paths, unit and URLs are
 in `/etc/volante-deploy/deploy.conf` ([ci/deploy.conf](ci/deploy.conf)).
 
 ## Trust model
@@ -48,7 +48,12 @@ echo '<token>' | sudo deploy/pi/ci/setup-runner.sh
 ```
 It is idempotent; it does not touch the PicoURL runner, `/etc/oso-arena`, the Arena data, Funnel or the friend's files.
 Then create the `production` environment in the repo settings (no required reviewers; it records deployments). Undo: `uninstall-runner.sh`.
-Update `volante-deploy` after a change to it: re-run `setup-runner.sh` (it copies the script, keeps `deploy.conf`).
+Update `volante-deploy` after a change to it: re-run `setup-runner.sh` (it copies the script, keeps `deploy.conf`) **before** merging,
+because the runner can't update its own script and the merge itself triggers a deploy with whatever is installed. Edit
+`/etc/volante-deploy/deploy.conf` by hand when `ci/deploy.conf` gains keys.
+
+Arena installs run `install.sh` under `umask 022` (the 2026-10-18 outage: a root-only venv the services couldn't import), and a
+deploy only counts as healthy when the web health check, the site and every unit in `ARENA_UNITS` are up 5 s later.
 
 ## Kit version bump
 
