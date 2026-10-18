@@ -53,6 +53,7 @@ jobs:
               - *shared
               - arena/**
               - tools/**
+              - site/src/types.ts   # the kit's handoff test checks the PROMPT names every field of it
               - Cargo.toml
               - Cargo.lock
               - crates/**
