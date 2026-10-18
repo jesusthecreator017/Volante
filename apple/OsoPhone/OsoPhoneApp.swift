@@ -12,7 +12,8 @@ struct OsoPhoneApp: App {
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
     @State private var router = Router()
-    @State private var arena = ArenaClient()
+    @State private var arena: ArenaClient
+    @State private var webSync: WebSync
     @AppStorage("oso.onboarded") private var onboarded = false
     /// DEBUG: -osoOnboarding shows the intro even when it was seen, until it ends.
     @State private var forceIntro = DebugOverrides.forcesIntro
@@ -28,6 +29,9 @@ struct OsoPhoneApp: App {
         let pi = PiServer()
         _pi = State(initialValue: pi)
         _fitbit = State(initialValue: FitbitLink(pi: pi))
+        let arena = ArenaClient()
+        _arena = State(initialValue: arena)
+        _webSync = State(initialValue: WebSync(store: store, arena: arena))
     }
 
     var body: some Scene {
@@ -45,6 +49,7 @@ struct OsoPhoneApp: App {
             .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
             .environment(router)
             .environment(arena)
+            .environment(webSync)
             .environment(store)
             .environment(pod)
             .environment(watch)
@@ -52,11 +57,11 @@ struct OsoPhoneApp: App {
             .environment(pi)
             .onAppear(perform: wire)
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { pod.refreshAuthorization(); syncHeartRate(); syncArena() }
+                if phase == .active { pod.refreshAuthorization(); syncHeartRate(); webSync.kick() }
             }
-            // each finished session goes to the signed-in GitHub account (and so to the website)
-            .onChange(of: store.sessions.map(\.id)) { syncArena() }
-            .onChange(of: arena.user?.login) { syncArena() }
+            // a new session, heart rate added later, or a sign-in: send what volante web doesn't have yet
+            .onChange(of: store.sessions.map { "\($0.id):\($0.heartRate.count):\($0.pairedSessionId ?? "")" }) { webSync.kick() }
+            .onChange(of: arena.user?.id) { webSync.kick() }
         }
     }
 
@@ -92,12 +97,11 @@ struct OsoPhoneApp: App {
             } catch { pod.lastError = "save failed: \(error)" }
         }
         syncHeartRate()
+        if arena.hasSession { Task { _ = try? await arena.refreshMe(); webSync.kick() } }
         #if DEBUG
         applyLaunchArguments()
         #endif
     }
-
-    private func syncArena() { Task { await arena.syncSessions(store) } }
 
     /// Fitbit heart rate for recent sessions that lack it (no-op unless Fitbit is connected through the Pi).
     private func syncHeartRate() {

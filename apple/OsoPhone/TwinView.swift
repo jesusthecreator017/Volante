@@ -1,5 +1,6 @@
 // Volante Twins on the phone (docs/twins-app.md): the style profile from your pod sessions, the build your twin gets, and
-// my_style.json to train it with the kit. Computed here; only the exported file (a few numbers) ever leaves the phone.
+// my_style.json to train it with the kit. Computed here; only the profile (a few numbers) ever leaves the phone: the exported file,
+// and volante web when "Show my sessions on volante web" is on (WebSync).
 
 import OsoKit
 import SwiftUI
@@ -116,18 +117,9 @@ struct TwinView: View {
 
     private func consistency(_ cv: Double) -> String { cv < 0.1 ? "Steady" : cv <= 0.2 ? "Mixed" : "Wild" }
 
-    /// Pod sessions only (the watch measures the wrist, not the racquet; the sample is synthetic). Parsed off the main actor.
     private func compute() async {
-        let urls = store.sessions.filter { $0.source == .podStream || $0.source == .podUpload }.map { store.imuURL($0.id) }
-        let created = ISO8601DateFormatter().string(from: Date())
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let result: Result<StyleProfile, Error> = await Task.detached(priority: .userInitiated) {
-            let inputs = urls.compactMap { u -> StyleProfiler.Input? in
-                guard let d = try? Data(contentsOf: u), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
-                return .init(parts: [cap.samples])
-            }
-            return Result { try StyleProfiler.compute(inputs, createdAt: created, tool: "Volante iOS \(version)", mount: .flat) }
-        }.value
+        let result = await store.styleProfile()
+        let noPods = !store.sessions.contains { $0.source == .podStream || $0.source == .podUpload }
         switch result {
         case .success(let p):
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("my_style.json")
@@ -139,7 +131,25 @@ struct TwinView: View {
             }
         case .failure(let e):
             let why = (e as? StyleProfileError)?.description ?? e.localizedDescription
-            state = .notEnough(urls.isEmpty ? "Record a few sessions with the racquet pod first. Your style is measured from the pod, not the watch." : why)
+            state = .notEnough(noPods ? "Record a few sessions with the racquet pod first. Your style is measured from the pod, not the watch." : why)
         }
+    }
+}
+
+extension SessionStore {
+    /// The style profile (also sent to the web dashboard by WebSync). Pod sessions only (the watch measures the wrist, not the
+    /// racquet; the sample is synthetic). Parsed off the main actor.
+    @MainActor
+    func styleProfile() async -> Result<StyleProfile, Error> {
+        let urls = sessions.filter { $0.source == .podStream || $0.source == .podUpload }.map { imuURL($0.id) }
+        let created = ISO8601DateFormatter().string(from: Date())
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return await Task.detached(priority: .userInitiated) {
+            let inputs = urls.compactMap { u -> StyleProfiler.Input? in
+                guard let d = try? Data(contentsOf: u), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
+                return .init(parts: [cap.samples])
+            }
+            return Result { try StyleProfiler.compute(inputs, createdAt: created, tool: "Volante iOS \(version)", mount: .flat) }
+        }.value
     }
 }

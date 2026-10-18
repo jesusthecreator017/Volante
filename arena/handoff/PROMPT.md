@@ -292,7 +292,8 @@ omitted or `null` only where the type below says so.
 
 ```
 User         {id: int, login: str, avatar_url: str}                       # GitHub id, login, avatar URL (https://avatars.githubusercontent.com/...)
-Me           {user: User | null, csrf: str, uploads_left_today?: int}     # uploads_left_today when signed in
+Me           {user: User | null, csrf: str, uploads_left_today?: int,     # uploads_left_today when signed in
+              app_linked?: bool}                                           # app_linked: true once the phone/watch app has signed in (POST /api/app/session)
 Season       {id, contract: str, kit_version: str, started_at, ended_at: str | null, active: bool}
 Pod          {id: str, hw_id: str, name: str, last_seen: str | null}     # a user's racquet pod: id "pod_123", hw_id as printed in the app ("OSO-4C99"), account display name
 Build        {power: int, speed: int, reach: int, accuracy: int}          # each 1-10, sum 24
@@ -322,6 +323,25 @@ MatchPage    {items: [MatchSummary], next_before: int | null}
 Tie          {seed_a: int, seed_b: int, a: ModelSummary | null, b: ModelSummary | null, match_id: int | null, winner: Side | null}
 Tournament   {id, season_id, starts_at, status: "scheduled" | "running" | "done", rounds: [[Tie]]}      # rounds[0] = quarterfinals
 TournamentSummary  {id, season_id, starts_at, status}  (+ optionally the rest of Tournament)
+StrokeGroup  "power" | "mid" | "touch" | "not_a_hit" | "unclassified"
+PlaySession  {id: str, started_at: str, sensor: "pod" | "watch" | "pod+watch", duration_s: number, swings: int, hits: int,
+              best_kmh: number | null, avg_bpm: number | null, uploaded_at: str, report?: Report | null}   # report: on the detail only
+SessionPage  {items: [PlaySession], next_before: str | null}              # next_before = opaque "<started_at>~<id>" cursor, null on the last page
+Report       {schema: "volante-report/1", session: {started_at, duration_s, active_s, source: "pod" | "watch", pod_fw}, swings: {count, per_min_active},
+              speed: {p50_kmh, p90_kmh, max_kmh, clipped_frac, estimated: true}, tempo: {median_gap_s, p25_gap_s, p75_gap_s},
+              rallies: {count, median_shots, longest_shots},
+              timeline: [{t_min, swings, p90_kmh, hr_bpm}], heart_rate: {avg_bpm, max_bpm} | null,
+              strokes: {groups: {str: number}, counts?, speed_by_class?, unclassified?, experimental: bool} | null,
+              insights: [{id, severity: "info" | "tip" | "praise", title, body, evidence: {str: number}}],
+              model: {name, version} | null}                              # docs/strokes/report-format.md; stored as validated, never interpreted
+Best         {value: number, session_id: str, started_at: str}
+GroupShares  {power, mid, touch, not_a_hit, unclassified: number}         # shares summing to 1
+Dashboard    {totals: {sessions, swings, active_min, rallies}, weekly: [{week: "YYYY-Www", sessions, swings, active_min}],   # 12 weeks, oldest first
+              trends: [{id, started_at, p90_kmh, swings_per_min, median_gap_s, hr_avg}],     # pod and pod+watch sessions, last 50, oldest first
+              wrist: {sessions, swings},                                    # sensor "watch" (hand speed: never in the speed stats)
+              bests: {max_kmh, most_swings, longest_rally, best_rate: Best | null},
+              strokes: {groups: GroupShares, overall: GroupShares | null, sessions: int, experimental: true} | null,  # groups = last 10 sessions with strokes, overall = all
+              style: StyleProfile | null, twin_model_id: int | null}
 ```
 
 Field meanings that the types do not say:
@@ -337,11 +357,10 @@ Field meanings that the types do not say:
 - `Rally`: `game` 1-3, `t_start`/`t_end` in replay seconds (section 6), `server`/`winner` are model sides, `score` is the game's points
   `[a, b]` after the rally, `shots` is the shot count. `let` rallies are omitted by the producer (so `"let"` never appears in practice).
 - `Tournament.starts_at` is the scheduled start; `status` `scheduled` -> `running` -> `done`.
-- `PlaySession` is a badminton session the iPhone app uploaded to the signed-in account: `id` (the app's session id), `started_at`,
-  `sensor` (`pod`, `watch` or `pod+watch`), `duration_s`, `swings`, `hits`, `best_kmh` and `avg_bpm` (`null` when unknown),
-  `uploaded_at`, and on the detail only `report`. `Report` is the part of `volante-report/1` the site shows: `schema`, `speed`
-  (`p50_kmh`, `p90_kmh`, `max_kmh`), `tempo` (`median_gap_s`), `rallies` (`count`, `longest_shots`), `timeline` (`t_min`, `swings`,
-  `p90_kmh`, `hr_bpm`) and `insights` (`id`, `severity`, `title`, `body`).
+- `PlaySession` is a badminton session the iPhone app uploaded to the signed-in account: `id` (the app's session id), `started_at`
+  (whole seconds, UTC), `sensor` (`pod`, `watch` = the wrist, or `pod+watch` = racquet speeds plus the watch's heart rate), `duration_s`,
+  `swings`, `hits`, `best_kmh` and `avg_bpm` (`null` when unknown), `uploaded_at`, and on the detail only `report` (`null` when the
+  app sent none). Show the watch as "wrist": it measures hand speed, never mixed with racquet speed.
 
 ### Endpoints
 
@@ -370,9 +389,13 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `DELETE /api/me` | **204**. Deletes the account: retires the user's models and removes their uploaded files and personal data (see D8; past matches keep the placeholder owner below), ends the session. |
 | `GET /api/me/pods` | **200** `{"items": [Pod]}` of the signed-in user's pods (**401** signed out). `Pod = {"id": "pod_123", "hw_id": "OSO-4C99", "name": "Jesus's racquet", "last_seen": "2026-10-17T15:20:00Z" or null}`. `Cache-Control: no-store`. Pairing (`POST /api/me/pods`, from the app) is future work. |
 | `PATCH /api/me/pods/<id>` | CSRF header. Body `{"name": "..."}`: the account display name for the pod (not the Bluetooth name). Trim it; 1-40 characters, no control or format characters (Unicode category C), else **400** `{"error": "invalid_name"}`. **200** the updated `Pod`; **404** unknown or not the caller's pod. |
-| `PUT /api/me/sessions/<id>` | CSRF header. The app uploads a finished session to the signed-in account (idempotent: a re-upload replaces it). Body: the `PlaySession` fields without `id`/`uploaded_at`, plus an optional `report` (`volante-report/1`, at most 256 KB). **200** the stored `PlaySession`; **400** `{"error": "invalid_session"}`; **404** a malformed id. |
-| `GET /api/me/sessions` | **200** `{"items": [PlaySession]}`, newest first, without `report` (**401** signed out). `Cache-Control: no-store`. |
-| `GET /api/me/sessions/<id>` | **200** the `PlaySession` with its `report`; **404** unknown or not the caller's. `DELETE` the same path (CSRF) removes it (**204**). Deleting the account deletes its sessions. |
+| `PUT /api/me/sessions/<id>` | CSRF header. App-only (the phone sends it; the site never does). Body `{started_at, sensor, duration_s, swings, hits, best_kmh?, avg_bpm?, report?}` (the `PlaySession` fields without `id`/`uploaded_at`); `started_at` is ISO 8601 UTC with optional fractional seconds (stored as whole seconds; must be a real date); `duration_s` 0-86400, `swings`/`hits` 0-100000, `best_kmh` 0-1000, `avg_bpm` 20-260; `report` an optional `volante-report/1` (validated against `docs/strokes/report.schema.json`, at most 256 KB). Body capped at 256 KB + 4 KB (**413** `too_large`, checked before parsing). `<id>` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (else **400**; the app's ids look like `20261018-025030-c2d6`). Idempotent upsert by (user, id): **200** the stored `PlaySession`. **400** `invalid_session` / `invalid_report`, **400** `too_many_sessions` (max 5,000 per user; replacing an existing id is still allowed), **429** `rate_limited` (60 PUTs/min/user across sessions and style, plus the per-IP write limit). The first PUT also marks the account `app_linked`. |
+| `GET /api/me/sessions?before=<cursor>&limit=N` | **200** `SessionPage` (`PlaySession`s without `report`), newest first; `limit` 1-500 (default 50); `before` is a `next_before` cursor (or a bare `started_at`); **400** on a bad value. `no-store`. |
+| `GET /api/me/sessions/<id>` | **200** the `PlaySession` with its `report`; **404** unknown or not the caller's. `no-store`. |
+| `DELETE /api/me/sessions/<id>` | CSRF header. **204**; **404**. |
+| `DELETE /api/me/sessions` | CSRF header. "Delete my web data": all the caller's sessions and the style profile. **204**. Deleting the account deletes them too. |
+| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 8 KB: the profile's own limit; 8-16 KB -> **400** `invalid_profile`, over 16 KB -> **413** `too_large`): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
+| `GET /api/me/dashboard` | **200** `Dashboard`, aggregated on read from the stored sessions (their report when there is one, else the flat numbers): sessions, weekly volume, trends, bests, stroke groups, style, the active twin id. `no-store`. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 
 Auth routes (browser redirects, not JSON):
@@ -390,8 +413,8 @@ Operations:
 
 Cross-check: the site's client calls exactly `GET /api/me`, `/api/seasons`, `/api/ladder`, `/api/models/<id>`, `/api/matches`,
 `/api/matches/<id>`, `/api/tournaments/current`, `/api/tournaments`, `/api/tournaments/<id>`, `GET /api/models?owner=me`,
-`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `GET /api/me/pods`, `PATCH /api/me/pods/<id>`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
-and the sign-in link `/auth/github/login?next=<path>`. Nothing else. Write contract tests that call each of these against your
+`POST /api/models`, `DELETE /api/models/<id>`, `DELETE /api/me`, `GET /api/me/pods`, `PATCH /api/me/pods/<id>`, `GET /api/me/sessions[/<id>]`, `DELETE /api/me/sessions[/<id>]`, `GET /api/me/dashboard`, `POST /auth/logout`, the replay URL `/api/matches/<id>/replay.bin`
+and the sign-in link `/auth/github/login?next=<path>`. Nothing else (the two `PUT`s are called by the phone/watch app, not the site). Write contract tests that call each of these against your
 server and compare the JSON shape with `docs/site-types.ts` (and the mock fixtures).
 
 ## 8. Serving the site and the viewer
@@ -402,7 +425,7 @@ Do not rebuild pages. Serve the two prebuilt folders. The details are in `docs/s
 - `site/` at `/`. `site/assets/*` are content-hashed: `Cache-Control: public, max-age=31536000, immutable`. `index.html`: `no-cache`.
 - **History routing**: answer these paths with `site/index.html` and status 200: `/`, `/settings`, `/terms`, `/privacy`, `/arena`,
   `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`,
-  `/arena/get-started`. The pre-/arena paths (`/ladder`, `/models/<id>`, ...) are also served: the site redirects them client-side. Any other unknown path (not `/api/`,
+  `/arena/get-started`, `/account/dashboard`, `/account/dashboard/sessions/<id>`. The pre-/arena paths (`/ladder`, `/models/<id>`, ...) and `/sessions`, `/sessions/<id>` are also served: the site redirects them client-side. Any other unknown path (not `/api/`,
   `/auth/`, `/viewer/`, `/healthz`) can fall back too; the site renders "Not found".
 - `viewer/` at `/viewer/` (same origin: the match page reads `iframe.contentWindow.oso_seek`). The match page embeds
   `/viewer/index.html?match=/api/matches/<id>/replay.bin`. Serve `.wasm` as `application/wasm` and `.js` as a JavaScript type.
@@ -413,7 +436,7 @@ Do not rebuild pages. Serve the two prebuilt folders. The details are in `docs/s
   On `/viewer/` only, add `'wasm-unsafe-eval'` to `script-src`. Also send `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, and `X-Frame-Options: SAMEORIGIN` (the site frames only itself) and add `frame-ancestors 'self'` to the CSP. Send **no CORS headers** at all (same origin only; no
   `Access-Control-Allow-*`, no wildcard). Enable HSTS (`Strict-Transport-Security: max-age=31536000`) at the Cloudflare edge (or in `web`). API JSON
-  responses get `Cache-Control: no-store` for anything user specific (`/api/me`, `/api/models?owner=me`); public lists may be cached for a few seconds.
+  responses get `Cache-Control: no-store` for anything user specific (`/api/me`, `/api/models?owner=me`, `/api/me/*`); public lists may be cached for a few seconds.
 - **Get started page**: it describes installing the kit from the repository or a wheel. Whether you also host the kit wheel and
   `CONTRACT.md` for download is an **OWNER DECISION** (D7); the site has no link to them.
 

@@ -10,6 +10,8 @@ export interface Me {
   user: User | null;
   csrf: string;
   uploads_left_today?: number;
+  /** true once the Volante app has signed in to the Arena (set at the app sign-in exchange, not on sync; GET /api/me) */
+  app_linked?: boolean;
 }
 
 /** A racquet pod linked to the signed-in account. `name` is a display name kept on the server, not the Bluetooth name. */
@@ -163,7 +165,12 @@ export type TournamentSummary = Pick<Tournament, "id" | "season_id" | "starts_at
 
 export const isHouse = (o: Owner): o is { house: true } => "house" in o && o.house === true;
 
-/** A badminton session the iPhone app uploaded to the signed-in account (GET /api/me/sessions). */
+// ---- Account → Dashboard (GET /api/me/sessions, /api/me/sessions/{id}, /api/me/dashboard). Mirrors arena/server/osoarena/{web,reports,dashboard}.py.
+
+export type StrokeGroup = "power" | "mid" | "touch" | "not_a_hit" | "unclassified";
+
+/** A badminton session the iPhone app uploaded to the signed-in account. "watch" is the wrist (hand speed, never mixed with racquet
+ *  speed); "pod+watch" is a racquet session with the watch's heart rate. */
 export interface PlaySession {
   id: string;
   started_at: string;
@@ -174,15 +181,55 @@ export interface PlaySession {
   best_kmh: number | null;
   avg_bpm: number | null;
   uploaded_at: string;
+  /** detail only; null when the app sent none */
   report?: Report | null;
 }
 
-/** The parts of volante-report/1 (docs/strokes/report-format.md) the site shows. */
+export interface SessionPage {
+  items: PlaySession[];
+  /** opaque "<started_at>~<id>" cursor for the next (older) page; null on the last page */
+  next_before: string | null;
+}
+
+/** volante-report/1 (docs/strokes/report-format.md). */
 export interface Report {
   schema: "volante-report/1";
-  speed?: { p50_kmh: number; p90_kmh: number; max_kmh: number };
-  tempo?: { median_gap_s: number };
-  rallies?: { count: number; longest_shots: number };
-  timeline?: { t_min: number; swings: number; p90_kmh: number | null; hr_bpm: number | null }[];
-  insights?: { id: string; severity: string; title: string; body: string }[];
+  session: { started_at: string; duration_s: number; active_s: number; source: "pod" | "watch"; pod_fw: string };
+  swings: { count: number; per_min_active: number | null };
+  speed: { p50_kmh: number | null; p90_kmh: number | null; max_kmh: number | null; clipped_frac: number; estimated: true };
+  tempo: { median_gap_s: number | null; p25_gap_s: number | null; p75_gap_s: number | null };
+  rallies: { count: number; median_shots: number | null; longest_shots: number };
+  timeline: { t_min: number; swings: number; p90_kmh: number | null; hr_bpm: number | null }[];
+  heart_rate: { avg_bpm: number; max_bpm: number } | null;
+  strokes: {
+    groups: Record<string, number>;
+    counts?: Record<string, Record<string, number>>;
+    speed_by_class?: Record<string, Record<string, number>>;
+    unclassified?: number;
+    experimental: boolean;
+  } | null;
+  insights: { id: string; severity: "info" | "tip" | "praise"; title: string; body: string; evidence: Record<string, number> }[];
+  model: { name: string; version: string } | null;
+}
+
+export interface Best {
+  value: number;
+  session_id: string;
+  started_at: string;
+}
+
+export type GroupShares = Record<StrokeGroup, number>;
+
+export interface Dashboard {
+  totals: { sessions: number; swings: number; active_min: number; rallies: number };
+  /** 12 entries, oldest first; week is "YYYY-Www" */
+  weekly: { week: string; sessions: number; swings: number; active_min: number }[];
+  /** pod and pod+watch sessions, last 50, oldest first */
+  trends: { id: string; started_at: string; p90_kmh: number | null; swings_per_min: number | null; median_gap_s: number | null; hr_avg: number | null }[];
+  wrist: { sessions: number; swings: number };
+  bests: { max_kmh: Best | null; most_swings: Best | null; longest_rally: Best | null; best_rate: Best | null };
+  /** null: no sessions with strokes; groups = last 10 such sessions, overall = all of them */
+  strokes: { groups: GroupShares; overall: GroupShares | null; sessions: number; experimental: true } | null;
+  style: StyleProfile | null;
+  twin_model_id: number | null;
 }

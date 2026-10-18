@@ -18,8 +18,6 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
     private(set) var me: ArenaMe?
     private(set) var signingIn = false
     var lastError: String?
-    /// bumps when a session reaches the account (redraws the sync count)
-    var syncTick = 0
     var user: ArenaUser? { me?.user }
 
     @ObservationIgnored private var sid: String? = Keychain.read("arena.session")
@@ -42,9 +40,11 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
     // MARK: requests
 
     enum Failure: LocalizedError {
-        case http(Int, String)
-        var errorDescription: String? { if case .http(_, let d) = self { d } else { nil } }
-        var status: Int { if case .http(let s, _) = self { s } else { 0 } }
+        case http(Int, String, retryAfter: Double? = nil)
+        var errorDescription: String? { if case .http(_, let d, _) = self { d } else { nil } }
+        var status: Int { if case .http(let s, _, _) = self { s } else { 0 } }
+        /// seconds, from a 429's or 503's Retry-After
+        var retryAfter: Double? { if case .http(_, _, let r) = self { r } else { nil } }
     }
 
     private func request(_ method: String, _ path: String, body: Data? = nil, contentType: String? = nil) async throws -> Data {
@@ -63,13 +63,10 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
         guard (200..<300).contains(code) else {
             let e = try? decoder.decode(ArenaError.self, from: data)
             if code == 401, sid != nil { forgetSession() }  // expired or revoked on the server
-            throw Failure.http(code, e?.detail ?? "The Arena answered \(code).")
+            let retry = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init)
+            throw Failure.http(code, e?.detail ?? "The Arena answered \(code).", retryAfter: retry)
         }
         return data
-    }
-
-    func requestJSON(_ method: String, _ path: String, body: Data) async throws -> Data {
-        try await request(method, path, body: body, contentType: "application/json")
     }
 
     func get<T: Decodable>(_ path: String, as: T.Type = T.self) async throws -> T {
@@ -122,6 +119,15 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
     }
 
     func retire(_ id: Int) async throws { _ = try await request("DELETE", "/api/models/\(id)") }
+
+    /// The web dashboard: one session summary (`{"report": ...}`, idempotent by id) or the style profile.
+    func putJSON(_ path: String, _ body: Data) async throws { _ = try await request("PUT", path, body: body, contentType: "application/json") }
+    /// One session summary on the web dashboard (404 when the server doesn't have it).
+    func deleteSession(_ webId: String) async throws { _ = try await request("DELETE", "/api/me/sessions/\(webId)") }
+    /// "Delete my web data": every session summary and the style profile on the server.
+    func deleteWebData() async throws { _ = try await request("DELETE", "/api/me/sessions") }
+    /// A session id is in the Keychain (it may still have expired on the server).
+    var hasSession: Bool { sid != nil }
 
     // MARK: sign-in
 

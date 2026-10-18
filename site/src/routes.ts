@@ -2,23 +2,23 @@
 
 import { notFound, getStarted, privacy } from "./pages/content";
 import { howItWorks } from "./pages/how";
+import { dashboard, sessionPage } from "./pages/dashboard";
 import { arenaHome } from "./pages/home";
 import { ladder } from "./pages/ladder";
 import { landing } from "./pages/landing";
 import { match } from "./pages/match";
 import { model } from "./pages/model";
-import { sessionPage } from "./pages/session";
-import { sessionDetail, sessions } from "./pages/sessions";
+import { sessionPage as reportPage } from "./pages/session";
 import { settings } from "./pages/settings";
 import { tournament, tournaments } from "./pages/tournament";
 import { route, setNotFound } from "./router";
 
 route("/", "Racquet pod", landing);
 route("/settings", "Settings", settings);
-route("/sessions", "Your sessions", sessions);
-route("/sessions/:id", "Session", sessionDetail);
+route("/account/dashboard", "Dashboard", dashboard);
+route("/account/dashboard/sessions/:id*", "Session · Dashboard", sessionPage);
 route("/how-it-works", "How it works", howItWorks);
-route("/report", "Session report", sessionPage);
+route("/report", "Session report", reportPage);
 route("/privacy", "Privacy", privacy);
 route("/arena", "Arena", arenaHome);
 route("/arena/ladder", "Ladder · Arena", ladder);

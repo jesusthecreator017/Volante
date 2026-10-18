@@ -1,6 +1,6 @@
 // JSON API client (same origin, session cookie, CSRF header on state-changing requests).
 
-import type { Ladder, LadderName, MatchDetail, MatchKind, MatchPage, Me, ModelDetail, ModelSummary, PlaySession, Pod, Report, Season, Tournament, TournamentSummary } from "./types";
+import type { Dashboard, Ladder, LadderName, MatchDetail, MatchKind, MatchPage, Me, ModelDetail, ModelSummary, PlaySession, Pod, Season, SessionPage, Tournament, TournamentSummary } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -94,9 +94,11 @@ export const api = {
   /** Additive endpoints (site/README.md): the signed-in user's pods and the display-name rename. */
   pods: () => call<{ items: Pod[] }>("GET", "/api/me/pods").then((r) => r.items),
   renamePod: (id: string, name: string) => call<Pod>("PATCH", `/api/me/pods/${encodeURIComponent(id)}`, JSON.stringify({ name })),
-  /** Sessions the iPhone app uploaded to this account. */
-  mySessions: () => call<{ items: PlaySession[] }>("GET", "/api/me/sessions").then((r) => r.items),
-  mySession: (id: string) => call<PlaySession & { report: Report | null }>("GET", `/api/me/sessions/${encodeURIComponent(id)}`),
+  /** Account → Dashboard: sessions the app uploaded, newest first; `before` is a previous page's next_before. */
+  mySessions: (before?: string | null, limit = 20) => call<SessionPage>("GET", `/api/me/sessions${qs({ before, limit })}`),
+  /** One session with its report (null when the app sent none). */
+  mySession: (id: string) => call<PlaySession>("GET", `/api/me/sessions/${encodeURIComponent(id)}`),
+  myDashboard: () => call<Dashboard>("GET", "/api/me/dashboard"),
   deleteAccount: () => call<void>("DELETE", "/api/me"),
   logout: () => call<void>("POST", "/auth/logout"),
 };

@@ -805,19 +805,23 @@ struct CheckResult: View {
 }
 
 
-/// Who the sessions belong to: every finished session goes to this GitHub account by itself (and shows on the website).
+/// Who the sessions belong to: every finished session goes to this GitHub account by itself (WebSync) and shows on the website's
+/// Account → Dashboard.
 struct ArenaAccountCard: View {
     @Environment(ArenaClient.self) private var arena
     @Environment(SessionStore.self) private var store
+    @Environment(WebSync.self) private var web
     var body: some View {
         Card("Your sessions on the Arena", systemImage: "icloud.and.arrow.up") {
             if let u = arena.user {
                 Label("Signed in as @\(u.login)", systemImage: "person.crop.circle.fill").font(.subheadline.weight(.semibold))
-                let sent = arena.syncedCount
+                let sent = web.state.syncedCount
                 let total = store.sessions.filter { $0.source != .sample }.count
-                Text(sent >= total ? "All \(total) sessions are on your account. New ones go up when they finish." : "\(sent) of \(total) sessions sent; the rest go up when you're online.")
+                Text(!web.state.enabled ? "Sync is off (Settings › volante web); \(sent) of \(total) sessions are on your account."
+                     : sent >= total ? "All \(total) sessions are on your account. New ones go up when they finish."
+                     : "\(sent) of \(total) sessions sent; the rest go up when you're online.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Link(destination: URL(string: "/sessions", relativeTo: arena.base)!) { Label("See them on the website", systemImage: "safari") }
+                Link(destination: URL(string: "/account/dashboard", relativeTo: arena.base)!) { Label("See them on the website", systemImage: "safari") }
                     .font(.subheadline.weight(.semibold))
             } else {
                 Text("Sign in with GitHub and every session you finish goes to your account, viewable on the website.")
@@ -828,6 +832,6 @@ struct ArenaAccountCard: View {
                 .buttonStyle(.primary).disabled(arena.signingIn)
             }
         }
-        .task { await arena.syncSessions(store) }
+        .task { web.kick() }
     }
 }

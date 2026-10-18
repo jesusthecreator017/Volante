@@ -15,7 +15,8 @@ const routes: Route[] = [];
 export function route(pattern: string, title: string, page: Page) {
   const keys: string[] = [];
   const re = new RegExp(
-    "^" + pattern.replace(/\/:(\w+)/g, (_, k) => (keys.push(k), "/(\\d+)")).replace(/\/$/, "") + "/?$",
+    // `:id` is numeric; `:id*` is an opaque app id (the server's session id rule: 1-64 of [A-Za-z0-9._-], starting alphanumeric, so never "." or "..")
+    "^" + pattern.replace(/\/:(\w+)(\*?)/g, (_, k, str) => (keys.push(k), str ? "/([A-Za-z0-9][A-Za-z0-9._-]{0,63})" : "/(\\d+)")).replace(/\/$/, "") + "/?$",
   );
   routes.push({ re, keys, page, title });
 }
@@ -32,6 +33,8 @@ export function match(path: string): { route: Route; params: Params } | null {
 const LEGACY = /^\/(ladder|models\/\d+|matches\/\d+|tournaments(\/\d+)?|my-models|get-started)\/?$/;
 export function redirectFor(path: string): string | null {
   if (/^\/arena\/twins\/?$/.test(path)) return "/arena/ladder?ladder=twins"; // the Twins ladder is a switch on the Ladder page
+  const s = /^\/sessions(\/[^/]+)?\/?$/.exec(path); // the app's "See them on the website" link (PR #78): Account → Dashboard
+  if (s) return "/account/dashboard" + (s[1] ? "/sessions" + s[1] : "");
   return LEGACY.test(path) ? "/arena" + path.replace(/\/$/, "") : null;
 }
 

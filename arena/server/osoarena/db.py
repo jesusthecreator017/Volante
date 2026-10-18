@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS pods (
   hw_id TEXT NOT NULL UNIQUE,          -- e.g. OSO-4C99; one account per pod
   name TEXT NOT NULL, last_seen TEXT, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS pods_user ON pods(user_id);
+CREATE TABLE IF NOT EXISTS app_style (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id), profile TEXT NOT NULL, received_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS app_codes (
   hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, challenge TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bans (github_id INTEGER PRIMARY KEY, t TEXT NOT NULL, note TEXT);
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS play_sessions (  -- badminton sessions from the app, 
   best_kmh REAL, avg_bpm REAL,
   report TEXT,                         -- the volante-report/1 JSON (docs/strokes/report-format.md), at most 256 KB
   uploaded_at TEXT NOT NULL, PRIMARY KEY (user_id, id));
+CREATE INDEX IF NOT EXISTS play_sessions_time ON play_sessions(user_id, started_at, id);
 CREATE TABLE IF NOT EXISTS models (
   id INTEGER PRIMARY KEY, season_id INTEGER NOT NULL REFERENCES seasons(id),
   user_id INTEGER REFERENCES users(id),  -- NULL for house players
@@ -120,6 +123,7 @@ class tx:
 #   fidelity_at its time; twins_* = the separate Twins ladder record (kept, frozen, while the model is back on the open ladder;
 #   the house players have one too). matches / rating_history / tournaments.ladder say which ladder they belong to.
 COLUMNS = {
+    "users": [("app_linked_at", "TEXT")],
     "models": [("ladder", "TEXT NOT NULL DEFAULT 'open'"), ("style_profile", "TEXT"), ("fidelity", "TEXT"), ("fidelity_at", "TEXT"),
                ("twins_rating", "REAL"), ("twins_games", "INTEGER NOT NULL DEFAULT 0"), ("twins_wins", "INTEGER NOT NULL DEFAULT 0"),
                ("twins_losses", "INTEGER NOT NULL DEFAULT 0")],

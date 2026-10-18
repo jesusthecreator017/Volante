@@ -7,8 +7,9 @@ import SwiftUI
 
 extension SessionStore {
     /// The report of a racquet session with its insights (history: the last 5 earlier real racquet sessions), off the main actor.
+    /// `forWeb`: no weekly-goal insight (it would use today's goal and week for an old session); the local UI keeps it.
     @MainActor
-    func report(_ meta: SessionMeta, breakdown: StrokeBreakdown?) async -> SessionReport? {
+    func report(_ meta: SessionMeta, breakdown: StrokeBreakdown?, forWeb: Bool = false) async -> SessionReport? {
         guard meta.source == .podStream || meta.source == .podUpload else { return nil }
         let earlier = sessions.filter { ($0.source == .podStream || $0.source == .podUpload) && $0.createdAt < meta.createdAt }.prefix(5)
         let urls = [imuURL(meta.id)] + earlier.map { imuURL($0.id) }
@@ -17,7 +18,7 @@ extension SessionStore {
         let strokes = breakdown.map { b in SessionReport.Strokes(groups: b.groups.mapValues(\.count)) }
         let (goalMetric, goalTarget) = GoalProgress.saved
         let goal = GoalProgress.compute(self, metric: goalMetric, target: goalTarget)
-        let weekly = (value: goal.value, target: Double(goal.target), unit: goalMetric.unit)
+        let weekly = forWeb ? nil : (value: goal.value, target: Double(goal.target), unit: goalMetric.unit)
         return await Task.detached(priority: .userInitiated) { () -> SessionReport? in
             func build(_ u: URL, hr: [(t: Double, bpm: Double)] = [], strokes: SessionReport.Strokes? = nil) -> SessionReport? {
                 guard let d = try? Data(contentsOf: u), let cap = try? ImuFile.parse([UInt8](d)) else { return nil }
