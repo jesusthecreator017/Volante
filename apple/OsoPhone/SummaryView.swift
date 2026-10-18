@@ -77,6 +77,7 @@ struct SummaryView: View {
                     .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             GoalCard()
+            TwinCard()
             if let last = all.first { recap(last, others: Array(all.dropFirst().prefix(10))) }
             Picker("Period", selection: $range) {
                 ForEach(Period.allCases) { Text($0 == .all ? "All" : $0.rawValue).tag($0) }

@@ -1,6 +1,6 @@
 {
   "appId": "dev.oso.racquet",
-  "appName": "oso",
+  "appName": "Volante",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

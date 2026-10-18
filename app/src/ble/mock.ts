@@ -337,7 +337,7 @@ export class MockEngine {
 export class MockDevice extends Emitter implements ImuDevice {
   readonly kind = "mock" as const;
   readonly id = "mock-0";
-  readonly name = "oso mock (sample-data/imu.bin)";
+  readonly name = "Volante mock (sample-data/imu.bin)";
   readonly hasBatteryService = true;
   private timer: ReturnType<typeof setInterval> | null = null;
   private last = 0;

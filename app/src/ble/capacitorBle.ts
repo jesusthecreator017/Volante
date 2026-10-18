@@ -51,7 +51,7 @@ export class CapacitorBleDevice extends Emitter implements ImuDevice {
   static async request(): Promise<CapacitorBleDevice> {
     await init();
     const d = await BleClient.requestDevice({ services: [OSO_SERVICE], optionalServices: [BATTERY_SERVICE] });
-    return new CapacitorBleDevice(d.deviceId, d.name ?? "oso");
+    return new CapacitorBleDevice(d.deviceId, d.name ?? "Volante pod");
   }
 
   async connect() {
