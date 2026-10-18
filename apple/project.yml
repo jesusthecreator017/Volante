@@ -55,6 +55,7 @@ targets:
         VolanteAppGroup: group.$(OSO_BUNDLE_PREFIX)
         CFBundleURLTypes:
           - CFBundleURLSchemes: [$(GOOGLE_REDIRECT_SCHEME)]
+          - CFBundleURLSchemes: [volante] # Arena GitHub sign-in callback (ASWebAuthenticationSession)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(OSO_BUNDLE_PREFIX).phone

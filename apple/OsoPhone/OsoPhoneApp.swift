@@ -11,6 +11,7 @@ struct OsoPhoneApp: App {
     @State private var pi: PiServer
     @State private var fitbit: FitbitLink
     @State private var router = Router()
+    @State private var arena = ArenaClient()
     @AppStorage("oso.onboarded") private var onboarded = false
     /// DEBUG: -osoOnboarding shows the intro even when it was seen, until it ends.
     @State private var forceIntro = DebugOverrides.forcesIntro
@@ -36,6 +37,7 @@ struct OsoPhoneApp: App {
             // inside the .environment calls, so the sheet (its own hierarchy) inherits them
             .sheet(isPresented: Bindable(router).showSettings) { SettingsView() }
             .environment(router)
+            .environment(arena)
             .environment(store)
             .environment(pod)
             .environment(watch)
@@ -61,6 +63,7 @@ struct OsoPhoneApp: App {
             Tab("Summary", systemImage: "chart.line.uptrend.xyaxis", value: Router.Tab.summary) { SummaryView() }
             Tab("Play", systemImage: "figure.badminton", value: Router.Tab.pod) { PodView() }
             Tab("Sessions", systemImage: "list.bullet.rectangle.portrait", value: Router.Tab.sessions) { SessionsView() }
+            Tab("Arena", systemImage: "trophy", value: Router.Tab.arena) { ArenaView() }
             Tab("Devices", systemImage: "sensor.tag.radiowaves.forward", value: Router.Tab.connections) { WearablesView() }
         }
         .tabBarMinimizeBehavior(.onScrollDown)

@@ -2,11 +2,12 @@
 
 import "./style.css";
 import { api, loginUrl, me } from "./api";
-import { h, link, replace, s } from "./dom";
+import { h, link, replace } from "./dom";
 import "./routes";
 import { setOnNavigate, start } from "./router";
 import type { Me } from "./types";
 import { icon, type IconName } from "./icons";
+import appIcon from "./assets/app-icon.png";
 
 declare const __MOCK__: boolean;
 
@@ -54,15 +55,9 @@ function applyTheme(t: Theme | null, save = true) {
 
 // ---------------------------------------------------------------- shell
 
-/** Logo mark: a square, the shuttle's circle and a swing diagonal. */
-function logoMark(): SVGSVGElement {
-  return s(
-    "svg",
-    { viewBox: "0 0 32 32", class: "mark", "aria-hidden": "true", focusable: "false" },
-    s("rect", { width: 32, height: 32, class: "mark-sq" }),
-    s("circle", { cx: 10, cy: 22, r: 5, class: "mark-cut" }),
-    s("path", { d: "M14 28 30 4", class: "mark-bar" }),
-  );
+/** Logo mark: the iPhone app's icon (apple/OsoPhone/Assets.xcassets/AppIcon), so the site and the app look like one product. */
+function logoMark(): HTMLImageElement {
+  return h("img", { src: appIcon, class: "mark", alt: "", width: 30, height: 30, decoding: "async" });
 }
 
 function shell(): HTMLElement {

@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS pods (
   hw_id TEXT NOT NULL UNIQUE,          -- e.g. OSO-4C99; one account per pod
   name TEXT NOT NULL, last_seen TEXT, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS pods_user ON pods(user_id);
+CREATE TABLE IF NOT EXISTS app_codes (
+  hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, challenge TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bans (github_id INTEGER PRIMARY KEY, t TEXT NOT NULL, note TEXT);
 CREATE TABLE IF NOT EXISTS sessions (
   hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), csrf TEXT NOT NULL,
