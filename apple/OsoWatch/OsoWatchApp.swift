@@ -89,6 +89,14 @@ struct StartView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image("VolanteLogo").resizable().frame(width: 30, height: 30)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        Text("Volante").font(.system(.title3, design: .rounded, weight: .heavy))
+                        Spacer(minLength: 0)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isHeader)
                     Button { Task { await w.start() } } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: "figure.badminton")
@@ -127,7 +135,6 @@ struct StartView: View {
                     if let e = w.error { Tip(icon: "exclamationmark.triangle", text: e, color: WatchTheme.heart) }
                 }
             }
-            .navigationTitle("Volante")
         }
     }
 }

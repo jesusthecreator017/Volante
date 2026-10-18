@@ -32,11 +32,12 @@ afterEach(() => {
 });
 
 describe("account menu", () => {
-  test("test_menu_shows_dashboard_only_when_linked", () => {
+  test("test_menu_always_shows_dashboard", () => {
+    // always listed: unlinked accounts land on the page's "Connect the Volante app" explainer
     for (const linked of [true, false]) {
       const el = document.createElement("div");
       renderAccount(el, { user, csrf: "x", uploads_left_today: 5, app_linked: linked } as Me);
-      expect(!!el.querySelector('.menu a[href="/account/dashboard"]'), String(linked)).toBe(linked);
+      expect(el.querySelector('.menu a[href="/account/dashboard"]'), String(linked)).not.toBeNull();
       expect(el.querySelector('.menu a[href="/settings"]')).not.toBeNull();
     }
   });

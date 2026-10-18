@@ -119,3 +119,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(OSO_BUNDLE_PREFIX).phone.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

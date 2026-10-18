@@ -184,7 +184,7 @@ export async function load<T>(slot: HTMLElement, f: () => Promise<T>, render: (v
   }
 }
 
-/** The header's account slot: Sign in, or the avatar menu (Dashboard when the account is linked to the Volante app or has sessions: the server's app_linked). */
+/** The header's account slot: Sign in, or the avatar menu (Dashboard, Settings, My models, Sign out). */
 export function renderAccount(el: HTMLElement, m: Me | null) {
   if (!m?.user) {
     replace(el, h("a", { href: loginUrl(), class: "btn small with-icon signin", "aria-label": "Sign in with GitHub" }, icon("github-logo"), h("span", { class: "signin-label" }, "Sign in")));
@@ -194,7 +194,7 @@ export function renderAccount(el: HTMLElement, m: Me | null) {
   const menu = h(
     "div",
     { class: "menu", role: "menu", hidden: true },
-    m.app_linked ? link("/account/dashboard", "Dashboard") : null,
+    link("/account/dashboard", "Dashboard"),  // always: the page explains how to link the app when it is not
     link("/settings", "Settings"),
     link("/arena/get-started#mine", "My models"),
     h("button", { type: "button", role: "menuitem", onclick: () => void signOut() }, icon("sign-out"), "Sign out"),
