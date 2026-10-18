@@ -41,7 +41,7 @@ async function route() {
   if (typeof cleanup === "function") cleanup();
   cleanup = undefined;
   main.innerHTML = "";
-  document.title = `oso · ${r[0]}`;
+  document.title = `Volante · ${r[0]}`;
   try {
     cleanup = await r[1](main, params);
   } catch (e) {
