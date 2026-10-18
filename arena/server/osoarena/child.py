@@ -56,6 +56,15 @@ def rally_list(log):
                  score=[int(r["score"][0]), int(r["score"][1])]) for r, s in zip(real, sheet)]
 
 
+def do_fidelity(job, job_dir):
+    """Volante Twins: does the model play like its profile? Reads its match logs (written by earlier sandboxed matches)."""
+    from oso_arena import log as L, style
+    profile = style.parse_profile(job["profile"])
+    logs = [(L.read(p), int(side)) for p, side in job["logs"] if os.path.isfile(p)]
+    rep = style.fidelity(profile, logs, job["build"]).to_dict()
+    return {"ok": True, "report": rep, "logs": len(logs)}
+
+
 def do_match(job, job_dir):
     from oso_arena import log as L, match
     m = match.play(_player(job["a"]), _player(job["b"]), int(job["seed"]))
@@ -87,7 +96,7 @@ def main(argv):
     kind = job["kind"]
     _limits(kind)
     try:
-        out = {"check": do_check, "match": do_match, "replay": do_replay}[kind](job, job_dir)
+        out = {"check": do_check, "match": do_match, "replay": do_replay, "fidelity": do_fidelity}[kind](job, job_dir)
     except MemoryError:
         out = {"ok": False, "error": "MemoryError"}
     except Exception as e:  # noqa: BLE001 -- reported to the supervisor as a failed job

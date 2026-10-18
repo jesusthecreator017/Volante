@@ -14,7 +14,9 @@ _stop = False
 def tick(con):
     with db.tx(con):
         tournament.ensure_scheduled(con)
+        tournament.recheck_twins(con)
         tournament.advance(con)
+        ladder.queue_fidelity(con)  # first fidelity check of candidates that reached their 10 matches
     with db.tx(con):
         made = ladder.pair(con)
     replays.evict(con)

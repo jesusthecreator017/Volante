@@ -29,34 +29,58 @@ def _system_zone():
         return ""
 
 
-def next_start(after_utc):
+def when(lad):
     cfg = config.get()
+    return (cfg.twins_tournament_weekday, cfg.twins_tournament_hour) if lad == "twins" else (cfg.tournament_weekday, cfg.tournament_hour)
+
+
+def next_start(after_utc, lad="open"):
+    weekday, hour = when(lad)
     tz = local_tz()
     loc = after_utc.astimezone(tz)
-    d = loc.replace(hour=cfg.tournament_hour, minute=0, second=0, microsecond=0)
-    d += timedelta(days=(cfg.tournament_weekday - d.weekday()) % 7)
+    d = loc.replace(hour=hour, minute=0, second=0, microsecond=0)
+    d += timedelta(days=(weekday - d.weekday()) % 7)
     if d <= loc:
         d += timedelta(days=7)
     return d
 
 
 def ensure_scheduled(con):
+    """One scheduled or running tournament per ladder (the Twins series is separate, section 14)."""
     season = db.active_season(con)
-    if con.execute("SELECT 1 FROM tournaments WHERE season_id=? AND status IN ('scheduled','running')", (season["id"],)).fetchone():
-        return
-    start = next_start(db.parse_t(db.now()))
-    con.execute("INSERT INTO tournaments (season_id, starts_at, status) VALUES (?, ?, 'scheduled')", (season["id"], db.fmt_t(start)))
+    for lad in db.LADDERS:
+        if con.execute("SELECT 1 FROM tournaments WHERE season_id=? AND ladder=? AND status IN ('scheduled','running')",
+                       (season["id"], lad)).fetchone():
+            continue
+        start = next_start(db.parse_t(db.now()), lad)
+        con.execute("INSERT INTO tournaments (season_id, starts_at, status, ladder) VALUES (?, ?, 'scheduled', ?)",
+                    (season["id"], db.fmt_t(start), lad))
 
 
-def entrants(con, season_id):
+def recheck_twins(con):
+    """The weekly fidelity re-check runs before the Twins tournament: queued twins_recheck_lead_h hours ahead, once per tournament."""
+    lead = timedelta(hours=config.get().twins_recheck_lead_h)
+    now = db.parse_t(db.now())
+    for t in con.execute("SELECT * FROM tournaments WHERE ladder='twins' AND status='scheduled'").fetchall():
+        key = f"twins_recheck:{t['id']}"
+        if db.parse_t(t["starts_at"]) - lead <= now and not db.get_meta(con, key):
+            n = ladder.queue_fidelity(con, recheck=True)
+            db.set_meta(con, key, db.now())
+            print(f"twins re-check for tournament {t['id']}: {n} models", flush=True)
+
+
+def entrants(con, season_id, lad="open"):
     cfg = config.get()
-    return con.execute("SELECT * FROM models WHERE season_id=? AND status='active' AND house IS NULL AND games>=? "
-                       "ORDER BY rating DESC, id ASC LIMIT ?", (season_id, cfg.tournament_min_games, cfg.tournament_size)).fetchall()
+    rc, gc = ladder.COLS[lad][:2]
+    return con.execute(f"SELECT * FROM models WHERE season_id=? AND status='active' AND house IS NULL AND ladder=? AND {gc}>=? "
+                       f"ORDER BY {rc} DESC, id ASC LIMIT ?",
+                       (season_id, lad, cfg.tournament_min_games, cfg.tournament_size)).fetchall()
 
 
 def draw(con, t):
     """At starts_at: seed the top 8 and create the quarterfinals, or skip the week (D6 default) when fewer than 8 qualify."""
-    top = entrants(con, t["season_id"])
+    lad = t["ladder"] or "open"
+    top = entrants(con, t["season_id"], lad)
     if len(top) < config.get().tournament_size:
         con.execute("UPDATE tournaments SET status='skipped', note=? WHERE id=?",
                     (f"skipped: {len(top)} qualifying models (8 needed)", t["id"]))
@@ -64,7 +88,7 @@ def draw(con, t):
         return
     qf = []
     for i, j in ORDER:
-        mid = ladder.create_match(con, t["season_id"], "tournament", top[i]["id"], top[j]["id"], tournament_id=t["id"])
+        mid = ladder.create_match(con, t["season_id"], "tournament", top[i]["id"], top[j]["id"], tournament_id=t["id"], ladder=lad)
         qf.append(dict(seed_a=i + 1, seed_b=j + 1, a=top[i]["id"], b=top[j]["id"], match_id=mid, winner=None))
     blank = lambda n: [dict(seed_a=None, seed_b=None, a=None, b=None, match_id=None, winner=None) for _ in range(n)]  # noqa: E731
     con.execute("UPDATE tournaments SET status='running', rounds=? WHERE id=?", (dumps([qf, blank(2), blank(1)]), t["id"]))
@@ -79,7 +103,8 @@ def _tie_winner(con, tie):
         side = m["winner"]  # match side
         winner_model = m["a_id"] if side == "a" else m["b_id"]
         return "a" if winner_model == tie["a"] else "b"
-    tie["match_id"] = ladder.create_match(con, m["season_id"], "tournament", tie["a"], tie["b"], tournament_id=m["tournament_id"])
+    tie["match_id"] = ladder.create_match(con, m["season_id"], "tournament", tie["a"], tie["b"], tournament_id=m["tournament_id"],
+                                          ladder=m["ladder"] or "open")
     return None
 
 
@@ -108,7 +133,8 @@ def advance(con):
             if r + 1 < len(rounds):
                 for nxt in rounds[r + 1]:
                     if nxt["a"] is not None and nxt["b"] is not None and nxt["match_id"] is None:
-                        nxt["match_id"] = ladder.create_match(con, t["season_id"], "tournament", nxt["a"], nxt["b"], tournament_id=t["id"])
+                        nxt["match_id"] = ladder.create_match(con, t["season_id"], "tournament", nxt["a"], nxt["b"], tournament_id=t["id"],
+                                                              ladder=t["ladder"] or "open")
                         changed = True
         final = rounds[-1][0] if rounds else None
         status = "done" if final and final["winner"] else "running"
@@ -116,11 +142,12 @@ def advance(con):
             con.execute("UPDATE tournaments SET rounds=?, status=? WHERE id=?", (dumps(rounds), status, t["id"]))
 
 
-def run_now(con):
+def run_now(con, lad="open"):
     """Admin: start a tournament immediately (draw now)."""
     season = db.active_season(con)
-    con.execute("DELETE FROM tournaments WHERE season_id=? AND status='scheduled'", (season["id"],))
-    cur = con.execute("INSERT INTO tournaments (season_id, starts_at, status) VALUES (?, ?, 'scheduled')", (season["id"], db.now()))
+    con.execute("DELETE FROM tournaments WHERE season_id=? AND ladder=? AND status='scheduled'", (season["id"], lad))
+    cur = con.execute("INSERT INTO tournaments (season_id, starts_at, status, ladder) VALUES (?, ?, 'scheduled', ?)",
+                      (season["id"], db.now(), lad))
     t = con.execute("SELECT * FROM tournaments WHERE id=?", (cur.lastrowid,)).fetchone()
     draw(con, t)
     return con.execute("SELECT * FROM tournaments WHERE id=?", (cur.lastrowid,)).fetchone()
