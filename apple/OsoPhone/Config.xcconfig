@@ -1,6 +1,7 @@
-#include "../Signing.xcconfig"
-// Fitbit (Google Health API): an iOS OAuth client from Google Cloud Console, with the Google Health API enabled.
-// GOOGLE_CLIENT_ID looks like 1234-abcd.apps.googleusercontent.com; the redirect scheme is it reversed:
-// com.googleusercontent.apps.1234-abcd
+// Fitbit (Google Health API): an iOS OAuth client from Google Cloud Console, with the Google Health API enabled
+// (setup: apple/README.md). GOOGLE_CLIENT_ID looks like 1234-abcd.apps.googleusercontent.com; the redirect scheme is it reversed:
+// com.googleusercontent.apps.1234-abcd. The client is tied to your bundle id, so set both in Signing.local.xcconfig (gitignored);
+// these are only the defaults, and the include below (which reads Signing.local.xcconfig) overrides them.
 GOOGLE_CLIENT_ID =
 GOOGLE_REDIRECT_SCHEME = com.oso.unconfigured
+#include "../Signing.xcconfig"

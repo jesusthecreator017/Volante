@@ -62,7 +62,7 @@ def pull():
                         "--domain-identifier", BUNDLE, "--source", "Documents/Sessions", "--destination", str(d)],
                        capture_output=True, text=True, timeout=600)
     if r.returncode != 0:
-        log("phone not reachable, nothing to do:", (r.stderr or r.stdout).strip().splitlines()[-1:] or "")
+        log("phone not reachable:", (r.stderr or r.stdout).strip().splitlines()[-1:] or "")
         shutil.rmtree(d, ignore_errors=True)
         return None
     return d
@@ -151,12 +151,14 @@ def start_training(state, prof, minutes):
 def once(minutes, dry):
     state = load_state()
     pulled = pull()
-    if pulled is None:
+    new = []
+    if pulled is not None:  # phone away: still train sessions already copied (pending)
+        try:
+            new = merge(pulled)
+        finally:
+            shutil.rmtree(pulled, ignore_errors=True)
+    elif not state.get("pending"):
         return
-    try:
-        new = merge(pulled)
-    finally:
-        shutil.rmtree(pulled, ignore_errors=True)
     state["sessions"] = sorted({*state["sessions"], *new, *(p.name for p in SESSIONS.iterdir() if p.is_dir() and not p.name.startswith("."))})
     pending = state.get("pending", False) or bool(new)
     log(f"{len(new)} new session(s): {', '.join(new) or '-'}; {len(state['sessions'])} in total")
