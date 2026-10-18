@@ -79,6 +79,7 @@ describe("routes", () => {
       "/": "Racquet pod",
       "/settings": "Settings",
       "/how-it-works": "How it works",
+      "/report": "Session report",
       "/privacy": "Privacy",
       "/arena": "Arena",
       "/arena/ladder": "Ladder · Arena",

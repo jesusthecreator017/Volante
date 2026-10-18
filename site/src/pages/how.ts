@@ -2,8 +2,9 @@
 // in the browser; nothing is uploaded).
 
 import { reveal } from "../anim";
-import { h } from "../dom";
+import { h, link } from "../dom";
 import { icon, type IconName } from "../icons";
+import { dropZone } from "../drop";
 import { analyze, exampleSession, parseSwingsCsv } from "../insights";
 import { sessionReport } from "../report";
 
@@ -18,29 +19,6 @@ const STEPS: [IconName, string, string][] = [
 
 function step([ico, title, text]: [IconName, string, string], i: number): HTMLElement {
   return h("li", { class: `step card glass lift reveal d${i}` }, h("span", { class: "step-ico" }, icon(ico)), h("span", { class: "step-n" }, `Step ${i + 1}`), h("h3", null, title), h("p", null, text));
-}
-
-/** The CSV drop zone: a styled file input that also accepts drag and drop. */
-function dropZone(onFile: (f: File) => void): HTMLElement {
-  const input = h("input", { type: "file", accept: ".csv,text/csv", class: "sr-only", id: "swings-file" });
-  input.addEventListener("change", () => input.files?.[0] && onFile(input.files[0]));
-  const zone = h(
-    "label",
-    { class: "drop glass", for: "swings-file" },
-    input,
-    h("span", { class: "drop-ico" }, icon("file-csv")),
-    h("strong", null, "Drop your swings.csv here, or choose a file"),
-    h("span", { class: "muted small" }, icon("lock-simple"), " Export it from the Volante app's Export page. It's read in your browser and never uploaded."),
-  );
-  zone.addEventListener("dragover", (e) => (e.preventDefault(), zone.classList.add("over")));
-  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-  zone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    zone.classList.remove("over");
-    const f = e.dataTransfer?.files?.[0];
-    if (f) onFile(f);
-  });
-  return zone;
 }
 
 export function howItWorks(root: HTMLElement) {
@@ -88,7 +66,15 @@ export function howItWorks(root: HTMLElement) {
       h("p", { class: "sec-lead" }, "Every swing becomes a bar you can inspect. Insights then point out what went well and what to work on next."),
       slot,
       note,
-      h("div", { class: "try" }, h("h3", null, "Try it with your own session"), dropZone((f) => void load(f)), status, back),
+      h(
+        "div",
+        { class: "try" },
+        h("h3", null, "Try it with your own session"),
+        dropZone({ id: "swings-file", accept: ".csv,text/csv", ico: "file-csv", title: "Drop your swings.csv here, or choose a file", note: "Export it from the Volante app's Export page. It's read in your browser and never uploaded." }, (f) => void load(f)),
+        status,
+        back,
+        h("p", { class: "muted small" }, icon("device-mobile"), " Using the iPhone app? Each session exports a report.json with rallies, heart rate and strokes: ", link("/report", "open it here"), "."),
+      ),
     ),
   );
   return reveal(root);
