@@ -632,6 +632,8 @@ def create_app():
             con.execute("UPDATE models SET user_id=0, uploaded_by=NULL WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM pods WHERE user_id=?", (u["id"],))
+            con.execute("DELETE FROM app_sessions WHERE user_id=?", (u["id"],))
+            con.execute("DELETE FROM app_style WHERE user_id=?", (u["id"],))
             con.execute("DELETE FROM users WHERE id=?", (u["id"],))
             keep = {r["sha256"] for r in con.execute("SELECT sha256 FROM models WHERE user_id!=0 AND sha256 IS NOT NULL")}
         for sha in set(files) - keep:
