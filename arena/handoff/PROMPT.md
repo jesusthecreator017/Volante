@@ -293,7 +293,7 @@ omitted or `null` only where the type below says so.
 ```
 User         {id: int, login: str, avatar_url: str}                       # GitHub id, login, avatar URL (https://avatars.githubusercontent.com/...)
 Me           {user: User | null, csrf: str, uploads_left_today?: int,     # uploads_left_today when signed in
-              app_linked?: bool}                                           # app_linked: true once the phone/watch app has synced a session
+              app_linked?: bool}                                           # app_linked: true once the phone/watch app has signed in (POST /api/app/session)
 Season       {id, contract: str, kit_version: str, started_at, ended_at: str | null, active: bool}
 Pod          {id: str, hw_id: str, name: str, last_seen: str | null}     # a user's racquet pod: id "pod_123", hw_id as printed in the app ("OSO-4C99"), account display name
 Build        {power: int, speed: int, reach: int, accuracy: int}          # each 1-10, sum 24
@@ -392,7 +392,7 @@ Signed-in (a state-changing call also needs the CSRF header; signed out -> **401
 | `GET /api/me/sessions/<id>` | **200** `SessionDetail`; **404**. `no-store`. |
 | `DELETE /api/me/sessions/<id>` | CSRF header. **204**; **404**. |
 | `DELETE /api/me/sessions` | CSRF header. "Delete my web data": all the caller's app sessions and the style profile. **204**. |
-| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 16 KB): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
+| `PUT /api/me/style` | CSRF header. App-only. Body a `volante-style/1` profile (`arena/contract/STYLE_PROFILE.md`, <= 8 KB: the profile's own limit; 8-16 KB -> **400** `invalid_profile`, over 16 KB -> **413**): **200** `{"ok": true}`; **400** `invalid_profile`; same rate limit as above. |
 | `GET /api/me/dashboard` | **200** `Dashboard`, aggregated on read from the stored reports (sessions, weekly volume, trends, bests, stroke groups, style, the active twin id). `no-store`. |
 | `POST /auth/logout` | **204**; ends the session. (Called with the CSRF header.) |
 
@@ -423,7 +423,7 @@ Do not rebuild pages. Serve the two prebuilt folders. The details are in `docs/s
 - `site/` at `/`. `site/assets/*` are content-hashed: `Cache-Control: public, max-age=31536000, immutable`. `index.html`: `no-cache`.
 - **History routing**: answer these paths with `site/index.html` and status 200: `/`, `/settings`, `/terms`, `/privacy`, `/arena`,
   `/arena/ladder`, `/arena/models/<id>`, `/arena/matches/<id>`, `/arena/tournaments`, `/arena/tournaments/<id>`, `/arena/my-models`,
-  `/arena/get-started`. The pre-/arena paths (`/ladder`, `/models/<id>`, ...) are also served: the site redirects them client-side. Any other unknown path (not `/api/`,
+  `/arena/get-started`, `/account/dashboard`, `/account/dashboard/sessions/<id>`. The pre-/arena paths (`/ladder`, `/models/<id>`, ...) are also served: the site redirects them client-side. Any other unknown path (not `/api/`,
   `/auth/`, `/viewer/`, `/healthz`) can fall back too; the site renders "Not found".
 - `viewer/` at `/viewer/` (same origin: the match page reads `iframe.contentWindow.oso_seek`). The match page embeds
   `/viewer/index.html?match=/api/matches/<id>/replay.bin`. Serve `.wasm` as `application/wasm` and `.js` as a JavaScript type.

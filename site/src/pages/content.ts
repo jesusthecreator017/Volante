@@ -101,7 +101,7 @@ export function getStarted(root: HTMLElement) {
 export function privacy(root: HTMLElement) {
   root.append(
     h("h1", null, "Privacy"),
-    h("p", null, "We store only your GitHub user id, login and avatar URL, plus the models you upload and the matches they play."),
+    h("p", null, "We store your GitHub user id, login and avatar URL, the models you upload and the matches they play, and, if you use the Volante app, your session summaries and style profile (see Your dashboard below)."),
     h("p", null, "Sign-in uses a session cookie. There are no trackers or third-party analytics on this site."),
     h("h2", null, "Volante Twins"),
     h("p", null, "Your raw pod sessions stay on your computer or phone. Only the style profile (a few numbers: speeds, tempo, counts) is uploaded, inside the model file."),
