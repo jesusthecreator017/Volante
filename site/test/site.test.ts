@@ -4,7 +4,8 @@ import { PLAY_STYLES, checkUploadFile, suggestStyle } from "../src/arena";
 import { buildBars, ratingChart } from "../src/components";
 import { h } from "../src/dom";
 import { getStarted } from "../src/pages/content";
-import { FEATURES, SESSION, exampleSwings, landing } from "../src/pages/landing";
+import { howItWorks } from "../src/pages/how";
+import { FEATURES, landing } from "../src/pages/landing";
 import "../src/routes";
 import { match, redirectFor, route } from "../src/router";
 
@@ -76,7 +77,7 @@ describe("routes", () => {
     const titles: Record<string, string> = {
       "/": "Racquet pod",
       "/settings": "Settings",
-      "/terms": "Terms",
+      "/how-it-works": "How it works",
       "/privacy": "Privacy",
       "/arena": "Arena",
       "/arena/ladder": "Ladder · Arena",
@@ -108,7 +109,7 @@ describe("routes", () => {
       expect(redirectFor(from), from).toBe(to);
       expect(match(to), to).not.toBeNull();
     }
-    for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/terms", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
+    for (const ok of ["/", "/arena", "/arena/ladder", "/settings", "/how-it-works", "/privacy", "/nope"]) expect(redirectFor(ok), ok).toBeNull();
   });
   test("unknown paths are 404", () => {
     for (const p of ["/nope", "/arena/nope", "/arena/models/abc", "/settings/x"]) expect(match(p), p).toBeNull();
@@ -117,23 +118,27 @@ describe("routes", () => {
 
 describe("landing", () => {
   afterEach(() => vi.unstubAllGlobals());
-  test("statuses are honest and the page has no inline styles", () => {
+  test("unshipped features say so, no status chips, no inline styles", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], next_before: null })));
-    const status = Object.fromEntries(FEATURES.map((f) => [f.id, f.status]));
-    expect(status).toEqual({ hits: "Available", speed: "Available", strokes: "In development", insights: "In development" });
+    const soon = Object.fromEntries(FEATURES.map((f) => [f.id, f.soon]));
+    expect(soon).toEqual({ hits: false, speed: false, strokes: true, insights: true });
     const root = document.createElement("div");
     landing(root);
-    expect(root.querySelectorAll("[style], script").length).toBe(0);
+    expect(root.querySelectorAll("[style], script, .chip").length).toBe(0);
     expect(root.querySelectorAll("img:not([alt]), img:not([width]), img:not([height])").length).toBe(0);
-    expect(root.querySelector('a[href="/#how"]')).not.toBeNull();
+    expect(root.querySelectorAll(".feature.soon .soon-note").length).toBe(2);
+    expect(root.querySelector('a[href="/how-it-works"]')).not.toBeNull();
     expect(root.querySelector('a[href="/arena"]')).not.toBeNull();
-    expect(root.textContent).toContain("Example");
+    expect(root.querySelector('a[href="/arena/twins"]')).not.toBeNull();
   });
-  test("example series matches the real session's mean and max", () => {
-    const v = exampleSwings();
-    expect(v.length).toBe(SESSION.smashes);
-    expect(Math.max(...v)).toBeCloseTo(SESSION.maxKmh, 6);
-    expect(v.reduce((a, b) => a + b, 0) / v.length).toBeCloseTo(SESSION.meanKmh, 6);
+  test("how it works: three steps and the session's real numbers", () => {
+    const root = document.createElement("div");
+    howItWorks(root);
+    expect(root.querySelectorAll(".step").length).toBe(3);
+    expect(root.textContent).toContain("41");
+    expect(root.textContent).toContain("95 km/h");
+    expect(root.textContent).toContain("estimates");
+    expect(root.querySelectorAll("[style], script").length).toBe(0);
   });
 });
 

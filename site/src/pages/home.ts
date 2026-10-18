@@ -1,6 +1,6 @@
 import { api, ApiError } from "../api";
 import { moreLink, buildBars, fmtDate, fmtRating, load, matchRow, modelLink, ownerChip, provisional } from "../components";
-import { append, h, link, s } from "../dom";
+import { append, h, link } from "../dom";
 import type { LadderName, Tournament, TournamentSummary } from "../types";
 import { ladderToggle } from "../twins";
 
@@ -23,20 +23,9 @@ export function arenaHome(root: HTMLElement) {
     void loadTop(lad);
   };
   root.append(
-    h(
-      "section",
-      { class: "hero" },
-      court(),
-      h("h1", null, "Train a badminton AI. Watch it play."),
-      h(
-        "p",
-        { class: "lead" },
-        "Train a player from our base model, upload it, and watch it play the ladder in 3D.",
-      ),
-      h("div", { class: "row" }, link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own player")), link("/arena/ladder", h("span", { class: "btn" }, "See the ladder"))),
-    ),
+    h("div", { class: "page-head" }, h("h1", null, "Arena"), link("/arena/get-started", h("span", { class: "btn primary" }, "Train your own"))),
     featured,
-    h("div", { class: "grid2" }, h("section", null, topHead, top, topMore), h("section", null, h("h2", null, "Latest matches"), latest)),
+    h("div", { class: "grid2" }, h("section", null, topHead, top, topMore), h("section", null, h("div", { class: "section-head" }, h("h2", null, "Latest matches")), latest)),
   );
 
   void load(featured, featuredTournament, (t) => renderFeatured(featured, t));
@@ -83,16 +72,15 @@ function renderFeatured(el: HTMLElement, t: Tournament | null) {
   if (!t) {
     el.append(
       h("h2", { id: "feat-h" }, "Weekly tournament"),
-      h("p", null, "Every Sunday at 18:00 the top 8 models with at least 20 games play a single-elimination bracket. The first one hasn't happened yet."),
+      h("p", { class: "muted" }, "Sundays at 18:00. The top 8 with at least 20 games."),
     );
     return;
   }
   const final = t.rounds[t.rounds.length - 1]?.[0];
   const champ = final?.winner ? (final.winner === "a" ? final.a : final.b) : null;
   append(el, [
-    h("h2", { id: "feat-h" }, t.status === "done" ? "Latest tournament final" : "Tournament in progress"),
-    h("p", { class: "muted" }, fmtDate(t.starts_at)),
-    h("h3", null, final?.winner ? "Final" : "Final (not played yet)"),
+    h("div", { class: "feat-head" }, h("h2", { id: "feat-h" }, t.status === "done" ? "Latest tournament" : "Tournament in progress"), h("span", { class: "muted small" }, fmtDate(t.starts_at))),
+    h("h3", null, final?.winner ? "Final" : "Final, not played yet"),
     final?.a && final?.b
       ? h(
           "div",
@@ -110,24 +98,4 @@ function renderFeatured(el: HTMLElement, t: Tournament | null) {
       link(`/arena/tournaments/${t.id}`, h("span", { class: "btn" }, "Bracket")),
     ),
   ]);
-}
-
-/** Decorative top-down badminton court (half-court view): thin lines, themed by CSS classes. */
-export function court(): SVGSVGElement {
-  // 6.1 x 13.4 m court; 1 unit = 0.1 m. Singles 5.18 wide, doubles-long service line 0.76 m inside the back line.
-  const line = (x1: number, y1: number, x2: number, y2: number, cls = "court-line") => s("line", { x1, y1, x2, y2, class: cls });
-  return s(
-    "svg",
-    { viewBox: "-6 -6 73 146", class: "court", "aria-hidden": "true", focusable: "false" },
-    s("rect", { x: 0, y: 0, width: 61, height: 134, class: "court-line" }),
-    line(4.5, 0, 4.5, 134),
-    line(56.5, 0, 56.5, 134),
-    line(0, 7.6, 61, 7.6),
-    line(0, 126.4, 61, 126.4),
-    line(0, 46.9, 61, 46.9),
-    line(0, 87.1, 61, 87.1),
-    line(30.5, 46.9, 30.5, 0),
-    line(30.5, 87.1, 30.5, 134),
-    line(-4, 67, 65, 67, "court-net"),
-  );
 }

@@ -221,17 +221,17 @@ h3,
   font-variant-numeric: tabular-nums;
 }
 h1 {
-  font-size: clamp(2.5rem, 5vw, 4.5rem);
-  line-height: 1.02;
-  margin: 0.2em 0 0.4em;
+  font-size: clamp(2rem, 3.6vw, 2.75rem);
+  line-height: 1.05;
+  margin: 0.2em 0 0.5em;
   font-weight: 700;
   letter-spacing: -0.025em;
   color: var(--accent);
 }
 h2 {
-  font-size: clamp(1.75rem, 3.4vw, 3rem);
-  line-height: 1.05;
-  margin: 2em 0 0.6em;
+  font-size: clamp(1.3rem, 2vw, 1.6rem);
+  line-height: 1.15;
+  margin: 1.8em 0 0.6em;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--accent);
@@ -779,50 +779,29 @@ a:has(> .btn) {
 
 /* ---------------------------------------------------------------- home */
 
-.hero {
-  position: relative;
-  padding: 16px 0 28px;
-  overflow: hidden;
-  isolation: isolate;
-}
-.hero h1 {
-  font-size: clamp(2.8rem, 9vw, 4.8rem);
-  max-width: 13ch;
-  margin-top: 0;
-}
-/* Keep the copy clear of the court graphic */
-.hero p {
-  max-width: 58ch;
-}
-.court {
-  position: absolute;
-  z-index: -1;
-  display: none;
-  top: -4%;
-  right: 2%;
-  width: min(40%, 380px);
-  height: auto;
-  transform: perspective(700px) rotateX(38deg) rotateZ(-16deg);
-  mask-image: linear-gradient(to bottom, #000 45%, transparent 95%);
-  pointer-events: none;
-}
-.court-line {
-  fill: none;
-  stroke: var(--court-stroke);
-  stroke-width: 1.2;
-}
-.court-net {
-  stroke: var(--accent);
-  stroke-width: 1.6;
-}
-@media (min-width: 700px) {
-  .court {
-    display: block;
-  }
-}
 .featured {
-  margin: 8px 0 8px;
-  border-top-color: var(--accent);
+  margin: 0 0 32px;
+  padding: 20px 24px;
+}
+.featured h3 {
+  margin-top: 12px;
+}
+.feat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+}
+.feat-head h2,
+.featured > h2 {
+  margin: 0;
+}
+.featured > h2 + p {
+  margin: 6px 0 0;
+}
+.featured .row {
+  margin-top: 16px;
 }
 .final {
   display: flex;
@@ -830,8 +809,8 @@ a:has(> .btn) {
   gap: 12px;
   flex-wrap: wrap;
   font-family: var(--display);
-  font-size: 1.8rem;
-  line-height: 1.1;
+  font-size: 1.25rem;
+  line-height: 1.2;
 }
 .won,
 .won a {
@@ -864,7 +843,7 @@ a:has(> .btn) {
 }
 .rank {
   color: var(--muted);
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -891,7 +870,7 @@ tr.podium td:first-child {
   font-size: 0.8rem;
 }
 .rating {
-  font-size: 1.7rem;
+  font-size: 1.35rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -1108,7 +1087,7 @@ td.rating {
   grid-template-areas: "res players link" "res score meta";
   gap: 4px 12px;
   align-items: center;
-  padding: 14px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
 .match-row .result {
@@ -1142,7 +1121,7 @@ td.rating {
   flex-wrap: wrap;
 }
 .sets-won {
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -1152,7 +1131,7 @@ td.rating {
   flex-wrap: wrap;
 }
 .set {
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 600;
   line-height: 1;
   padding: 3px 6px;
@@ -1305,16 +1284,17 @@ td.rating {
 }
 .rally {
   display: grid;
-  grid-template-columns: 5ch 1fr auto;
+  grid-template-columns: 3.75rem 1fr auto;
   gap: 12px;
   align-items: center;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
 .ry-score {
-  font-size: 1.3rem;
+  font-size: 1.05rem;
   font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 .ry-text {
   min-width: 0;
@@ -1514,14 +1494,6 @@ select {
 
 /* ---------------------------------------------------------------- landing (/) */
 
-.chip-ok {
-  background: var(--good-soft);
-  color: var(--good);
-}
-.chip-dev {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
 .l-hero {
   display: grid;
   gap: 24px;
@@ -1615,28 +1587,13 @@ select {
   min-height: 48px;
   padding: 10px 20px;
 }
-.proofs {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.proof {
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text);
-}
-.l-hero-art picture,
 .l-sec {
-  margin-top: 56px;
+  margin-top: 64px;
 }
-.l-sec > h2 {
+.l-sec > h2,
+.arena-copy h2 {
   margin-top: 0;
+  font-size: clamp(1.75rem, 3.2vw, 2.5rem);
 }
 .l-sec > p {
   max-width: 65ch;
@@ -1669,8 +1626,14 @@ select {
   margin: 0;
   max-width: 65ch;
 }
-.feature.dev {
+.feature.soon {
   border-style: dashed;
+}
+.soon-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 .feature-head {
   display: grid;
@@ -1680,19 +1643,12 @@ select {
 }
 
 .feature .feature-head h3,
-.step h3,
-.report-head h3 {
-  font: 700 1.5rem/1.15 var(--display);
+.step h3 {
+  font: 700 1.25rem/1.2 var(--display);
   text-transform: none;
   letter-spacing: -0.01em;
   color: var(--accent);
   margin: 0;
-}
-/* The status is an eyebrow above the icon + title, so every card's title sits on the same line whatever its width */
-.feature-head .chip {
-  grid-row: 1;
-  grid-column: 1 / -1;
-  justify-self: start;
 }
 .viz {
   margin-top: auto;
@@ -1757,52 +1713,45 @@ select {
   display: grid;
   gap: 16px;
   grid-template-columns: 1fr;
-  counter-reset: none;
 }
 @media (min-width: 760px) {
   .steps {
     grid-template-columns: repeat(3, 1fr);
-    align-items: start;
-  }
-  /* margins, not transforms: .reveal owns transform */
-  .step.s1 {
-    margin-top: 96px;
-  }
-  .step.s2 {
-    margin-top: 48px;
   }
 }
 .step {
-  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
   padding: 24px;
 }
 .step h3 {
-  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
 }
 .step p {
   margin: 0;
-  max-width: 65ch;
+  color: var(--muted);
 }
 .step-art {
   width: 100%;
-  max-width: 150px;
+  max-width: 120px;
   height: auto;
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .step-n {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 3.5rem;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--btn);
+  color: var(--accent-text);
+  font-size: 0.9rem;
   line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--accent);
 }
 .art-line {
   fill: none;
@@ -1823,165 +1772,54 @@ select {
 .art-led {
   fill: var(--accent);
 }
-.report {
+.session {
   max-width: 640px;
-  padding: 16px;
 }
-.report-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.stats {
+.session-stats {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(3, 1fr);
-  margin: 12px 0;
+  margin: 0 0 8px;
 }
 .stat {
   display: flex;
   flex-direction: column;
   background: var(--surface-2);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 14px;
+  padding: 12px 14px;
 }
 .stat strong {
-  font-family: var(--display);
-  font-size: 1.7rem;
+  font-size: 1.6rem;
   line-height: 1.1;
 }
 .stat span {
   font-size: 0.8rem;
   color: var(--muted);
 }
-.strokes {
-  display: grid;
-  grid-template-columns: 6ch 1fr 3ch;
-  gap: 10px;
-  align-items: center;
-}
-.meter {
-  display: block;
-  height: 10px;
-  background: var(--surface-2);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.meter-fill {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: var(--accent);
-}
-.spark {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.spark-line {
-  fill: none;
-  stroke: var(--chart);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.spark-mean {
-  stroke: var(--muted);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-}
-.spark-max {
-  fill: var(--hot);
-}
-.spark-label {
-  margin: 12px 0 4px;
-}
-.foot {
-  margin-top: 12px;
-}
-.teasers {
+/* landing: the Arena (poster plays the latest match in place) and the Twins line */
+.arena-strip {
   display: grid;
   gap: 24px;
+  align-items: center;
 }
 @media (min-width: 820px) {
-  .teasers {
-    grid-template-columns: 1fr 1fr;
+  .arena-strip {
+    grid-template-columns: 7fr 5fr;
+    gap: 40px;
   }
 }
-.teasers h2 {
-  margin-top: 0;
-  max-width: 14ch;
+.arena-copy p {
+  margin: 0 0 16px;
+  max-width: 44ch;
 }
-.arena-teaser,
-.twin-teaser {
-  position: relative;
-  overflow: hidden;
-  border-radius: 30px;
-  border: 0;
+.arena-copy .twin-line {
+  margin: 24px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
 }
-.arena-teaser > :not(.tz-art),
-.twin-teaser > :not(.tz-art) {
-  position: relative;
-}
-.tz-art {
-  position: absolute;
-  right: -20px;
-  top: -20px;
-  width: 180px;
-  height: 180px;
-}
-.tz-c1 {
-  fill: var(--tint-2);
-}
-.tz-c2 {
-  stroke: var(--moss);
-}
-.tz-bar {
-  stroke: var(--sage);
-  stroke-width: 12;
-}
-.tz-block .tz-c1 {
-  fill: var(--paper);
-}
-.tz-block .tz-c2 {
-  stroke: var(--paper);
-}
-.tz-block .tz-bar {
-  stroke: var(--paper);
-  opacity: 0.28;
-}
-.twin-teaser {
-  background: var(--deco-disc);
+.twin-line strong {
   color: var(--text);
-  padding: 48px 32px;
-}
-.twin-teaser h2 {
-  color: var(--text);
-}
-.arena-teaser {
-  background: linear-gradient(135deg, var(--moss), var(--pine));
-  color: var(--on-court);
-  border-color: var(--court);
-  padding: 48px 32px;
-  border-radius: 30px;
-  border: 0;
-}
-.arena-teaser h2,
-.arena-teaser a {
-  color: var(--on-court);
-}
-.arena-teaser :focus-visible {
-  outline-color: var(--on-court);
-}
-.arena-teaser .btn.primary {
-  background: var(--on-court);
-  border-color: var(--on-court);
-  color: var(--court);
-}
-.arena-teaser p {
-  max-width: 65ch;
 }
 
 /* section reveal: opacity/transform only, <= 250 ms, and only when motion is allowed */
@@ -2117,10 +1955,6 @@ select {
   view-transition-name: header; /* the glass bar stays put while the page cross-fades */
 }
 
-/* landing: Arena poster, button loads the viewer in place */
-.arena-watch p {
-  margin: 10px 0 0;
-}
 .viewer.watch {
   position: relative;
 }
@@ -2212,8 +2046,16 @@ select {
   gap: 12px;
   flex-wrap: wrap;
 }
-.section-head h2 {
+.section-head {
+  min-height: 44px;
+  margin-bottom: 8px;
+}
+.section-head h2,
+.page-head h1 {
   margin: 0;
+}
+.page-head {
+  margin: 8px 0 24px;
 }
 .segmented {
   display: inline-flex;
@@ -2338,4 +2180,36 @@ select {
   .twin-stats dd {
     margin-bottom: 8px;
   }
+}
+
+/* Get started: build presets as small tiles */
+.presets {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.presets li {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.preset-name {
+  font-weight: 600;
+}
+.preset-num {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.presets .build {
+  margin-top: 8px;
+}
+/* a small heading after a block gets air above it; :where keeps component h3 rules in charge */
+:where(.table-wrap, p, .code-wrap, ul) + h3 {
+  margin-top: 1.5em;
 }

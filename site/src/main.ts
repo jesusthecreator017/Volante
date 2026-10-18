@@ -12,10 +12,10 @@ declare const __MOCK__: boolean;
 
 const REPO = "https://github.com/jesusthecreator017/Volante";
 
-/** Top nav: [href, label]. Features and How it works are anchors on the landing page. */
+/** Top nav: [href, label]. Features is an anchor on the landing page. */
 const NAV: [string, string][] = [
   ["/#features", "Features"],
-  ["/#how", "How it works"],
+  ["/how-it-works", "How it works"],
   ["/arena", "Arena"],
 ];
 
@@ -31,17 +31,22 @@ const ARENA_NAV: [string, string][] = [
 
 // ---------------------------------------------------------------- theme (per-viewer convenience only)
 
-type Theme = "light" | "dark" | "system";
-function getTheme(): Theme {
+/** Light or dark. Until the visitor picks one, the site follows the system setting. */
+type Theme = "light" | "dark";
+function savedTheme(): Theme | null {
   try {
-    return (localStorage.getItem("oso-theme") as Theme) || "system";
+    const t = localStorage.getItem("oso-theme");
+    return t === "light" || t === "dark" ? t : null; // older visits may have stored "system"
   } catch {
-    return "system";
+    return null;
   }
 }
-function applyTheme(t: Theme) {
-  if (t === "system") document.documentElement.removeAttribute("data-theme");
+const systemTheme = (): Theme => (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+const getTheme = (): Theme => savedTheme() ?? systemTheme();
+function applyTheme(t: Theme | null, save = true) {
+  if (t === null) document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
+  if (!save || t === null) return;
   try {
     localStorage.setItem("oso-theme", t);
   } catch {
@@ -66,20 +71,21 @@ function shell(): HTMLElement {
   const account = h("div", { class: "account" });
   const navLinks = NAV.map(([href, label]) => link(href, label));
   const nav = h("nav", { class: "main-nav", id: "main-nav", "aria-label": "Main" }, navLinks);
-  // The button shows the current mode (system / light / dark) and says what a click switches to.
-  const THEME_ICON: Record<Theme, IconName> = { system: "desktop", light: "sun", dark: "moon" };
-  const order: Theme[] = ["system", "light", "dark"];
+  // Two states only: the button shows what a click switches to (moon in light mode, sun in dark mode).
+  const THEME_ICON: Record<Theme, IconName> = { light: "moon", dark: "sun" };
   const themeBtn = h("button", { type: "button", class: "icon-btn" });
   const drawTheme = () => {
-    const t = getTheme(), next = order[(order.indexOf(t) + 1) % 3];
-    themeBtn.replaceChildren(icon(THEME_ICON[t]));
-    themeBtn.title = `Theme: ${t}`;
-    themeBtn.setAttribute("aria-label", `Theme: ${t}. Switch to ${next}`);
+    const next: Theme = getTheme() === "dark" ? "light" : "dark";
+    themeBtn.replaceChildren(icon(THEME_ICON[getTheme()]));
+    themeBtn.title = `Switch to ${next} mode`;
+    themeBtn.setAttribute("aria-label", `Switch to ${next} mode`);
   };
   themeBtn.addEventListener("click", () => {
-    applyTheme(order[(order.indexOf(getTheme()) + 1) % 3]);
+    applyTheme(getTheme() === "dark" ? "light" : "dark");
     drawTheme();
   });
+  // While nothing is saved, follow the system if it changes.
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => savedTheme() === null && drawTheme());
   drawTheme();
   // Phones: the nav is a disclosure behind a 44x44 button. Esc closes it and returns focus to the button.
   const menuBtn = h("button", { type: "button", class: "icon-btn menu-btn", "aria-label": "Menu", "aria-expanded": "false", "aria-controls": "main-nav" });
@@ -176,7 +182,7 @@ function footer(): HTMLElement {
   return h(
     "footer",
     { class: "site-footer" },
-    h("nav", { "aria-label": "Footer" }, link("/terms", "Terms"), link("/privacy", "Privacy"), link("/arena", "Arena"), h("a", { href: REPO, rel: "noopener noreferrer", class: "with-icon" }, icon("github-logo"), "GitHub")),
+    h("nav", { "aria-label": "Footer" }, link("/privacy", "Privacy"), link("/arena", "Arena"), h("a", { href: REPO, rel: "noopener noreferrer", class: "with-icon" }, icon("github-logo"), "GitHub")),
     h("p", { class: "muted small" }, "Volante · the racquet pod for badminton"),
   );
 }
@@ -217,7 +223,7 @@ function signInNotice(): HTMLElement | null {
 
 async function boot() {
   if (__MOCK__) await (await import("./mock")).installMock();
-  applyTheme(getTheme());
+  applyTheme(savedTheme(), false);
   const main = h("main", { id: "main", tabindex: "-1" });
   const toast = h("div", { id: "toast", class: "toast", role: "status", "aria-live": "polite" });
   document.body.replaceChildren(h("a", { href: "#main", class: "skip" }, "Skip to content"), shell(), signInNotice() ?? "", main, footer(), toast);
