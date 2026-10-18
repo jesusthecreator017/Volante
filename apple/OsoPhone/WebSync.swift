@@ -17,6 +17,7 @@ final class WebSync {
     @ObservationIgnored private let arena: ArenaClient
     @ObservationIgnored private var userId: Int?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var runId = 0
 
     init(store: SessionStore, arena: ArenaClient) { self.store = store; self.arena = arena }
 
@@ -37,13 +38,19 @@ final class WebSync {
 
     /// Looks for new or changed sessions and sends them; cheap, call it whenever sessions or the sign-in change.
     func kick() {
-        guard signedIn(), state.enabled else { return }
+        guard signedIn() else { return }
+        state.reconcile(local: Set(store.sessions.map(\.id)))  // phone deletes go to the server even with sync off
+        guard state.enabled || !state.pendingDeletes.isEmpty else { save(); return }
         // ponytail: pod sessions only; the app builds no wrist report yet (hand speed is not head speed). Add watch with source "watch".
         state.enqueue(store.sessions.filter { $0.source != .watch }.map {
             .init(id: $0.id, startedAt: $0.createdAt.timeIntervalSince1970, fingerprint: "hr\($0.heartRate.count)", isSample: $0.source == .sample)
         })
         save()
-        if task == nil { task = Task { await run(); task = nil } }
+        if task == nil || task!.isCancelled {
+            runId += 1
+            let mine = runId
+            task = Task { await run(); if runId == mine { task = nil } }
+        }
     }
 
     /// "Delete my web data": stops syncing first (so no upload lands after the delete), then deletes everything on the server.
@@ -63,8 +70,13 @@ final class WebSync {
     private func run() async {
         while arena.user != nil, !Task.isCancelled {
             let now = Date().timeIntervalSince1970
+            if let id = state.nextDelete(now: now) {
+                await delete(id)
+                save()
+                continue
+            }
             guard let id = state.next(now: now) else {
-                if state.pending.isEmpty { await sendStyle(); return }
+                if state.pending.isEmpty, state.pendingDeletes.isEmpty { await sendStyle(); return }
                 try? await Task.sleep(for: .seconds(max(0.5, state.notBefore - now)))
                 continue
             }
@@ -87,13 +99,36 @@ final class WebSync {
             try await arena.putJSON("/api/me/sessions/\(Self.webId(id))", body)
             state.succeeded(id, now: now())
         } catch let e as ArenaClient.Failure {
+            if Task.isCancelled { return }
             if e.status == 403 { _ = try? await arena.refreshMe() }  // a stale CSRF token
             // 400 invalid_report / too_many_sessions and 413 will not change on a retry
             state.failed(id, now: now(), retryAfter: e.retryAfter, permanent: e.status == 400 || e.status == 413,
                          error: e.localizedDescription)
         } catch {
+            if Self.cancelled(error) { return }  // sync turned off or the web data deleted mid-upload: not a failure
             state.failed(id, now: now(), error: "Can't reach volante web. Will retry.")
         }
+    }
+
+    private func delete(_ id: String) async {
+        let now = { Date().timeIntervalSince1970 }
+        do {
+            try await arena.deleteSession(Self.webId(id))
+            state.deleted(id, now: now())
+        } catch let e as ArenaClient.Failure where e.status == 404 {
+            state.deleted(id, now: now())  // already gone
+        } catch let e as ArenaClient.Failure {
+            if Task.isCancelled { return }
+            if e.status == 403 { _ = try? await arena.refreshMe() }
+            state.failed(id, now: now(), retryAfter: e.retryAfter, error: e.localizedDescription)
+        } catch {
+            if Self.cancelled(error) { return }
+            state.failed(id, now: now(), error: "Can't reach volante web. Will retry.")
+        }
+    }
+
+    private static func cancelled(_ e: Error) -> Bool {
+        Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled
     }
 
     /// The style profile, again whenever the set of pod sessions changed. One try per run; a failure retries on the next kick.
@@ -101,6 +136,9 @@ final class WebSync {
         let pods = store.sessions.filter { $0.source == .podStream || $0.source == .podUpload }.map(\.id).sorted()
         let basis = Self.sha(pods.joined(separator: ","))
         guard !pods.isEmpty, state.needsStyle(basis) else { return }
+        let wait = state.notBefore - Date().timeIntervalSince1970  // same pacing as the sessions
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        guard !Task.isCancelled, state.enabled else { return }
         if case .success(let p) = await store.styleProfile() {
             guard (try? await arena.putJSON("/api/me/style", Data(p.json().utf8))) != nil else { return }
         }

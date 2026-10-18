@@ -151,3 +151,26 @@ private func drain(_ q: inout WebSyncQueue, now: inout Double) -> [String] {
     #expect(body.count < r.json().utf8.count)
     #expect(!String(decoding: body, as: UTF8.self).contains("\n"))
 }
+
+@Test func testPhoneDeletesPropagate() throws {
+    var q = WebSyncQueue()
+    q.enqueue(sessions())
+    var now = 0.0
+    _ = drain(&q, now: &now)
+    q.enqueue([S(id: "d", startedAt: 400)])  // still waiting when it is deleted
+    q.setEnabled(false)                       // deletes go out even with sync off
+    q.reconcile(local: ["a", "c"])            // "b" (sent) and "d" (never sent) were deleted on the phone
+    #expect(q.pendingDeletes == ["b"] && q.pending.isEmpty)
+    var back = try JSONDecoder().decode(WebSyncQueue.self, from: JSONEncoder().encode(q))
+    #expect(back == q)
+    #expect(back.next(now: now) == nil)
+    let id = try #require(back.nextDelete(now: now))
+    back.failed(id, now: now, error: "offline")  // retried with backoff
+    #expect(back.nextDelete(now: now) == nil && back.pendingDeletes == ["b"])
+    now = back.notBefore
+    back.deleted(try #require(back.nextDelete(now: now)), now: now)
+    #expect(back.pendingDeletes.isEmpty && back.syncedCount == 2 && back.lastError == nil)
+    #expect(back.nextDelete(now: now + 100) == nil)
+    back.reconcile(local: ["a", "c"])
+    #expect(back.pendingDeletes.isEmpty)
+}

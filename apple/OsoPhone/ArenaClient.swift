@@ -122,6 +122,8 @@ final class ArenaClient: NSObject, ASWebAuthenticationPresentationContextProvidi
 
     /// The web dashboard: one session summary (`{"report": ...}`, idempotent by id) or the style profile.
     func putJSON(_ path: String, _ body: Data) async throws { _ = try await request("PUT", path, body: body, contentType: "application/json") }
+    /// One session summary on the web dashboard (404 when the server doesn't have it).
+    func deleteSession(_ webId: String) async throws { _ = try await request("DELETE", "/api/me/sessions/\(webId)") }
     /// "Delete my web data": every session summary and the style profile on the server.
     func deleteWebData() async throws { _ = try await request("DELETE", "/api/me/sessions") }
     /// A session id is in the Keychain (it may still have expired on the server).

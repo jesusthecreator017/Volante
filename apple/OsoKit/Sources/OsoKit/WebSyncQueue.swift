@@ -33,6 +33,8 @@ public struct WebSyncQueue: Codable, Equatable, Sendable {
     /// no request before this time (seconds since 1970): pacing, backoff or Retry-After
     public private(set) var notBefore = 0.0
     public private(set) var lastError: String?
+    /// sent ids deleted on the phone, still to `DELETE /api/me/sessions/{id}` (sent whenever signed in, even with sync off)
+    public private(set) var pendingDeletes: Set<String> = []
     /// the pod sessions the uploaded style profile was computed from
     public private(set) var styleBasis: String?
 
@@ -79,6 +81,27 @@ public struct WebSyncQueue: Codable, Equatable, Sendable {
         failures += 1
         let backoff = min(Self.retryCapS, Self.retryBaseS * pow(2, Double(min(failures - 1, 30))))
         notBefore = now + max(Self.paceS, retryAfter ?? backoff)
+    }
+
+    /// Sessions no longer on the phone: a sent one is queued for deletion on the server, an unsent one is just forgotten.
+    public mutating func reconcile(local: Set<String>) {
+        pending.removeAll { !local.contains($0.id) }
+        rejected = rejected.filter { local.contains($0.key) }
+        pendingDeletes = Set(sent.keys.filter { !local.contains($0) })
+    }
+
+    /// The server copy to delete now, or nil (none, or waiting). Ignores the toggle.
+    public func nextDelete(now: Double) -> String? {
+        now >= notBefore ? pendingDeletes.min() : nil
+    }
+
+    /// The server no longer has it (204, or 404 when it was already gone).
+    public mutating func deleted(_ id: String, now: Double) {
+        pendingDeletes.remove(id)
+        sent[id] = nil
+        failures = 0
+        lastError = nil
+        notBefore = now + Self.paceS
     }
 
     /// The session is gone from the phone (or has no report): stop trying, without an error.
